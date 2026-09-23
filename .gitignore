@@ -1,0 +1,13 @@
+# System/OS files
+.DS_Store
+.env
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
