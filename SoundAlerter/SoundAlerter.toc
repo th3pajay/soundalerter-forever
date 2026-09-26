@@ -1,8 +1,10 @@
-﻿## Interface: 110105
+﻿## Interface: 110105, 20506, 16001
+## AllowLoadGameType: standard, camelot
 ## Title: SoundAlerter
 ## Notes: Voice alerts and chat announcements for critical PvP spells (CC, interrupts, cooldowns).
 ## Author: th3pajay
-## Version: 0.1.69
+## Version: 0.2.0
+## IconTexture: Interface\AddOns\SoundAlerter\Textures\circle.tga
 ## SavedVariables: SoundAlerterDB, SoundAlerterSpellDB
 ## X-License: MIT
 ## X-Website: https://github.com/th3pajay/SoundAlerter

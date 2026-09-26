@@ -11,14 +11,27 @@ local UnitAura = SA_COMPAT.UnitAura
 local sadb
 
 local playerName = UnitName("player")
-local sourcetype, sourceuid, desttype, destuid = {}, {}, {}, {}
-local PARTY_UNIT_TOKENS = {"party1", "party2", "party3", "party4"}
 local ARENA_UNIT_TOKENS = {"arena1", "arena2", "arena3", "arena4", "arena5"}
 
-local unitAuraWatcher = CreateFrame("Frame")
-unitAuraWatcher:SetScript("OnEvent", function(_, event, unit, updateInfo)
-    SoundAlerter:UNIT_AURA(event, unit, updateInfo)
-end)
+local function SafeUnitGUIDMatches(unit, guid)
+    if not UnitExists(unit) then return false end
+    local unitGUID = UnitGUID(unit)
+    if issecretvalue(unitGUID) then return false end
+    return unitGUID == guid
+end
+
+local function SafeUnitClass(unit)
+    local _, class = UnitClass(unit)
+    if issecretvalue(class) then return nil end
+    return class
+end
+
+local function SafeUnitName(unit)
+    local name = UnitName(unit)
+    if issecretvalue(name) then return nil end
+    return name
+end
+
 
 self.SA_LOCALEPATH = SA_LOCALEPATH
 self.SA_LANGUAGE = {
@@ -518,38 +531,33 @@ end
 function SoundAlerter:OnEnable()
     self:RegisterEvent("PLAYER_ENTERING_WORLD")
     self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-    self:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-    unitAuraWatcher:RegisterUnitEvent("UNIT_AURA", "arena1", "arena2", "arena3", "arena4", "arena5")
+    self:RegisterEvent("NAME_PLATE_UNIT_ADDED")
+    self:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
+    self:RegisterEvent("UNIT_AURA")
+    self:RegisterEvent("UNIT_SPELLCAST_START")
+    self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+    self:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
     self:RegisterEvent("PLAYER_TARGET_CHANGED")
     self:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
     self:RegisterEvent("PLAYER_LOGOUT")
 
     self:RefreshZoneState()
 
-    if not self.SA_LANGUAGE[sadb.path] then sadb.path = self.SA_LOCALEPATH[GetLocale()] end
+    if not self.SA_LANGUAGE[sadb.path] then sadb.path = self.SA_LOCALEPATH.enUS end
     self.throttled = {}
     self.smarter = 0
 
     self.proximityAlertCache = {}
     self.proximityRecentGUIDs = {}
     self.guidToClassCache = {}
+    self.trackedNameplates = {}
     self.enterWorldTime = 0
+
+    self:ApplyNameplateRange()
 
     self.failedGUIDLookups = {}
 
-    self.cleuTimingSamples = {}
-    self.cleuTimingIndex = 1
-    self.cleuTimingCount = 0
-
     self.classDetectionStats = {
-        totalDetections = 0,
-        cacheHits = 0,
-        learnedCacheHits = 0,
-        negativeCacheHits = 0,
-        unitLookups = 0,
-        apiLookups = 0,
-        failedLookups = 0,
-        totalLookupTime = 0,
         learnedClassCount = 0,
     }
 
@@ -587,6 +595,15 @@ end
 
 function SoundAlerter:Interrupted()
     PlaySoundFile(sadb.sapath.."Interrupted.mp3");
+end
+
+function SoundAlerter:BroadcastChat(message)
+    if sadb.chatgroups.NONE then return end
+    for channel, enabled in pairs(sadb.chatgroups) do
+        if enabled and channel ~= "NONE" then
+            SendChatMessage(message, channel, nil, nil)
+        end
+    end
 end
 
 function SoundAlerter:PlaySpell(list, spellID, sourceGUID, sourceName)
@@ -631,17 +648,51 @@ function SoundAlerter:spellOptions(order, spellID, ...)
     end
 end
 
-function SoundAlerter:ArenaClass(id)
-    for i = 1, 5 do
-        if id == UnitGUID("arena"..i) then
-            return select(2, UnitClass("arena"..i))
-        end
-    end
-end
-
 function SoundAlerter:RefreshZoneState()
     self.cachedInInstance, self.cachedInstanceType = IsInInstance()
     self.cachedZonePvpType = GetZonePVPInfo()
+
+    local zoneName = GetRealZoneText() or GetZoneText() or "Unknown"
+    self.zonePvpTypeLog = self.zonePvpTypeLog or {}
+    self.zonePvpTypeLog[zoneName] = { instanceType = self.cachedInstanceType, pvpType = self.cachedZonePvpType }
+
+    if sadb and sadb.debugmode then
+        log("Zone state: zone="..zoneName..", instanceType="..tostring(self.cachedInstanceType)..", pvpType="..tostring(self.cachedZonePvpType))
+    end
+end
+
+function SoundAlerter:ApplyNameplateRange()
+    if sadb.overrideNameplateRange then
+        SetCVar("nameplateMaxDistance", sadb.nameplateRange or 60)
+    else
+        SetCVar("nameplateMaxDistance", GetCVarDefault("nameplateMaxDistance"))
+    end
+end
+
+function SoundAlerter:IsAlertZoneAllowed()
+    local currentZoneType = self.cachedInstanceType
+    local pvpType = self.cachedZonePvpType
+
+    return (pvpType == "contested" and sadb.field) or
+           (pvpType == "hostile" and sadb.field) or
+           (pvpType == "friendly" and sadb.field) or
+           (currentZoneType == "pvp" and sadb.battleground) or
+           (((currentZoneType == "arena") or (pvpType == "arena")) and sadb.arena) or
+           sadb.all
+end
+
+function SoundAlerter:PrintZoneLog()
+    self:Print("|cffFFD700=== Zone PvP Type Log ===|r")
+    local names = {}
+    for zoneName in pairs(self.zonePvpTypeLog or {}) do
+        names[#names + 1] = zoneName
+    end
+    table.sort(names)
+    for _, zoneName in ipairs(names) do
+        local entry = self.zonePvpTypeLog[zoneName]
+        self:Print(zoneName..": instanceType="..tostring(entry.instanceType)..", pvpType="..tostring(entry.pvpType))
+    end
+    self:Print("|cffFFD700=== End Zone Log ("..#names.." zones visited) ===|r")
 end
 
 function SoundAlerter:PLAYER_ENTERING_WORLD()
@@ -697,73 +748,75 @@ function SoundAlerter:HandleCommand(input)
         else
             self:Print("|cffFF0000FlagAlerts module not loaded.|r")
         end
+    elseif command == "apicheck" then
+        self:RunApiCheck()
+    elseif command == "zonelog" then
+        self:PrintZoneLog()
     else
         self:ShowConfig()
     end
 end
 
-local CLEU_TIMING_SAMPLE_CAP = 200
+function SoundAlerter:RunApiCheck()
+    self:Print("|cffFFD700=== SoundAlerter API Check ===|r")
 
-function SoundAlerter:RecordCleuTiming(elapsedMs)
-    local samples = self.cleuTimingSamples
-    samples[self.cleuTimingIndex] = elapsedMs
-    self.cleuTimingIndex = (self.cleuTimingIndex % CLEU_TIMING_SAMPLE_CAP) + 1
-    if self.cleuTimingCount < CLEU_TIMING_SAMPLE_CAP then
-        self.cleuTimingCount = self.cleuTimingCount + 1
-    end
-end
-
-function SoundAlerter:GetCleuPercentiles()
-    local count = self.cleuTimingCount
-    if count == 0 then return nil end
-
-    local sorted = {}
-    for i = 1, count do
-        sorted[i] = self.cleuTimingSamples[i]
-    end
-    table.sort(sorted)
-
-    local function percentile(p)
-        local idx = math.max(1, math.ceil(p * count))
-        return sorted[idx]
+    local function checkPath(path)
+        local value = _G
+        for segment in path:gmatch("[^%.]+") do
+            if type(value) ~= "table" then
+                value = nil
+                break
+            end
+            value = value[segment]
+        end
+        local ok = value ~= nil
+        self:Print((ok and "|cff00FF00[OK]|r " or "|cffFF0000[MISSING]|r ")..path..(ok and (" ("..type(value)..")") or ""))
     end
 
-    return percentile(0.50), percentile(0.95), percentile(0.99), sorted[count]
+    local paths = {
+        "C_Spell", "C_Spell.GetSpellInfo", "C_Spell.GetSpellLink",
+        "C_Spell.GetSpellDescription", "C_Spell.GetSpellCooldown", "C_Spell.RequestLoadSpellData",
+        "C_PvP", "C_PvP.GetZonePVPInfo",
+        "C_UnitAuras", "C_UnitAuras.GetAuraDataByIndex",
+        "C_Timer", "C_Timer.After",
+        "UnitCastingInfo", "UnitChannelInfo",
+        "GetZonePVPInfo", "GetSpellInfo", "GetSpellLink", "GetSpellCooldown",
+        "issecretvalue", "CombatLogGetCurrentEventInfo", "CombatLog_Object_IsA",
+    }
+
+    for _, path in ipairs(paths) do
+        checkPath(path)
+    end
+
+    self:Print("|cffFFD700=== Scanning for CombatLog functions ===|r")
+
+    for key, value in pairs(_G) do
+        if type(key) == "string" and key:lower():find("combatlog") and type(value) == "function" then
+            self:Print("|cff00FFFF[GLOBAL]|r "..key)
+        end
+    end
+
+    for key, value in pairs(_G) do
+        if type(key) == "string" and key:sub(1, 2) == "C_" and type(value) == "table" then
+            local isCombatLogNamespace = key:lower():find("combatlog") ~= nil
+            for subKey, subValue in pairs(value) do
+                if type(subKey) == "string" and type(subValue) == "function"
+                   and (isCombatLogNamespace or subKey:lower():find("combatlog")) then
+                    self:Print("|cff00FFFF[NAMESPACED]|r "..key.."."..subKey)
+                end
+            end
+        end
+    end
+
+    self:Print("|cffFFD700=== End Scan ===|r")
+
+    self:Print("|cffFFD700=== End API Check ===|r")
 end
 
 function SoundAlerter:ShowPerformanceStats()
     local stats = self.classDetectionStats
 
     self:Print("=== |cffFF7D0AClass Detection Performance Stats|r ===")
-
-    local p50, p95, p99, maxMs = self:GetCleuPercentiles()
-    if p50 then
-        self:Print(string.format("CLEU handler: p50 |cff00FF00%.3fms|r  p95 |cffFFFF00%.3fms|r  p99 |cffFF7D0A%.3fms|r  max |cffFF0000%.3fms|r (last %d events)",
-            p50, p95, p99, maxMs, self.cleuTimingCount))
-    else
-        self:Print("CLEU handler: no samples yet")
-    end
-
-    self:Print("Total detections: |cff00FF00" .. stats.totalDetections .. "|r")
-
-    if stats.totalDetections > 0 then
-        local cacheHitRate = (stats.cacheHits / stats.totalDetections) * 100
-        local learnedHitRate = (stats.learnedCacheHits / stats.totalDetections) * 100
-        local negativeHitRate = (stats.negativeCacheHits / stats.totalDetections) * 100
-        local totalHitRate = ((stats.cacheHits + stats.learnedCacheHits + stats.negativeCacheHits) / stats.totalDetections) * 100
-
-        self:Print("Cache hits: |cff00FF00" .. stats.cacheHits .. "|r (" .. string.format("%.1f%%", cacheHitRate) .. ")")
-        self:Print("Learned cache hits: |cff00FF00" .. stats.learnedCacheHits .. "|r (" .. string.format("%.1f%%", learnedHitRate) .. ")")
-        self:Print("Negative cache hits: |cffFFFF00" .. stats.negativeCacheHits .. "|r (" .. string.format("%.1f%%", negativeHitRate) .. ")")
-        self:Print("Total fast-path: |cff00FF00" .. string.format("%.1f%%", totalHitRate) .. "|r")
-
-        self:Print("Unit lookups: |cff00FFFF" .. stats.unitLookups .. "|r")
-        self:Print("API lookups (GetPlayerInfoByGUID): |cff00FFFF" .. stats.apiLookups .. "|r")
-        self:Print("Failed lookups: |cffFF0000" .. stats.failedLookups .. "|r")
-
-        local avgTime = (stats.totalLookupTime / stats.totalDetections) * 1000
-        self:Print("Avg lookup time: |cffFFFF00" .. string.format("%.2f", avgTime) .. "µs|r")
-    end
 
     self:Print("Learned classes: |cff00FF00" .. stats.learnedClassCount .. "|r")
 
@@ -894,349 +947,174 @@ function SoundAlerter:SaveLearnedClasses()
     end
 end
 
-function SoundAlerter:HandleAuraApplied(sourceGUID, sourceName, destGUID, destName, spellID)
-    local currentZoneType, pvpType = self.cachedInstanceType, self.cachedZonePvpType
+local DRINK_SPELL
+local unitAuraSnapshot = {}
+local lastAuraScan = {}
+local AURA_RESCAN_THROTTLE = 0.2
 
-    if desttype[COMBATLOG_FILTER_HOSTILE_PLAYERS] then
-        if sourcetype[COMBATLOG_FILTER_ME] then
-            if not sadb.dEnemyDebuff then
-                self:PlaySpell(self.spellList.enemyDebuffs, spellID, destGUID, destName)
-            end
-            if not sadb.chatalerts then
-                if (((spellID == 6770 or spellID == 11297 or spellID == 51724) and sadb.sapenemy) or (spellID == 2094 and sadb.blindenemy) or (spellID == 33786 and sadb.cycloneenemy) or (spellID == 51514 and sadb.hexenemy) or (spellID == 5782 and sadb.fearenemy)) then
-                    local ccenemychat = gsub(sadb.enemychat, "(#spell#)", (GetSpellLink(spellID) or ""))
-                    local message = gsub(ccenemychat, "(#enemy#)", destName)
-                    if not sadb.chatgroups.NONE then
-                        for channel, enabled in pairs(sadb.chatgroups) do
-                            if enabled and channel ~= "NONE" then
-                                SendChatMessage(message, channel, nil, nil)
-                            end
-                        end
-                    end
-                end
-            end
-        elseif (sourcetype[COMBATLOG_FILTER_FRIENDLY_UNITS] and (destuid.target or destuid.focus) and not sadb.dArenaPartner) then
-            self:PlaySpell(self.spellList.friendCCenemy, spellID)
-        elseif ((sadb.myself and (destuid.target or destuid.focus)) or sadb.enemyinrange) and not sadb.castSuccess and not sadb.aruaApplied then
-            self:PlaySpell(self.spellList.auraApplied, spellID)
-        end
+local function CollectTrackedSpellIDs(ids, source)
+    if not source then return end
+    for spellID in pairs(source) do
+        ids[spellID] = true
+    end
+end
 
-        if not sadb.chatalerts and sadb.bubbleenemy and spellID == 642 then
-            local message = gsub(sadb.bubbleenemytext, "(#enemy#)", destName)
-            if not sadb.chatgroups.NONE then
-                for channel, enabled in pairs(sadb.chatgroups) do
-                    if enabled and channel ~= "NONE" then
-                        SendChatMessage(message, channel, nil, nil)
-                    end
-                end
+local function GetTrackedAuraSpellIDs()
+    local ids = {}
+    CollectTrackedSpellIDs(ids, SoundAlerter.spellList and SoundAlerter.spellList.selfDebuff)
+    CollectTrackedSpellIDs(ids, SoundAlerter.spellList and SoundAlerter.spellList.enemyDebuffs)
+    CollectTrackedSpellIDs(ids, SoundAlerter.spellList and SoundAlerter.spellList.enemyDebuffdown)
+    if sadb and sadb.custom then
+        for _, css in pairs(sadb.custom) do
+            if css.eventtype and (css.eventtype["SPELL_AURA_APPLIED"] or css.eventtype["SPELL_AURA_REMOVED"]) and css.spellid then
+                local id = tonumber(css.spellid)
+                if id then ids[id] = true end
             end
         end
-    elseif desttype[COMBATLOG_FILTER_ME] then
-        if not sadb.chatalerts then
-            if sourcetype[COMBATLOG_FILTER_HOSTILE_PLAYERS] or ((spellID == 6770 or spellID == 11297 or spellID == 51724) and sadb.sapselffriend) then
-                if ((spellID == 51514 and sadb.hexselffriend) or
-                    (spellID == 33786 and sadb.cycloneselffriend) or
-                    ((spellID == 6215 or spellID == 17928 or spellID == 5484) and sadb.fearselffriend) or
-                    ((spellID == 12826 or spellID == 118 or spellID == 28271 or spellID == 28272) and sadb.polyenemy) or
-                    (spellID == 2094 and sadb.blindselffriend)) then
-                        local form1 = gsub(sadb.selfchat, "(#spell#)", (GetSpellLink(spellID) or ""))
-                        local form2 = gsub(form1, "(#target#)", "me")
-                        local message = gsub(form2, "(#enemy#)", sourceName)
-                        if not sadb.chatgroups.NONE then
-                            for channel, enabled in pairs(sadb.chatgroups) do
-                                if enabled and channel ~= "NONE" then
-                                    SendChatMessage(message, channel, nil, nil)
-                                end
-                            end
-                        end
-                elseif (spellID == 6770 or spellID == 11297 or spellID == 51724) and sadb.sapselffriend then
-                        local message = gsub(sadb.sapselftext, "(#spell#)", (GetSpellLink(spellID) or ""))
-                        if not sadb.chatgroups.NONE then
-                            for channel, enabled in pairs(sadb.chatgroups) do
-                                if enabled and channel ~= "NONE" then
-                                    SendChatMessage(message, channel, nil, nil)
-                                end
-                            end
-                        end
-                end
+    end
+    return ids
+end
+
+local function ScanHarmfulAuraSpellIDs(unit, target, sourceUnits)
+    wipe(target)
+    wipe(sourceUnits)
+    local trackedIDs = GetTrackedAuraSpellIDs()
+    for spellID in pairs(trackedIDs) do
+        local ok, data = pcall(C_UnitAuras.GetUnitAuraBySpellID, unit, spellID)
+        if ok and data ~= nil and not issecretvalue(data) then
+            target[spellID] = true
+            local sourceUnit = data.sourceUnit
+            if sourceUnit and not issecretvalue(sourceUnit) then
+                sourceUnits[spellID] = sourceUnit
             end
         end
-        if not sourceuid.target and not sourceuid.focus and not sadb.dSelfDebuff then
+    end
+end
+
+function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFocus, isTracked, sourceUnit)
+    self:CheckCustomAlerts("SPELL_AURA_APPLIED", sourceUnit, unit, spellID)
+
+    if isPlayer then
+        if not sadb.dSelfDebuff then
             self:PlaySpell(self.spellList.selfDebuff, spellID)
         end
-    elseif desttype[COMBATLOG_FILTER_FRIENDLY_UNITS] then
-        if (not sadb.chatalerts and not desttype[COMBATLOG_FILTER_ME] and (destuid.target or destuid.focus or (currentZoneType == "arena" or pvpType == "arena"))) then
-            if (spellID == 6770 or spellID == 11297 or spellID == 51724) and sadb.sapselffriend then
-                local sapfriendtext = gsub(sadb.sapfriendtext, "(#spell#)", (GetSpellLink(spellID) or ""))
-                local message = gsub(sapfriendtext, "(#friend#)", destName)
-                if not sadb.chatgroups.NONE then
-                    for channel, enabled in pairs(sadb.chatgroups) do
-                        if enabled and channel ~= "NONE" then
-                            SendChatMessage(message, channel, nil, nil)
-                        end
-                    end
-                end
-            elseif ((spellID == 51514 and sadb.hexselffriend) or
-                (spellID == 642 and sadb.bubbleselffriend) or
+        if not sadb.chatalerts then
+            if ((spellID == 51514 and sadb.hexselffriend) or
                 (spellID == 33786 and sadb.cycloneselffriend) or
                 ((spellID == 6215 or spellID == 17928 or spellID == 5484) and sadb.fearselffriend) or
                 ((spellID == 12826 or spellID == 118 or spellID == 28271 or spellID == 28272) and sadb.polyenemy) or
                 (spellID == 2094 and sadb.blindselffriend)) then
-                    local form1 = gsub(sadb.friendchat, "(#spell#)", (GetSpellLink(spellID) or ""))
-                    local form2 = gsub(form1, "(#friend#)", destName)
-                    local message = gsub(form2, "(#enemy#)", sourceName)
-                    if not sadb.chatgroups.NONE then
-                        for channel, enabled in pairs(sadb.chatgroups) do
-                            if enabled and channel ~= "NONE" then
-                                SendChatMessage(message, channel, nil, nil)
-                            end
-                        end
-                    end
+                local form1 = gsub(sadb.selfchat, "(#spell#)", (GetSpellLink(spellID) or ""))
+                local form2 = gsub(form1, "(#target#)", "me")
+                local message = gsub(form2, "(#enemy#)", "")
+                self:BroadcastChat(message)
+            elseif (spellID == 6770 or spellID == 11297 or spellID == 51724) and sadb.sapselffriend then
+                local message = gsub(sadb.sapselftext, "(#spell#)", (GetSpellLink(spellID) or ""))
+                self:BroadcastChat(message)
             end
         end
-    end
-end
-
-function SoundAlerter:HandleAuraRemoved(sourceGUID, destGUID, destName, spellID)
-    local currentZoneType, pvpType = self.cachedInstanceType, self.cachedZonePvpType
-
-    if desttype[COMBATLOG_FILTER_HOSTILE_PLAYERS] and ((sourcetype[COMBATLOG_FILTER_ME] or (destuid.target or destuid.focus))) then
-        if sourcetype[COMBATLOG_FILTER_FRIENDLY_UNITS] and ((destuid.target or (currentZoneType == "arena" or pvpType == "arena")) and not sadb.dArenaPartner) then
-            self:PlaySpell(self.spellList.enemyDebuffdownAP, spellID)
-        elseif sourcetype[COMBATLOG_FILTER_ME] and not sadb.dEnemyDebuffDown then
-            self:PlaySpell(self.spellList.enemyDebuffdown, spellID)
-        elseif sourcetype[COMBATLOG_FILTER_HOSTILE_PLAYERS] and not sadb.auraRemoved then
-            self:PlaySpell(self.spellList.auraRemoved, spellID)
-        end
-
-        if (not sadb.chatalerts and ((sourcetype[COMBATLOG_FILTER_ME] and sadb.chatdownself) or ((not sadb.caonlyTF or destuid.target or destuid.focus) and sadb.chatdownfriend))) then
-            if ((spellID == 33786 and sadb.cycloneenemy) or
-                (spellID == 51514 and sadb.hexenemy) or
-                (spellID == 2094 and sadb.blindenemy) or
-                ((spellID == 6770 or spellID == 11297 or spellID == 51724) and sadb.sapenemy) or
-                ((spellID == 12826 or spellID == 118 or spellID == 28271 or spellID == 28272) and sadb.polyenemy) or
-                ((spellID == 6215 or spellID == 5484 or spellID == 17928) and sadb.fearenemy)) then
-                    SendChatMessage((GetSpellLink(spellID) or GetSpellInfo(spellID) or "Unknown Spell").." down on "..destName)
-            end
-        end
-    end
-end
-
-function SoundAlerter:HandleCastSuccess(sourceGUID, sourceName, destName, spellID)
-    local currentZoneType, pvpType = self.cachedInstanceType, self.cachedZonePvpType
-
-    if sourcetype[COMBATLOG_FILTER_HOSTILE_PLAYERS] then
-        if (not sadb.chatalerts) then
-            local isVanish = (spellID == 26889)
-            local isStealth = (spellID == 1784 or spellID == 1785)
-            local isProwl = (spellID == 5215 or spellID == 6783 or spellID == 9913)
-
-            if (
-                ((sadb.vanishenemy and isVanish) or (sadb.stealthenemy and isStealth) or (sadb.prowlenemy and isProwl))
-                and
-                ( (sourceuid.target or sourceuid.focus) or ((sadb.vanishTF and isVanish) or (sadb.stealthTF and isStealth) or (sadb.prowlTF and isProwl)) )
-            ) then
-                local message = gsub(gsub(sadb.enemychat,"(#spell#)", (GetSpellLink(spellID) or "")),"(#enemy#)", sourceName)
-                if not sadb.chatgroups.NONE then
-                    for channel, enabled in pairs(sadb.chatgroups) do
-                        if enabled and channel ~= "NONE" then
-                            SendChatMessage(message, channel, nil, nil)
-                        end
-                    end
-                end
-            end
-        end
-
-        if not sadb.chatalerts and sadb.trinketalert and (spellID == 42292 or spellID == 59752) then
-            local message = gsub(sadb.trinketalerttext, "(#enemy#)", sourceName)
-            if not sadb.chatgroups.NONE then
-                for channel, enabled in pairs(sadb.chatgroups) do
-                    if enabled and channel ~= "NONE" then
-                        SendChatMessage(message, channel, nil, nil)
-                    end
-                end
-            end
-        end
-
-        if ((spellID == 42292 or spellID == 59752) and sadb.trinket) then
-            if ((currentZoneType == "arena" or pvpType == "arena") or (sourceuid.target or sourceuid.focus)) then
-                local c = self:ArenaClass(sourceGUID)
-                if (c and sadb.class) then
-                    PlaySoundFile(sadb.sapath..c..".mp3");
-                    self:ScheduleTimer(function() self:PlayTrinket(sourceGUID, sourceName) end, 0.4);
-                else
-                    self:PlayTrinket(sourceGUID, sourceName)
-                end
-            end
-        elseif ((sadb.myself and (sourceuid.target or sourceuid.focus)) or sadb.enemyinrange) and not sadb.castSuccess then
-            if not (sadb.enemyinrange and (spellID == 2825 or spellID == 32182)) then
-                self:PlaySpell(self.spellList.castSuccess, spellID, sourceGUID, sourceName)
-            elseif (sourceuid.target or sourceuid.focus) then
-                self:PlaySpell(self.spellList.castSuccess, spellID, sourceGUID, sourceName)
-            end
-        end
-    elseif (desttype[COMBATLOG_FILTER_FRIENDLY_UNITS] and not desttype[COMBATLOG_FILTER_ME] and ((destuid.target or destuid.focus) or (currentZoneType == "arena" or pvpType == "arena")) and not sadb.dArenaPartner) then
-        self:PlaySpell(self.spellList.friendCCSuccess, spellID)
-    end
-end
-
-function SoundAlerter:HandleInterrupt(sourceName, destName, spellID, extraSpellID)
-    local interruptedSpellLink = GetSpellLink(extraSpellID)
-    local interruptedSpellName = GetSpellInfo(extraSpellID)
-    local replacementText = interruptedSpellLink or interruptedSpellName or ""
-
-    if (desttype[COMBATLOG_FILTER_ME] and not sadb.interrupt) then
-        PlaySoundFile(sadb.sapath.."lockout.mp3");
-        if (not sadb.chatalerts) then
-            if (sadb.interruptself) then
-                local it = gsub(sadb.InterruptSelfText, "(#spell#)", (GetSpellLink(spellID) or ""))
-
-                local new_it, _ = gsub(it, "#interruptedspellname#", replacementText)
-                it = new_it
-
-                local finalMessage = gsub(it, "(#enemy#)", sourceName)
-                finalMessage = string.gsub(finalMessage, "[\\]", "")
-
-                if not sadb.chatgroups.NONE then
-                    for channel, enabled in pairs(sadb.chatgroups) do
-                        if enabled and channel ~= "NONE" then
-                            SendChatMessage(finalMessage, channel, nil, nil)
-                        end
-                    end
-                end
-            end
-        end
-    elseif (sourcetype[COMBATLOG_FILTER_ME] and not sadb.interrupt) then
-        if ((destuid.target or destuid.focus) and (desttype[COMBATLOG_FILTER_HOSTILE_PLAYERS] or desttype[COMBATLOG_FILTER_HOSTILE_UNITS])) then
-            PlaySoundFile(sadb.sapath.."lockout.mp3");
-            if (not sadb.chatalerts) then
-                if (sadb.interruptenemy) then
-                    local it = gsub(sadb.InterruptEnemyText, "(#spell#)", (GetSpellLink(spellID) or ""))
-
-                    local new_it, _ = gsub(it, "#interruptedspellname#", replacementText)
-                    it = new_it
-
-                    local finalMessage = gsub(it, "(#enemy#)", destName)
-                    finalMessage = string.gsub(finalMessage, "[\\]", "")
-
-                    if not sadb.chatgroups.NONE then
-                        for channel, enabled in pairs(sadb.chatgroups) do
-                            if enabled and channel ~= "NONE" then
-                                SendChatMessage(finalMessage, channel, nil, nil)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-end
-
-function SoundAlerter:HandleCastStart(sourceGUID, sourceName, spellID)
-    local currentZoneType, pvpType = self.cachedInstanceType, self.cachedZonePvpType
-
-    if sourcetype[COMBATLOG_FILTER_HOSTILE_PLAYERS] then
-        if not sadb.castStart and (sadb.myself and (sourceuid.target or sourceuid.focus) or sadb.enemyinrange) then
-            self:PlaySpell(self.spellList.castStart, spellID)
-        elseif ((currentZoneType == "arena") or (pvpType == "arena")) and not sadb.dArenaPartner then
-            for i = 1, 6 do
-                if i == 6 then
-                    self:PlaySpell(self.spellList.friendCCs, spellID)
-                    break
-                elseif playerName == UnitName("arena"..i.."target") then
-                    self:PlaySpell(self.spellList.castStart, spellID)
-                    break
-                end
-            end
-        end
-    end
-end
-
-function SoundAlerter:COMBAT_LOG_EVENT_UNFILTERED()
-    local cleuStartTime = debugprofilestop()
-
-    local _, event, _, sourceGUID, sourceName, sourceFlags, _, destGUID, destName, destFlags, _ = CombatLogGetCurrentEventInfo()
-
-    local HOSTILE_PLAYERS_FILTER = COMBATLOG_FILTER_HOSTILE_PLAYERS
-    local currentZoneType = self.cachedInstanceType
-    local pvpType = self.cachedZonePvpType
-
-    if (not (
-        (pvpType == "contested" and sadb.field) or
-        (pvpType == "hostile" and sadb.field) or
-        (pvpType == "friendly" and sadb.field) or
-        (currentZoneType == "pvp" and sadb.battleground) or
-        (((currentZoneType == "arena") or (pvpType == "arena")) and sadb.arena) or
-        sadb.all
-    )) then
         return
     end
 
-    if sadb.proximityEnabled and sourceGUID and sourceName and CombatLog_Object_IsA(sourceFlags, HOSTILE_PLAYERS_FILTER) then
-        self:CheckProximityAlertFromCombatLog(sourceGUID, sourceName, sourceFlags)
+    if not (isTargetOrFocus or isTracked) then return end
+
+    local name = SafeUnitName(unit)
+    local guid = UnitGUID(unit)
+    if not name or not guid or issecretvalue(guid) then return end
+
+    if not sadb.dEnemyDebuff then
+        self:PlaySpell(self.spellList.enemyDebuffs, spellID, guid, name)
     end
 
-    if event:sub(1, 6) == "SPELL_" then
-        local spellID, spellName = select(12, CombatLogGetCurrentEventInfo())
-
-        for k in pairs(self.SA_TYPE) do
-            desttype[k] = CombatLog_Object_IsA(destFlags, k)
-            sourcetype[k] = CombatLog_Object_IsA(sourceFlags, k)
+    if not sadb.chatalerts then
+        if (((spellID == 6770 or spellID == 11297 or spellID == 51724) and sadb.sapenemy) or
+            (spellID == 2094 and sadb.blindenemy) or
+            (spellID == 33786 and sadb.cycloneenemy) or
+            (spellID == 51514 and sadb.hexenemy) or
+            (spellID == 5782 and sadb.fearenemy)) then
+            local ccenemychat = gsub(sadb.enemychat, "(#spell#)", (GetSpellLink(spellID) or ""))
+            local message = gsub(ccenemychat, "(#enemy#)", name)
+            self:BroadcastChat(message)
         end
 
-        for k in pairs(self.SA_UNIT) do
-            if k ~= "any" and k ~= "custom" then
-                destuid[k], sourceuid[k] = nil, nil
-                if k == "party" and UnitName("party1") ~= nil then
-                    for i = 1, MAX_PARTY_MEMBERS do
-                        local token = PARTY_UNIT_TOKENS[i]
-                        if destGUID == UnitGUID(token) then destuid[k] = true; end
-                        if sourceGUID == UnitGUID(token) then sourceuid[k] = true; end
-                        if destuid[k] and sourceuid[k] then break end
-                    end
-                elseif k == "arena" and currentZoneType == "arena" then
-                    for i = 1, 5 do
-                        local token = ARENA_UNIT_TOKENS[i]
-                        if destGUID == UnitGUID(token) then destuid[k] = true; end
-                        if sourceGUID == UnitGUID(token) then sourceuid[k] = true; end
-                        if destuid[k] and sourceuid[k] then break end
-                    end
-                else
-                    if destGUID then destuid[k] = (UnitGUID(k) == destGUID); end
-                    if sourceGUID then sourceuid[k] = (UnitGUID(k) == sourceGUID); end
-                end
-            end
+        if sadb.bubbleenemy and spellID == 642 then
+            local message = gsub(sadb.bubbleenemytext, "(#enemy#)", name)
+            self:BroadcastChat(message)
         end
-        destuid.any, sourceuid.any = true, true
+    end
 
-        if sadb.debugmode and sadb.spelldebug then
-            print(spellName, spellID, event, sourceName, destName)
+    if ((sadb.myself and isTargetOrFocus) or (sadb.enemyinrange and isTracked)) and not sadb.castSuccess and not sadb.aruaApplied then
+        self:PlaySpell(self.spellList.auraApplied, spellID)
+    end
+end
+
+function SoundAlerter:HandleDebuffRemoved(unit, spellID, isTargetOrFocus)
+    self:CheckCustomAlerts("SPELL_AURA_REMOVED", nil, unit, spellID)
+
+    if not isTargetOrFocus then return end
+
+    local name = SafeUnitName(unit)
+    if not name then return end
+
+    if not sadb.dEnemyDebuffDown then
+        self:PlaySpell(self.spellList.enemyDebuffdown, spellID)
+    end
+
+    if not sadb.chatalerts and sadb.chatdownfriend then
+        if ((spellID == 33786 and sadb.cycloneenemy) or
+            (spellID == 51514 and sadb.hexenemy) or
+            (spellID == 2094 and sadb.blindenemy) or
+            ((spellID == 6770 or spellID == 11297 or spellID == 51724) and sadb.sapenemy) or
+            ((spellID == 12826 or spellID == 118 or spellID == 28271 or spellID == 28272) and sadb.polyenemy) or
+            ((spellID == 6215 or spellID == 5484 or spellID == 17928) and sadb.fearenemy)) then
+            self:BroadcastChat((GetSpellLink(spellID) or GetSpellInfo(spellID) or "Unknown Spell").." down on "..name)
         end
-        if sadb.debugmode and spellName == sadb.csname and spellName then
-            print("Custom spell name: "..spellName, spellID, event, sourceName, destName)
+    end
+end
+
+function SoundAlerter:MatchesUidFilter(unit, filterKey, customName)
+    if not filterKey or filterKey == "any" then return true end
+    if filterKey == "custom" then
+        if not unit then return false end
+        local name = SafeUnitName(unit)
+        return name ~= nil and name == customName
+    end
+    if not unit then return false end
+    if filterKey == "party" then
+        for i = 1, 4 do
+            if UnitIsUnit(unit, "party"..i) then return true end
         end
-
-        if desttype[COMBATLOG_FILTER_HOSTILE_PLAYERS] and event == "SPELL_CREATE" and (spellID == 13809 or spellID == 13810 or spellID == 1499) and ((sadb.myself and (destuid.target or destuid.focus)) or sadb.enemyinrange) then
-            self:PlaySpell(self.spellList.castSuccess, spellID)
+        return false
+    end
+    if filterKey == "arena" then
+        for i = 1, 5 do
+            if UnitIsUnit(unit, "arena"..i) then return true end
         end
+        return false
+    end
+    return UnitIsUnit(unit, filterKey)
+end
 
-        if event == "SPELL_AURA_APPLIED" then
-            self:HandleAuraApplied(sourceGUID, sourceName, destGUID, destName, spellID)
-        elseif event == "SPELL_AURA_REMOVED" then
-            self:HandleAuraRemoved(sourceGUID, destGUID, destName, spellID)
-        elseif event == "SPELL_CAST_SUCCESS" then
-            self:HandleCastSuccess(sourceGUID, sourceName, destName, spellID)
-        elseif event == "SPELL_INTERRUPT" then
-            local extraSpellID = select(15, CombatLogGetCurrentEventInfo())
-            self:HandleInterrupt(sourceName, destName, spellID, extraSpellID)
-        elseif event == "SPELL_CAST_START" then
-            self:HandleCastStart(sourceGUID, sourceName, spellID)
-        end
+function SoundAlerter:MatchesTypeFilter(unit, filterKey)
+    if not filterKey or filterKey == COMBATLOG_FILTER_EVERYTHING then return true end
+    if not unit or not UnitExists(unit) then return false end
+    if filterKey == COMBATLOG_FILTER_ME then return UnitIsUnit(unit, "player") end
+    if filterKey == COMBATLOG_FILTER_HOSTILE_PLAYERS then return UnitIsPlayer(unit) and UnitIsEnemy("player", unit) end
+    if filterKey == COMBATLOG_FILTER_FRIENDLY_UNITS then return not UnitIsEnemy("player", unit) end
+    if filterKey == COMBATLOG_FILTER_HOSTILE_UNITS then return UnitIsEnemy("player", unit) end
+    return true
+end
 
-        for k, css in pairs(sadb.custom) do
-            destuid.custom = (css.destuidfilter == "custom" and destName == css.destcustomname)
-            sourceuid.custom = (css.sourceuidfilter == "custom" and sourceName == css.sourcecustomname)
+function SoundAlerter:CheckCustomAlerts(eventName, sourceUnit, destUnit, spellID)
+    if not next(sadb.custom) then return end
+    if issecretvalue(spellID) then return end
 
+    local spellName = GetSpellInfo(spellID)
+    local destName = destUnit and SafeUnitName(destUnit)
+    local sourceName = sourceUnit and SafeUnitName(sourceUnit)
+
+    for k, css in pairs(sadb.custom) do
+        if css.eventtype and css.eventtype[eventName] then
             local spellIdNum = css.spellidNum
             if spellIdNum == nil or css.spellidNumSrc ~= css.spellid then
                 spellIdNum = tonumber(css.spellid)
@@ -1244,53 +1122,93 @@ function SoundAlerter:COMBAT_LOG_EVENT_UNFILTERED()
                 css.spellidNumSrc = css.spellid
             end
 
-            if sadb.debugmode and css.name == sadb.cspell and (spellID == spellIdNum or (css.acceptSpellName and (css.spellname == spellName))) then
-                log(css.name..": event: "..(css.eventtype and css.eventtype[event] and "true" or "false")..", actual event: "..event..", dest spell: "..(destuid[css.destuidfilter] and "true" or "false")..", dest type: "..(desttype[css.desttypefilter] and "true" or "false")..", sourceunit: "..(sourceuid[css.sourceuidfilter] and "true" or "false")..", source type: "..(sourcetype[css.sourcetypefilter] and "true" or "false"))
-            end
+            if spellID == spellIdNum or (css.acceptSpellName and spellName and css.spellname == spellName) then
+                local destOK = self:MatchesUidFilter(destUnit, css.destuidfilter, css.destcustomname)
+                local sourceOK = self:MatchesUidFilter(sourceUnit, css.sourceuidfilter, css.sourcecustomname)
+                local destTypeOK = self:MatchesTypeFilter(destUnit, css.desttypefilter)
+                local sourceTypeOK = self:MatchesTypeFilter(sourceUnit, css.sourcetypefilter)
 
-            if css.eventtype and css.eventtype[event] and destuid[css.destuidfilter] and desttype[css.desttypefilter] and sourceuid[css.sourceuidfilter] and sourcetype[css.sourcetypefilter] and (spellID == spellIdNum or (css.acceptSpellName and (css.spellname == spellName))) then
-                if sadb.debugmode then
-                    self:Print("playing css "..css.name)
-                end
-
-                if not css.chatAlert then
-                    PlaySoundFile("Interface\\Addons\\SoundAlerter\\CustomSounds\\"..css.soundfilepath,"Master")
-                else
-                    local spell = gsub(css.chatalerttext, "([#]spell[#])", (GetSpellLink(spellID) or ""))
-                    local targetName = destuid[css.destuidfilter] and destName or sourceName
-
-                    local message
-                    if event == "SPELL_CAST_START" then
-                        message = gsub(spell, "([#]enemy[#])", "")
-                    else
-                        message = gsub(spell, "([#]enemy[#])", targetName)
+                if destOK and sourceOK and destTypeOK and sourceTypeOK then
+                    if sadb.debugmode then
+                        self:Print("playing css "..css.name)
                     end
 
-                    if not sadb.chatgroups.NONE then
-                        for channel, enabled in pairs(sadb.chatgroups) do
-                            if enabled and channel ~= "NONE" then
-                                SendChatMessage(message, channel, nil, nil)
-                            end
+                    if not css.chatAlert then
+                        PlaySoundFile("Interface\\Addons\\SoundAlerter\\CustomSounds\\"..css.soundfilepath, "Master")
+                    else
+                        local spell = gsub(css.chatalerttext, "([#]spell[#])", (GetSpellLink(spellID) or ""))
+                        local targetName = destName or sourceName or ""
+                        local message
+                        if eventName == "SPELL_CAST_START" then
+                            message = gsub(spell, "([#]enemy[#])", "")
+                        else
+                            message = gsub(spell, "([#]enemy[#])", targetName)
                         end
+                        self:BroadcastChat(message)
                     end
                 end
             end
         end
     end
-
-    self:RecordCleuTiming(debugprofilestop() - cleuStartTime)
 end
 
-local DRINK_SPELL
-function SoundAlerter:UNIT_AURA(event, uid)
-    local currentZoneType, pvpType = self.cachedInstanceType, self.cachedZonePvpType
-    if ((currentZoneType == "arena") or (pvpType == "arena")) and sadb.drinking then
-        if not DRINK_SPELL then
-            DRINK_SPELL = GetSpellInfo(57073)
+function SoundAlerter:UNIT_AURA(event, unit)
+    if not unit then return end
+
+    local isPlayer = unit == "player"
+    local isTargetOrFocus = not isPlayer and (unit == "target" or unit == "focus")
+    local isArena = not isPlayer and not isTargetOrFocus and unit:match("^arena%d$") ~= nil
+    local isNameplate = not isPlayer and not isTargetOrFocus and not isArena and unit:match("^nameplate%d+$") ~= nil
+
+    if not (isPlayer or isTargetOrFocus or isArena or isNameplate) then return end
+    if not UnitExists(unit) then return end
+
+    if isArena then
+        local currentZoneType, pvpType = self.cachedInstanceType, self.cachedZonePvpType
+        if ((currentZoneType == "arena") or (pvpType == "arena")) and sadb.drinking then
+            if not DRINK_SPELL then
+                DRINK_SPELL = GetSpellInfo(57073)
+            end
+            if UnitAura(unit, DRINK_SPELL) then
+                PlaySoundFile(sadb.sapath.."drinking.mp3");
+            end
         end
-        if UnitAura(uid, DRINK_SPELL) then
-            PlaySoundFile(sadb.sapath.."drinking.mp3");
+    end
+
+    local isTracked = isNameplate and self:IsTrackedNameplate(unit)
+    if not (isPlayer or isTargetOrFocus or isTracked) then return end
+    if not isPlayer and (not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit)) then return end
+    if not self:IsAlertZoneAllowed() then return end
+
+    local now = GetTime()
+    if lastAuraScan[unit] and (now - lastAuraScan[unit]) < AURA_RESCAN_THROTTLE then return end
+    lastAuraScan[unit] = now
+
+    local previous = unitAuraSnapshot[unit]
+    if not previous then
+        previous = {}
+        unitAuraSnapshot[unit] = previous
+    end
+
+    local current = {}
+    local sourceUnits = {}
+    ScanHarmfulAuraSpellIDs(unit, current, sourceUnits)
+
+    for spellID in pairs(current) do
+        if not previous[spellID] then
+            self:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFocus, isTracked, sourceUnits[spellID])
         end
+    end
+
+    for spellID in pairs(previous) do
+        if not current[spellID] then
+            self:HandleDebuffRemoved(unit, spellID, isTargetOrFocus)
+        end
+    end
+
+    wipe(previous)
+    for spellID in pairs(current) do
+        previous[spellID] = true
     end
 end
 
@@ -1307,112 +1225,6 @@ local CLASS_AUDIO_MAP = {
     ["DEATHKNIGHT"] = "Deathknight"
 }
 SoundAlerter.CLASS_AUDIO_MAP = CLASS_AUDIO_MAP
-
-function SoundAlerter:GetClassFromGUID(guid, currentZoneType, pvpType)
-    local startTime = debugprofilestop()
-
-    if self.classDetectionStats then
-        self.classDetectionStats.totalDetections = self.classDetectionStats.totalDetections + 1
-    end
-
-    local cachedClass = rawget(self.guidToClassCache, guid)
-    if cachedClass then
-        if self.classDetectionStats then
-            self.classDetectionStats.cacheHits = self.classDetectionStats.cacheHits + 1
-            self.classDetectionStats.totalLookupTime = self.classDetectionStats.totalLookupTime + (debugprofilestop() - startTime)
-        end
-        return cachedClass
-    end
-
-    if sadb.learnedClassesEnabled and self.learnedClasses and self.learnedClasses[guid] then
-        local learnedClass = self.learnedClasses[guid]
-        self.guidToClassCache[guid] = learnedClass
-        if self.classDetectionStats then
-            self.classDetectionStats.learnedCacheHits = self.classDetectionStats.learnedCacheHits + 1
-            self.classDetectionStats.totalLookupTime = self.classDetectionStats.totalLookupTime + (debugprofilestop() - startTime)
-        end
-        return learnedClass
-    end
-
-    if sadb.negativeCacheEnabled and self.failedGUIDLookups and self.failedGUIDLookups[guid] then
-        local failTime = self.failedGUIDLookups[guid]
-        local negativeTTL = sadb.negativeCacheTTL or 5
-        if GetTime() - failTime < negativeTTL then
-            if self.classDetectionStats then
-                self.classDetectionStats.negativeCacheHits = self.classDetectionStats.negativeCacheHits + 1
-                self.classDetectionStats.totalLookupTime = self.classDetectionStats.totalLookupTime + (debugprofilestop() - startTime)
-            end
-            return nil
-        end
-    end
-
-    local unitClass = nil
-
-    if UnitExists("target") and UnitGUID("target") == guid then
-        _, unitClass = UnitClass("target")
-    elseif UnitExists("mouseover") and UnitGUID("mouseover") == guid then
-        _, unitClass = UnitClass("mouseover")
-    elseif UnitExists("focus") and UnitGUID("focus") == guid then
-        _, unitClass = UnitClass("focus")
-    else
-        if currentZoneType == "arena" or pvpType == "arena" then
-            for i = 1, 5 do
-                local arenaUnit = "arena" .. i
-                if UnitExists(arenaUnit) and UnitGUID(arenaUnit) == guid then
-                    _, unitClass = UnitClass(arenaUnit)
-                    break
-                end
-            end
-        end
-
-        if not unitClass and currentZoneType == "pvp" then
-            local numRaidMembers = GetNumRaidMembers()
-            if numRaidMembers > 0 then
-                for i = 1, numRaidMembers do
-                    local bgUnit = "raid" .. i .. "target"
-                    if UnitExists(bgUnit) and UnitGUID(bgUnit) == guid then
-                        _, unitClass = UnitClass(bgUnit)
-                        break
-                    end
-                end
-            end
-        end
-    end
-
-    if not unitClass then
-        local _, apiClass = GetPlayerInfoByGUID(guid)
-        if apiClass then
-            unitClass = apiClass
-            if self.classDetectionStats then
-                self.classDetectionStats.apiLookups = self.classDetectionStats.apiLookups + 1
-            end
-        end
-    end
-
-    if unitClass then
-        self.guidToClassCache[guid] = unitClass
-        if self.classDetectionStats then
-            self.classDetectionStats.unitLookups = self.classDetectionStats.unitLookups + 1
-        end
-
-        if sadb.learnedClassesEnabled and self.learnedClasses then
-            self.learnedClasses[guid] = unitClass
-            self.learnedClassesDirty = true
-        end
-    else
-        if sadb.negativeCacheEnabled and self.failedGUIDLookups then
-            self.failedGUIDLookups[guid] = GetTime()
-        end
-        if self.classDetectionStats then
-            self.classDetectionStats.failedLookups = self.classDetectionStats.failedLookups + 1
-        end
-    end
-
-    if self.classDetectionStats then
-        self.classDetectionStats.totalLookupTime = self.classDetectionStats.totalLookupTime + (debugprofilestop() - startTime)
-    end
-    return unitClass
-end
 
 function SoundAlerter:GetApproxRange(unit)
     if not UnitExists(unit) then return nil end
@@ -1435,7 +1247,7 @@ function SoundAlerter:CheckProximityAlert(unit)
     if not UnitIsVisible(unit) then return end
 
     local guid = UnitGUID(unit)
-    if not guid then return end
+    if not guid or issecretvalue(guid) then return end
 
     if guid:sub(1, 7) ~= "Player-" then return end
 
@@ -1453,17 +1265,21 @@ function SoundAlerter:CheckProximityAlert(unit)
     local inArena = (currentZoneType == "arena") or (pvpType == "arena")
     local inBattleground = (currentZoneType == "pvp")
     local inWorld = (pvpType == "contested" or pvpType == "hostile" or pvpType == "friendly")
+    local inSanctuary = (pvpType == "sanctuary" or pvpType == nil)
 
     if inArena and not sadb.proximityArena then return end
     if inBattleground and not sadb.proximityBattleground then return end
     if inWorld and not sadb.proximityWorld then return end
-    if not (inArena or inBattleground or inWorld) then return end
+    if inSanctuary and not sadb.proximitySanctuary then return end
+    if not (inArena or inBattleground or inWorld or inSanctuary) then return end
 
     local unitName = UnitName(unit)
     local _, unitClass = UnitClass(unit)
     local unitLevel = UnitLevel(unit)
 
-    if not unitName or not unitClass then return end
+    if not unitName or issecretvalue(unitName) then return end
+    if not unitClass or issecretvalue(unitClass) then return end
+    if issecretvalue(unitLevel) then return end
 
     self.guidToClassCache[guid] = unitClass
     self.proximityAlertCache[guid] = currentTime
@@ -1506,93 +1322,153 @@ function SoundAlerter:CheckProximityAlert(unit)
     end
 end
 
-function SoundAlerter:CheckProximityAlertFromCombatLog(guid, name, flags)
-    if rawget(self.proximityRecentGUIDs, guid) then return end
-    if not sadb.proximityEnabled then return end
-    if not guid or not name then return end
-
-    if guid:sub(1, 7) ~= "Player-" then return end
-
-    local currentTime = GetTime()
-    local cooldown = sadb.proximityCooldown or 30
-    local cachedTime = rawget(self.proximityAlertCache, guid)
-    if cachedTime then
-        if currentTime - cachedTime < cooldown then
-            self.proximityRecentGUIDs[guid] = true
-            return
-        end
-    end
-
-    if currentTime - self.enterWorldTime < 10 then return end
-
-    local currentZoneType, pvpType = self.cachedInstanceType, self.cachedZonePvpType
-
-    local zoneAllowed = (
-        ((currentZoneType == "arena" or pvpType == "arena") and sadb.proximityArena) or
-        (currentZoneType == "pvp" and sadb.proximityBattleground) or
-        ((pvpType == "contested" or pvpType == "hostile" or pvpType == "friendly") and sadb.proximityWorld)
-    )
-    if not zoneAllowed then return end
-
-    local unitClass = self:GetClassFromGUID(guid, currentZoneType, pvpType)
-
-    self.proximityAlertCache[guid] = currentTime
-    self.proximityRecentGUIDs[guid] = true
-
-    if unitClass then
-        local classAudioFile = CLASS_AUDIO_MAP[unitClass]
-        if classAudioFile then
-            PlaySoundFile(sadb.sapath .. classAudioFile .. ".mp3", "Master")
-            self:ScheduleTimer(function()
-                PlaySoundFile(sadb.sapath .. "detected.mp3", "Master")
-            end, 0.8)
-        else
-            PlaySoundFile(sadb.sapath .. "detected.mp3", "Master")
-        end
-    else
-        PlaySoundFile(sadb.sapath .. "enemy.mp3", "Master")
-        self:ScheduleTimer(function()
-            PlaySoundFile(sadb.sapath .. "detected.mp3", "Master")
-        end, 0.8)
-    end
-
-    if sadb.statistics and sadb.statistics.enabled then
-        local Statistics = self:GetModule("Statistics")
-        if Statistics then
-            Statistics:RecordAlert("proximityAlerts", nil, guid, name)
-        end
-    end
-
-    if sadb.proximityToasts and sadb.proximityToasts.enabled and self.ProximityToasts then
-        self.ProximityToasts:ShowToast(name, unitClass, nil, guid, nil, nil)
-    end
-
-    if sadb.proximityChat and sadb.proximityChatText then
-        local chatText = gsub(sadb.proximityChatText, "#class#", unitClass or "Enemy")
-        chatText = gsub(chatText, "#player#", name)
-
-        if not sadb.chatgroups.NONE then
-            for channel, enabled in pairs(sadb.chatgroups) do
-                if enabled and channel ~= "NONE" then
-                    SendChatMessage(chatText, channel, nil, nil)
-                end
-            end
-        end
-    end
-
-    if sadb.debugmode then
-        if unitClass then
-            self:Print("Proximity Alert (Combat Log): " .. unitClass .. " " .. name .. " detected!")
-        else
-            self:Print("Proximity Alert (Combat Log): Enemy " .. name .. " detected!")
-        end
-    end
-end
-
 function SoundAlerter:PLAYER_TARGET_CHANGED()
     self:CheckProximityAlert("target")
 end
 
 function SoundAlerter:UPDATE_MOUSEOVER_UNIT()
     self:CheckProximityAlert("mouseover")
+end
+
+function SoundAlerter:NAME_PLATE_UNIT_ADDED(event, unit)
+    if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
+
+    local guid = UnitGUID(unit)
+    if not guid or issecretvalue(guid) then return end
+
+    self.trackedNameplates[guid] = unit
+
+    self:CheckProximityAlert(unit)
+end
+
+function SoundAlerter:NAME_PLATE_UNIT_REMOVED(event, unit)
+    local guid = UnitGUID(unit)
+    if not guid or issecretvalue(guid) then return end
+
+    self.trackedNameplates[guid] = nil
+    unitAuraSnapshot[unit] = nil
+    lastAuraScan[unit] = nil
+end
+
+function SoundAlerter:IsTrackedNameplate(unit)
+    local guid = UnitGUID(unit)
+    if not guid or issecretvalue(guid) then return false end
+    return self.trackedNameplates[guid] ~= nil
+end
+
+local function IsRelevantCastUnit(unit)
+    return unit == "target" or unit == "focus" or unit:match("^nameplate%d+$") ~= nil
+end
+
+function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
+    if not unit or not IsRelevantCastUnit(unit) then return end
+    if not self:IsAlertZoneAllowed() then return end
+    if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
+    if issecretvalue(spellID) then return end
+
+    local isTargetOrFocus = (unit == "target" or unit == "focus")
+    local isTracked = not isTargetOrFocus and self:IsTrackedNameplate(unit)
+    if not (isTargetOrFocus or isTracked) then return end
+
+    self:CheckCustomAlerts("SPELL_CAST_START", unit, nil, spellID)
+
+    if not sadb.castStart and ((sadb.myself and isTargetOrFocus) or (sadb.enemyinrange and isTracked)) then
+        local guid = UnitGUID(unit)
+        local name = SafeUnitName(unit)
+        if guid and not issecretvalue(guid) and name then
+            self:PlaySpell(self.spellList.castStart, spellID, guid, name)
+        end
+    end
+end
+
+function SoundAlerter:UNIT_SPELLCAST_SUCCEEDED(event, unit, castGUID, spellID)
+    if not unit or not IsRelevantCastUnit(unit) then return end
+    if not self:IsAlertZoneAllowed() then return end
+    if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
+    if issecretvalue(spellID) then return end
+
+    local isTargetOrFocus = (unit == "target" or unit == "focus")
+    local isTracked = not isTargetOrFocus and self:IsTrackedNameplate(unit)
+    if not (isTargetOrFocus or isTracked) then return end
+
+    local guid = UnitGUID(unit)
+    local name = SafeUnitName(unit)
+    if not guid or issecretvalue(guid) or not name then return end
+
+    self:CheckCustomAlerts("SPELL_CAST_SUCCESS", unit, nil, spellID)
+
+    if not sadb.chatalerts then
+        local isVanish = (spellID == 26889)
+        local isStealth = (spellID == 1784 or spellID == 1785)
+        local isProwl = (spellID == 5215 or spellID == 6783 or spellID == 9913)
+
+        if ((sadb.vanishenemy and isVanish) or (sadb.stealthenemy and isStealth) or (sadb.prowlenemy and isProwl))
+           and (isTargetOrFocus or ((sadb.vanishTF and isVanish) or (sadb.stealthTF and isStealth) or (sadb.prowlTF and isProwl))) then
+            local message = gsub(gsub(sadb.enemychat, "(#spell#)", (GetSpellLink(spellID) or "")), "(#enemy#)", name)
+            self:BroadcastChat(message)
+        end
+    end
+
+    if not sadb.chatalerts and sadb.trinketalert and (spellID == 42292 or spellID == 59752) then
+        local message = gsub(sadb.trinketalerttext, "(#enemy#)", name)
+        self:BroadcastChat(message)
+    end
+
+    if (spellID == 42292 or spellID == 59752) and sadb.trinket then
+        local class = SafeUnitClass(unit)
+        if class and sadb.class then
+            local classAudioFile = CLASS_AUDIO_MAP[class]
+            if classAudioFile then
+                PlaySoundFile(sadb.sapath..classAudioFile..".mp3");
+            end
+            self:ScheduleTimer(function() self:PlayTrinket(guid, name) end, 0.4);
+        else
+            self:PlayTrinket(guid, name)
+        end
+    elseif ((sadb.myself and isTargetOrFocus) or (sadb.enemyinrange and isTracked)) and not sadb.castSuccess then
+        if not ((sadb.enemyinrange and isTracked and not isTargetOrFocus) and (spellID == 2825 or spellID == 32182)) then
+            self:PlaySpell(self.spellList.castSuccess, spellID, guid, name)
+        end
+    end
+end
+
+function SoundAlerter:UNIT_SPELLCAST_INTERRUPTED(event, unit, castGUID, spellID)
+    if unit ~= "player" and unit ~= "target" and unit ~= "focus" then return end
+    if not self:IsAlertZoneAllowed() then return end
+    if issecretvalue(spellID) then return end
+
+    local replacementText = GetSpellLink(spellID) or GetSpellInfo(spellID) or ""
+
+    self:CheckCustomAlerts("SPELL_INTERRUPT", nil, unit, spellID)
+
+    if unit == "player" then
+        if not sadb.interrupt then
+            PlaySoundFile(sadb.sapath.."lockout.mp3");
+            if not sadb.chatalerts and sadb.interruptself then
+                local it = gsub(sadb.InterruptSelfText, "(#spell#)", "")
+                it = gsub(it, "#interruptedspellname#", replacementText)
+                local finalMessage = gsub(it, "(#enemy#)", "")
+                finalMessage = string.gsub(finalMessage, "[\\]", "")
+                self:BroadcastChat(finalMessage)
+            end
+        end
+        return
+    end
+
+    if unit ~= "target" and unit ~= "focus" then return end
+    if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
+
+    local name = SafeUnitName(unit)
+    if not name then return end
+
+    if not sadb.interrupt then
+        PlaySoundFile(sadb.sapath.."lockout.mp3");
+        if not sadb.chatalerts and sadb.interruptenemy then
+            local it = gsub(sadb.InterruptEnemyText, "(#spell#)", "")
+            it = gsub(it, "#interruptedspellname#", replacementText)
+            local finalMessage = gsub(it, "(#enemy#)", name)
+            finalMessage = string.gsub(finalMessage, "[\\]", "")
+            self:BroadcastChat(finalMessage)
+        end
+    end
 end

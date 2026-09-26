@@ -40,6 +40,12 @@ ProximityToasts.swapInProgress = false
 ProximityToasts.insecureSwapBuffer = {}
 ProximityToasts.swapMetrics = {count = 0, totalTime = 0, maxTime = 0, histogram = {}}
 
+local function SafeUnitName(unit)
+    local name = UnitName(unit)
+    if issecretvalue(name) then return nil end
+    return name
+end
+
 local function SanitizeMacroText(text)
     if not text then return "" end
     text = text:gsub("\n", ""):gsub("\r", ""):gsub("%z", "")
@@ -65,17 +71,17 @@ local function TargetByNameCompat(targetName, unitToken)
 
     local sadb = SoundAlerter.db1.profile
 
-    if UnitExists("target") and UnitName("target") == targetName then
+    if UnitExists("target") and SafeUnitName("target") == targetName then
         if sadb.debugmode then
             SoundAlerter:Print("[Toast Click] Already targeting: " .. targetName)
         end
         return true
     end
 
-    if unitToken and UnitExists(unitToken) and UnitName(unitToken) == targetName then
+    if unitToken and UnitExists(unitToken) and SafeUnitName(unitToken) == targetName then
         TargetUnit(unitToken)
 
-        if UnitExists("target") and UnitName("target") == targetName then
+        if UnitExists("target") and SafeUnitName("target") == targetName then
             if sadb.debugmode then
                 SoundAlerter:Print("[Toast Click] Targeted via cached token: " .. targetName .. " (" .. unitToken .. ")")
             end
@@ -84,10 +90,10 @@ local function TargetByNameCompat(targetName, unitToken)
     end
 
     for _, unitId in ipairs(unitScanOrder) do
-        if UnitExists(unitId) and UnitName(unitId) == targetName then
+        if UnitExists(unitId) and SafeUnitName(unitId) == targetName then
             TargetUnit(unitId)
 
-            if UnitExists("target") and UnitName("target") == targetName then
+            if UnitExists("target") and SafeUnitName("target") == targetName then
                 if sadb.debugmode then
                     SoundAlerter:Print("[Toast Click] Targeted via scan: " .. targetName .. " (" .. unitId .. ")")
                 end
@@ -465,6 +471,7 @@ function ProximityToasts:ReleaseToast(toast)
     toast.pauseState.active = false
     toast.pauseState.startTime = 0
     toast.pauseState.totalTime = 0
+    toast.segmentsHidden = false
 
     toast.cachedSegmentData = nil
 
@@ -742,7 +749,7 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
     end
 
     local extras = {}
-    if distance then table.insert(extras, "~" .. distance) end
+    if distance then table.insert(extras, distance) end
     if #extras > 0 then
         local extraText = table.concat(extras, ", ")
         detailText = (detailText ~= "") and (detailText .. " (" .. extraText .. ")") or extraText
@@ -808,6 +815,7 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
     toast.pauseState.active = false
     toast.pauseState.startTime = 0
     toast.pauseState.totalTime = 0
+    toast.segmentsHidden = false
 
     toast:SetAlpha(0)
     toast:SetScale(1.0)
@@ -843,11 +851,12 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
             local fadeProgress = (elapsed - FADE_IN_DURATION - self.displayDuration) / FADE_OUT_DURATION
             self:SetAlpha(1 - fadeProgress)
 
-            if self.countdownBar and self.cachedSegmentData then
+            if not self.segmentsHidden and self.countdownBar and self.cachedSegmentData then
                 local duration = self.cachedSegmentData.duration
                 for i = 1, duration do
                     self.countdownBar.segments[i]:SetAlpha(0)
                 end
+                self.segmentsHidden = true
             end
 
         else

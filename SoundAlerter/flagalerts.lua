@@ -51,25 +51,6 @@ local CACHE_SIZE_LARGE = 120
 local PERSISTENT_CACHE_SIZE_DEFAULT = 500
 local MAX_FLAG_TOASTS = 3
 
-local FLAG_CARRIER_AURAS = {
-    [23333] = "ALLIANCE_TEAM",
-    [23335] = "HORDE_TEAM",
-}
-
-local RELEVANT_COMBAT_EVENTS = {
-    ["SWING_DAMAGE"] = true,
-    ["RANGE_DAMAGE"] = true,
-    ["SPELL_DAMAGE"] = true,
-    ["SPELL_PERIODIC_DAMAGE"] = true,
-    ["DAMAGE_SHIELD"] = true,
-    ["DAMAGE_SPLIT"] = true,
-    ["SPELL_HEAL"] = true,
-    ["SPELL_PERIODIC_HEAL"] = true,
-    ["SPELL_CAST_START"] = true,
-    ["SPELL_CAST_SUCCESS"] = true,
-    ["SPELL_AURA_APPLIED"] = true,
-    ["SPELL_AURA_REMOVED"] = true,
-}
 
 local LOCALE_PATTERNS = {
     ["enUS"] = {
@@ -173,8 +154,8 @@ function FlagAlerts:OnInitialize()
         toastsOutOfCombat = 0,
     }
 
-    local locale = GetLocale()
-    self.flagPatterns = LOCALE_PATTERNS[locale] or LOCALE_PATTERNS["enUS"]
+    local locale = "enUS"
+    self.flagPatterns = LOCALE_PATTERNS.enUS
 
     if sadb.debugmode then
         SoundAlerter:Print(string_format("[FlagAlerts] Initialized with locale: %s | Persistent cache: %d players",
@@ -187,8 +168,6 @@ function FlagAlerts:OnEnable()
     self:RegisterEvent("CHAT_MSG_BG_SYSTEM_HORDE")
     self:RegisterEvent("CHAT_MSG_BG_SYSTEM_NEUTRAL")
 
-    self:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-
     self:RegisterEvent("PLAYER_REGEN_DISABLED")
     self:RegisterEvent("PLAYER_REGEN_ENABLED")
 
@@ -198,8 +177,7 @@ function FlagAlerts:OnEnable()
 
     if sadb.debugmode then
         SoundAlerter:Print("[FlagAlerts] Enabled and listening for battleground events")
-        SoundAlerter:Print("[FlagAlerts] Primary detection: Flag carrier auras (23333, 23335)")
-        SoundAlerter:Print("[FlagAlerts] Fallback detection: Chat messages")
+        SoundAlerter:Print("[FlagAlerts] Detection: Chat messages")
         SoundAlerter:Print("[FlagAlerts] Combat-aware taint protection: Enabled")
     end
 end
@@ -208,7 +186,6 @@ function FlagAlerts:OnDisable()
     self:UnregisterEvent("CHAT_MSG_BG_SYSTEM_ALLIANCE")
     self:UnregisterEvent("CHAT_MSG_BG_SYSTEM_HORDE")
     self:UnregisterEvent("CHAT_MSG_BG_SYSTEM_NEUTRAL")
-    self:UnregisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
     self:UnregisterEvent("PLAYER_REGEN_DISABLED")
     self:UnregisterEvent("PLAYER_REGEN_ENABLED")
     self:CancelAllTimers()
@@ -262,74 +239,6 @@ function FlagAlerts:PLAYER_REGEN_ENABLED()
 
     if sadb.debugmode then
         SoundAlerter:Print("[FlagAlerts] Left combat - all features restored")
-    end
-end
-
-function FlagAlerts:COMBAT_LOG_EVENT_UNFILTERED()
-    if not sadb.battlegroundAlertsEnabled then return end
-
-    local _, subevent, _, sourceGUID, sourceName, sourceFlags, _, destGUID, destName, destFlags = CombatLogGetCurrentEventInfo()
-
-    if not RELEVANT_COMBAT_EVENTS[subevent] then
-        return
-    end
-
-    if subevent == "SPELL_AURA_APPLIED" then
-        local spellID = select(12, CombatLogGetCurrentEventInfo())
-
-        if sadb.debugmode then
-            SoundAlerter:Print(string_format("[FlagAlerts DEBUG] SPELL_AURA_APPLIED - SpellID: %d | Dest: %s | GUID: %s",
-                spellID or 0, destName or "nil", destGUID or "nil"))
-        end
-
-        local carrierTeam = FLAG_CARRIER_AURAS[spellID]
-        if carrierTeam and destName then
-            if sadb.debugmode then
-                SoundAlerter:Print(string_format("[FlagAlerts DEBUG] FLAG PICKUP DETECTED - SpellID: %d | Player: %s | Team: %s",
-                    spellID, destName, carrierTeam))
-            end
-            local ok, err = pcall(self.HandleFlagPickup, self, destName, destGUID, carrierTeam)
-            if not ok and sadb.debugmode then
-                SoundAlerter:Print("[FlagAlerts] HandleFlagPickup error: "..tostring(err))
-            end
-            return
-        end
-    end
-
-    if subevent == "SPELL_AURA_REMOVED" then
-        local spellID = select(12, CombatLogGetCurrentEventInfo())
-
-        if sadb.debugmode then
-            SoundAlerter:Print(string_format("[FlagAlerts DEBUG] SPELL_AURA_REMOVED - SpellID: %d | Dest: %s | GUID: %s",
-                spellID or 0, destName or "nil", destGUID or "nil"))
-        end
-
-        local carrierTeam = FLAG_CARRIER_AURAS[spellID]
-        if carrierTeam and destName then
-            if sadb.debugmode then
-                SoundAlerter:Print(string_format("[FlagAlerts DEBUG] FLAG DROP DETECTED - SpellID: %d | Player: %s | Team: %s",
-                    spellID, destName, carrierTeam))
-            end
-            local ok, err = pcall(self.HandleFlagDrop, self, destName, destGUID, carrierTeam)
-            if not ok and sadb.debugmode then
-                SoundAlerter:Print("[FlagAlerts] HandleFlagDrop error: "..tostring(err))
-            end
-            return
-        end
-    end
-
-    if sourceName and sourceGUID then
-        local isPlayer = bit_band(sourceFlags or 0, COMBATLOG_OBJECT_TYPE_PLAYER) > 0
-        if isPlayer then
-            pcall(self.LearnPlayerClassFromGUID, self, sourceName, sourceGUID)
-        end
-    end
-
-    if destName and destGUID then
-        local isPlayer = bit_band(destFlags or 0, COMBATLOG_OBJECT_TYPE_PLAYER) > 0
-        if isPlayer then
-            pcall(self.LearnPlayerClassFromGUID, self, destName, destGUID)
-        end
     end
 end
 
@@ -468,27 +377,6 @@ function FlagAlerts:ExtractClassFromGUID(guid)
     end
 
     return nil
-end
-
-function FlagAlerts:LearnPlayerClassFromGUID(playerName, guid)
-    if not sadb.persistentCacheEnabled then return end
-    if not playerName or not guid then return end
-
-    local class = self:ExtractClassFromGUID(guid)
-    if not class then return end
-
-    if self.persistentCache[playerName] and self.persistentCache[playerName].class == class then
-        self.persistentCache[playerName].lastSeen = GetTime()
-        return
-    end
-
-    self:SaveToPersistentCache(playerName, class)
-
-    self.performanceMetrics.classesLearned = self.performanceMetrics.classesLearned + 1
-
-    if sadb.debugmode then
-        SoundAlerter:Print(string_format("[FlagAlerts] Learned: %s = %s (from GUID)", playerName, class))
-    end
 end
 
 function FlagAlerts:ProcessFlagEvent(message)

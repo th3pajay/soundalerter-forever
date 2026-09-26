@@ -1,6 +1,6 @@
 dbDefaults = {
 	profile = {
-		sapath = SA_LOCALEPATH[GetLocale()] or "Interface\\Addons\\SoundAlerter\\voice\\",
+		sapath = SA_LOCALEPATH.enUS,
 		debugmode = false,
 		spelldebug = false,
 
@@ -105,10 +105,13 @@ dbDefaults = {
 		proximityWorld = false,
 		proximityBattleground = false,
 		proximityArena = false,
+		proximitySanctuary = false,
 		proximityCooldown = 60,
 		proximityChat = false,
 		proximityChatText = "[#class#] #player# detected nearby!",
 		showAdvancedProximity = false,
+		overrideNameplateRange = false,
+		nameplateRange = 60,
 
 		proximityToasts = {
 			enabled = false,
@@ -201,6 +204,8 @@ dbDefaults = {
 				PositionY = -200,
 				width = 280,
 				height = 24,
+				orientation = "horizontal",
+				fillDirection = "right",
 			},
 
 			target = {
@@ -209,6 +214,8 @@ dbDefaults = {
 				PositionY = -230,
 				width = 280,
 				height = 24,
+				orientation = "horizontal",
+				fillDirection = "right",
 			},
 
 			focus = {
@@ -217,6 +224,8 @@ dbDefaults = {
 				PositionY = -260,
 				width = 280,
 				height = 24,
+				orientation = "horizontal",
+				fillDirection = "right",
 			},
 		},
 
@@ -292,6 +301,7 @@ dbDefaults = {
 				byClass = {},
 				enemiesEncountered = {},
 				spellsThisSession = {},
+				recentAlerts = {},
 			},
 
 			allTime = {
@@ -322,6 +332,7 @@ dbDefaults = {
 			},
 
 			maxTopSpells = 50,
+			maxRecentAlerts = 100,
 			trackingStartTime = 0,
 		},
 	}

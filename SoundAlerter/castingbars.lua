@@ -27,9 +27,9 @@ function CastingBars:Initialize()
 	self.initialized = false
 
 	self.lastUpdate = {
-		playerText = 0,
-		targetText = 0,
-		focusText = 0,
+		player = 0,
+		target = 0,
+		focus = 0,
 	}
 
 	self.bounceState = {
@@ -101,8 +101,6 @@ function CastingBars:CreateCastBar(unit, config)
 	latency:SetWidth(1)
 	latency:Hide()
 
-	frame:Hide()
-
 	self[unit .. "Frame"] = frame
 	self[unit .. "Title"] = title
 	self[unit .. "Bar"] = bar
@@ -110,6 +108,90 @@ function CastingBars:CreateCastBar(unit, config)
 	self[unit .. "TimeText"] = timeText
 	self[unit .. "Icon"] = icon
 	self[unit .. "Latency"] = latency
+
+	self:ApplyOrientation(unit)
+
+	frame:Hide()
+end
+
+function CastingBars:ApplyOrientation(unit)
+	local frame, bar, icon, spellText, timeText, latency
+	local unitDB = self.db and self.db[unit]
+
+	if unit == "player" then
+		frame, bar, icon, spellText, timeText, latency = self.playerFrame, self.playerBar, self.playerIcon, self.playerSpellText, self.playerTimeText, self.playerLatency
+	elseif unit == "target" then
+		frame, bar, icon, spellText, timeText, latency = self.targetFrame, self.targetBar, self.targetIcon, self.targetSpellText, self.targetTimeText, self.targetLatency
+	elseif unit == "focus" then
+		frame, bar, icon, spellText, timeText, latency = self.focusFrame, self.focusBar, self.focusIcon, self.focusSpellText, self.focusTimeText, self.focusLatency
+	else
+		return
+	end
+
+	if not bar or not unitDB then return end
+
+	local orientation = unitDB.orientation or "horizontal"
+	local fillDirection = unitDB.fillDirection or "right"
+
+	if orientation == "vertical" then
+		if fillDirection ~= "up" and fillDirection ~= "down" then
+			fillDirection = "up"
+		end
+	else
+		if fillDirection ~= "left" and fillDirection ~= "right" then
+			fillDirection = "right"
+		end
+	end
+
+	local length = unitDB.width or BAR_WIDTH
+	local thickness = unitDB.height or BAR_HEIGHT
+	local barWidth = orientation == "vertical" and thickness or length
+	local barHeight = orientation == "vertical" and length or thickness
+
+	bar:SetSize(barWidth, barHeight)
+	frame:SetSize(barWidth + 20, barHeight + 30)
+
+	bar:SetOrientation(orientation == "vertical" and "VERTICAL" or "HORIZONTAL")
+	bar:SetReverseFill(fillDirection == "left" or fillDirection == "down")
+
+	icon:ClearAllPoints()
+	spellText:ClearAllPoints()
+	timeText:ClearAllPoints()
+	latency:ClearAllPoints()
+
+	spellText:SetPoint("CENTER", bar, "CENTER", 0, 0)
+
+	if orientation == "vertical" then
+		local iconSize = bar:GetWidth()
+		icon:SetSize(iconSize, iconSize)
+
+		if fillDirection == "down" then
+			icon:SetPoint("BOTTOM", bar, "TOP", 0, 4)
+			timeText:SetPoint("BOTTOM", bar, "BOTTOM", 0, 5)
+			latency:SetPoint("BOTTOM", bar, "BOTTOM", 0, 0)
+		else
+			icon:SetPoint("TOP", bar, "BOTTOM", 0, -4)
+			timeText:SetPoint("TOP", bar, "TOP", 0, -5)
+			latency:SetPoint("TOP", bar, "TOP", 0, 0)
+		end
+
+		latency:SetWidth(bar:GetWidth())
+	else
+		local iconSize = bar:GetHeight()
+		icon:SetSize(iconSize, iconSize)
+
+		if fillDirection == "left" then
+			icon:SetPoint("LEFT", bar, "RIGHT", 4, 0)
+			timeText:SetPoint("LEFT", bar, "LEFT", 5, 0)
+			latency:SetPoint("LEFT", bar, "LEFT", 0, 0)
+		else
+			icon:SetPoint("RIGHT", bar, "LEFT", -4, 0)
+			timeText:SetPoint("RIGHT", bar, "RIGHT", -5, 0)
+			latency:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
+		end
+
+		latency:SetHeight(bar:GetHeight())
+	end
 end
 
 function CastingBars:RegisterEvents()
@@ -248,12 +330,17 @@ function CastingBars:OnCastStart(unit)
 
 		if castDuration > 0 and latencyMS > 0 then
 			local latencyPercent = latencySeconds / castDuration
-			local barWidth = self.playerBar:GetWidth()
-			local latencyWidth = barWidth * latencyPercent
+			local isVertical = self.db.player.orientation == "vertical"
+			local barExtent = isVertical and self.playerBar:GetHeight() or self.playerBar:GetWidth()
+			local latencyExtent = barExtent * latencyPercent
 
-			latencyWidth = math.max(10, math.min(latencyWidth, barWidth * 0.5))
+			latencyExtent = math.max(10, math.min(latencyExtent, barExtent * 0.5))
 
-			self.playerLatency:SetWidth(latencyWidth)
+			if isVertical then
+				self.playerLatency:SetHeight(latencyExtent)
+			else
+				self.playerLatency:SetWidth(latencyExtent)
+			end
 			self.playerLatency:Show()
 		else
 			self.playerLatency:Hide()
@@ -349,12 +436,17 @@ function CastingBars:OnChannelStart(unit)
 		if castDuration > 0 and latencyMS > 0 then
 
 			local latencyPercent = latencySeconds / castDuration
-			local barWidth = self.playerBar:GetWidth()
-			local latencyWidth = barWidth * latencyPercent
+			local isVertical = self.db.player.orientation == "vertical"
+			local barExtent = isVertical and self.playerBar:GetHeight() or self.playerBar:GetWidth()
+			local latencyExtent = barExtent * latencyPercent
 
-			latencyWidth = math.max(10, math.min(latencyWidth, barWidth * 0.5))
+			latencyExtent = math.max(10, math.min(latencyExtent, barExtent * 0.5))
 
-			self.playerLatency:SetWidth(latencyWidth)
+			if isVertical then
+				self.playerLatency:SetHeight(latencyExtent)
+			else
+				self.playerLatency:SetWidth(latencyExtent)
+			end
 			self.playerLatency:Show()
 		else
 			self.playerLatency:Hide()
@@ -590,10 +682,10 @@ function CastingBars:UpdateBar(unit, now)
 		spellText:SetText(state.spellName)
 	end
 
-	local lastUpdate = self.lastUpdate[unit .. "Text"] or 0
+	local lastUpdate = self.lastUpdate[unit] or 0
 	if (now - lastUpdate) >= TEXT_UPDATE_THROTTLE then
 		timeText:SetText(self:FormatTime(remaining))
-		self.lastUpdate[unit .. "Text"] = now
+		self.lastUpdate[unit] = now
 	end
 end
 
@@ -674,10 +766,7 @@ function CastingBars:LoadSettings()
 		local playerDB = self.db.player
 		self.addon.BarUtils:LoadPosition(self.playerFrame, playerDB, "", 0, -200)
 
-		if playerDB.width and playerDB.height then
-			self.playerBar:SetSize(playerDB.width or BAR_WIDTH, playerDB.height or BAR_HEIGHT)
-			self.playerFrame:SetSize((playerDB.width or BAR_WIDTH) + 20, (playerDB.height or BAR_HEIGHT) + 30)
-		end
+		self:ApplyOrientation("player")
 
 		if playerDB.enabled then
 			self.playerFrame:EnableMouse(not self.db.locked)
@@ -710,10 +799,7 @@ function CastingBars:LoadSettings()
 		local targetDB = self.db.target
 		self.addon.BarUtils:LoadPosition(self.targetFrame, targetDB, "", 0, -230)
 
-		if targetDB.width and targetDB.height then
-			self.targetBar:SetSize(targetDB.width or BAR_WIDTH, targetDB.height or BAR_HEIGHT)
-			self.targetFrame:SetSize((targetDB.width or BAR_WIDTH) + 20, (targetDB.height or BAR_HEIGHT) + 30)
-		end
+		self:ApplyOrientation("target")
 
 		if targetDB.enabled then
 			self.targetFrame:EnableMouse(not self.db.locked)
@@ -746,10 +832,7 @@ function CastingBars:LoadSettings()
 		local focusDB = self.db.focus
 		self.addon.BarUtils:LoadPosition(self.focusFrame, focusDB, "", 0, -260)
 
-		if focusDB.width and focusDB.height then
-			self.focusBar:SetSize(focusDB.width or BAR_WIDTH, focusDB.height or BAR_HEIGHT)
-			self.focusFrame:SetSize((focusDB.width or BAR_WIDTH) + 20, (focusDB.height or BAR_HEIGHT) + 30)
-		end
+		self:ApplyOrientation("focus")
 
 		if focusDB.enabled then
 			self.focusFrame:EnableMouse(not self.db.locked)

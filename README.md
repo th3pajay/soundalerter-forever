@@ -1,6 +1,22 @@
 # SoundAlerter - Forever (BETA BUILD)
 
-![Version](https://img.shields.io/badge/version-0.1.69-blue.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![WoW](https://img.shields.io/badge/WoW-Retail%20110105-orange.svg) ![Platform](https://img.shields.io/badge/platform-Windows-purple.svg)
+![Version](https://img.shields.io/badge/version-0.2.0-blue.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![WoW](https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg) ![Platform](https://img.shields.io/badge/platform-Windows-purple.svg)
+
+**What changed:** WoW Forever permanently restricts `COMBAT_LOG_EVENT_UNFILTERED` for every third-party addon — a Blizzard platform decision, not a bug, and not addon-specific. SoundAlerter has been rebuilt around nameplate and unit-event tracking instead.
+
+**Gone:**
+- True zone-wide ambient detection of enemies you haven't targeted, moused over, or whose nameplate isn't visible
+- The Custom Sound Alert engine's "any enemy anywhere" matching (now scoped to nameplate-visible/target/focus enemies)
+- Ally-side CC/cast monitoring (friendly-target alert categories)
+
+**Kept:**
+- Voice alerts for your target, focus, and any enemy player with a visible nameplate nearby
+- Proximity detection and toasts (now nameplate + target/mouseover driven)
+- Battleground flag tracking (already chat-message based, unaffected)
+- Casting bars, resource bars, spell tracker (never depended on combat log)
+- All existing settings and Custom Sound Alert rules carry over automatically, no reconfiguration needed
+
+---
 
 **PVP combat suite**
 Voiced PVP combat addon for WoW Forever, as it not only builds upon the legacy of Soundalerter 
@@ -19,18 +35,18 @@ Also, it's still an early beta, please expect bugs.
 
 A voice and visual alert addon for arena and battleground PvP — instant callouts for enemy cooldowns, CC, and interrupts, plus a full combat awareness suite (proximity detection, flag tracking, resource bars, cast bars, and spell tracking).
 
-**Performance**: Sub-millisecond combat log handling in most cases, verifiable in-game via `/sa stats` and `/sa flag metrics`.
+**Performance**: Event handlers filter on unit token identity before touching any API, keeping per-event cost negligible even in large fights. Flag-alert timing is verifiable in-game via `/sa flag metrics`.
 
 ---
 
 ## The Complete Suite
 
 ### Voice Alerts - Instant Audio Callouts
-450+ critical spell callouts with professional voice alerts.
+450+ critical spell callouts with professional voice alerts, for your target, focus, and any enemy player with a visible nameplate nearby.
 
 **Features:**
 * Defensive cooldown, CC, and interrupt alerts
-* Enemy and friendly spell differentiation
+* Self and enemy debuff alerts
 * English voice pack
 
 **Configuration**: `/sa` -> Voice Alerts tab
@@ -44,7 +60,7 @@ Visual and audio alerts for nearby enemies. Sticky toasts include instant target
 </p>
 
 **Features:**
-* Automatic enemy detection with configurable range
+* Automatic enemy detection via nameplate range, target, or mouseover
 * One-click targeting from toast
 * PvE mode filtering
 
@@ -60,7 +76,7 @@ Team-aware CTF tracking for WSG and Eye of the Storm.
 </p>
 
 **Features:**
-* Class identification via combat log
+* Class identification via chat-message parsing and unit scanning
 * Visual flag status indicators
 
 **Configuration**: `/sa` -> Battleground Alerts tab
@@ -88,6 +104,7 @@ Cast bars for Player, Target, and Focus units.
 **Features:**
 * Channeled and mid-cast targeting support
 * Interrupt flash effects
+* Configurable orientation (horizontal/vertical) and fill direction per bar
 
 **Configuration**: `/sa` -> Casting Bars tab
 
@@ -162,6 +179,7 @@ Per-encounter data, alert frequency tracking, and enemy danger ratings.
 | `/sa` | Main options panel |
 | `/sa stats` | Class detection statistics |
 | `/sa help` | Full categorized command list |
+| `/sa apicheck` | Diagnostic scan of API/table availability (debug tool) |
 | `/sa toast status` | Proximity performance metrics |
 | `/sa toast enable` | Enable proximity toast notifications |
 | `/sa toast enableclick` | Enable click-to-target functionality |
@@ -181,7 +199,7 @@ Developer/test subcommands (e.g. `/sa toast test`, `/sa flag test`) only appear 
 
 * **Framework**: Built on Ace3 (AceAddon, AceEvent, AceDB, AceConfig, AceGUI).
 * **Zero-Taint**: Uses secure APIs to prevent combat blocking.
-* **Event-Driven**: Hooks `COMBAT_LOG_EVENT_UNFILTERED` for reliability.
+* **Event-Driven**: Tracks nameplates (`NAME_PLATE_UNIT_ADDED`/`REMOVED`) plus `UNIT_SPELLCAST_*`/`UNIT_AURA` on target, focus, and tracked nameplates — `COMBAT_LOG_EVENT_UNFILTERED` is permanently unavailable to addons on this client.
 * **Profiles**: Supports per-character configuration and export.
 
 ---

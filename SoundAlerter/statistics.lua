@@ -9,6 +9,7 @@ end
 
 local STATS_CONSTANTS = {
 	MAX_TOP_SPELLS = 50,
+	MAX_RECENT_ALERTS = 100,
 	MAX_ENEMIES = 100,
 	MAX_SESSION_HISTORY = 50,
 	MAX_DISPLAY_ROWS = 20,
@@ -161,6 +162,7 @@ local SortStrategies = {
 		name_desc = SortDesc("name"),
 		danger = SortDesc("danger"),
 		class = SortComposite("class", "alerts", false),
+		zone = SortComposite("topZone", "alerts", false),
 		time = SortDesc("lastSeen")
 	},
 	classes = {
@@ -254,6 +256,7 @@ local function PrepareEnemiesData()
 
 	local enemies = sadb.statistics.allTime.playerTracking.enemies
 	local enemyList = {}
+	local totalAlerts = 0
 
 	for name, data in pairs(enemies) do
 		local topSpell = nil
@@ -265,14 +268,21 @@ local function PrepareEnemiesData()
 			end
 		end
 
+		totalAlerts = totalAlerts + (data.totalAlerts or 0)
+
 		table.insert(enemyList, {
 			name = name,
 			class = data.class,
 			alerts = data.totalAlerts,
 			danger = data.dangerRating or 0,
 			topSpell = topSpell or "N/A",
+			topZone = GetTopZone(data.byZone),
 			lastSeen = data.lastSeen
 		})
+	end
+
+	for _, enemyData in ipairs(enemyList) do
+		enemyData.percentage = totalAlerts > 0 and (enemyData.alerts / totalAlerts) * 100 or 0
 	end
 
 	SortStatisticsList(enemyList, "enemies", statisticsSortState.enemies.sortType)
@@ -420,16 +430,20 @@ local function GenerateEnemiesTable()
 			parts[#parts + 1] = borders.LEFT
 			parts[#parts + 1] = " |cff00FF00"
 			parts[#parts + 1] = tostring(enemy.alerts)
-			parts[#parts + 1] = "|r danger:"
+			parts[#parts + 1] = "|r"
+			parts[#parts + 1] = string.format(" (%.0f%%)", enemy.percentage or 0)
+			parts[#parts + 1] = " danger:"
 			parts[#parts + 1] = dangerText
-			parts[#parts + 1] = "\n"
+			parts[#parts + 1] = " |cff888888"
+			parts[#parts + 1] = enemy.topZone or "N/A"
+			parts[#parts + 1] = "|r\n"
 
 			return table.concat(parts)
 		end
 	})
 end
 
-function Statistics:RecordAlert(category, spellID, sourceGUID, sourceName)
+function Statistics:RecordAlert(category, spellID, sourceGUID, sourceName, spellSchool)
 	local sadb = GetDB()
 	if not sadb or not sadb.statistics or not sadb.statistics.enabled then return end
 
@@ -445,19 +459,51 @@ function Statistics:RecordAlert(category, spellID, sourceGUID, sourceName)
 	end
 
 	if spellID and category == "spellAlerts" then
-		self:UpdateTopSpells(spellID, sourceGUID, sourceName)
+		self:UpdateTopSpells(spellID, sourceGUID, sourceName, spellSchool)
 	end
 
 	if sourceGUID and sourceName then
 		self:TrackEnemyPlayer(sourceGUID, sourceName, spellID)
 	end
 
+	self:RecordRecentAlert(sadb, category, spellID, sourceName)
+
 	if sadb.debugmode then
 		print(string.format("<SA> STATS: Recorded %s alert (Total: %d)", category, sadb.statistics.session.totalAlerts))
 	end
 end
 
-function Statistics:UpdateTopSpells(spellID, sourceGUID, sourceName)
+function Statistics:RecordRecentAlert(sadb, category, spellID, sourceName)
+	local recentAlerts = sadb.statistics.session.recentAlerts
+	if not recentAlerts then return end
+
+	local mapID = C_Map.GetBestMapForUnit("player")
+	local x, y = nil, nil
+	if mapID then
+		local pos = C_Map.GetPlayerMapPosition(mapID, "player")
+		if pos then
+			x, y = pos:GetXY()
+		end
+	end
+
+	recentAlerts[#recentAlerts + 1] = {
+		category = category,
+		spellID = spellID,
+		sourceName = sourceName,
+		timestamp = time(),
+		zoneName = GetRealZoneText() or GetZoneText() or "Unknown",
+		mapID = mapID,
+		x = x,
+		y = y,
+	}
+
+	local maxRecentAlerts = sadb.statistics.maxRecentAlerts or STATS_CONSTANTS.MAX_RECENT_ALERTS
+	while #recentAlerts > maxRecentAlerts do
+		table.remove(recentAlerts, 1)
+	end
+end
+
+function Statistics:UpdateTopSpells(spellID, sourceGUID, sourceName, spellSchool)
 	local sadb = GetDB()
 	if not sadb or not sadb.statistics or not spellID then return end
 
@@ -532,7 +578,7 @@ function Statistics:UpdateTopSpells(spellID, sourceGUID, sourceName)
 			},
 			byClass = sourceClass and { [sourceClass] = 1 } or {},
 			byZone = zoneType and { [zoneType] = 1 } or {},
-			spellSchool = self:GetSpellSchool(spellID),
+			spellSchool = self:SpellSchoolName(spellSchool),
 			spellCategory = self:GetSpellCategory(spellID),
 			sessionHistory = {}
 		}
@@ -547,10 +593,6 @@ function Statistics:TrackEnemyPlayer(sourceGUID, sourceName, spellID)
 	local sadb = GetDB()
 	if not sourceGUID or not sourceName then return end
 	if not sadb or not sadb.statistics or not sadb.statistics.enabled then return end
-
-	if not CombatLog_Object_IsA(sourceGUID, COMBATLOG_FILTER_HOSTILE_PLAYERS) then
-		return
-	end
 
 	if not sadb.statistics.allTime.playerTracking then
 		sadb.statistics.allTime.playerTracking = {
@@ -789,9 +831,7 @@ function Statistics:GetCurrentZoneType()
 	return nil
 end
 
-function Statistics:GetSpellSchool(spellID)
-	local _, _, _, _, _, _, _, school = GetSpellInfo(spellID)
-
+function Statistics:SpellSchoolName(school)
 	if not school then return "Unknown" end
 
 	local schools = {
@@ -922,8 +962,9 @@ function Statistics:BuildExportString()
 	if enemyData and #enemyData > 0 then
 		for i = 1, math.min(#enemyData, STATS_CONSTANTS.MAX_DISPLAY_ROWS) do
 			local enemy = enemyData[i]
-			lines[#lines + 1] = string.format("%d. %s (%s) - %d alerts, danger %.1f", i,
-				enemy.name or "Unknown", FormatClassName(enemy.class), enemy.alerts or 0, enemy.danger or 0)
+			lines[#lines + 1] = string.format("%d. %s (%s) - %d alerts (%.0f%%), danger %.1f, top zone %s", i,
+				enemy.name or "Unknown", FormatClassName(enemy.class), enemy.alerts or 0, enemy.percentage or 0,
+				enemy.danger or 0, enemy.topZone or "N/A")
 		end
 	else
 		lines[#lines + 1] = "(none tracked yet)"

@@ -290,7 +290,7 @@ function SoundAlerter:BuildQuickStartOptions()
 					enemyinrange = {
 						type = 'toggle',
 						name = "All Enemies in Range",
-						desc = "Alert for all enemy spells in combat log range (best for Battlegrounds)",
+						desc = "Alert for enemy spells from any player whose nameplate is visible nearby, not just your target/focus (best for Battlegrounds)",
 						disabled = function() return sadb.myself end,
 						width = "full",
 						order = 3,
@@ -554,7 +554,7 @@ function SoundAlerter:BuildProximityOptions()
 		args = {
 			description = {
 				type = 'description',
-				name = "|cffFFD700Proximity Alerts|r detect hostile players nearby — useful for spotting ganks and stealthed Rogues/Druids as soon as they act.\n\n|cffFFFFFFTriggers:|r any spell, aura or attack from an enemy player in combat-log range, or targeting / mousing over one. Stealthed enemies are only detected once they do something.\n",
+				name = "|cffFFD700Proximity Alerts|r detect hostile players nearby — useful for spotting ganks and stealthed Rogues/Druids as soon as they act.\n\n|cffFFFFFFTriggers:|r an enemy player's nameplate rendering nearby, or targeting / mousing over one. Stealthed enemies are only detected once they unstealth and their nameplate appears.\n",
 				fontSize = "medium",
 				order = 1,
 			},
@@ -630,15 +630,23 @@ function SoundAlerter:BuildProximityOptions()
 						width = "full",
 						order = 7,
 					},
+					proximitySanctuary = {
+						type = 'toggle',
+						name = "Sanctuary",
+						desc = "Enable proximity alerts in sanctuary zones (e.g. Moonglade) where PvP-flagged enemies can still attack you despite guards.",
+						disabled = function() return not sadb.proximityEnabled end,
+						width = "full",
+						order = 8,
+					},
 					spacer2 = {
 						type = 'description',
 						name = " ",
-						order = 8,
+						order = 9,
 					},
 					cooldownHeader = {
 						type = 'header',
 						name = "Alert Cooldown",
-						order = 9,
+						order = 10,
 					},
 					proximityCooldown = {
 						type = 'range',
@@ -649,7 +657,46 @@ function SoundAlerter:BuildProximityOptions()
 						step = 5,
 						disabled = function() return not sadb.proximityEnabled end,
 						width = "full",
-						order = 10,
+						order = 11,
+					},
+					spacer3 = {
+						type = 'description',
+						name = " ",
+						order = 12,
+					},
+					nameplateHeader = {
+						type = 'header',
+						name = "Nameplate Range",
+						order = 13,
+					},
+					overrideNameplateRange = {
+						type = 'toggle',
+						name = "Increase Nameplate Distance",
+						desc = "Overrides your client's nameplate render distance to extend proximity detection range. Affects all nameplates (allies, NPCs, everything), not just enemies. Disabling this restores your client's default distance.",
+						get = function() return sadb.overrideNameplateRange end,
+						set = function(info, value)
+							sadb.overrideNameplateRange = value
+							SoundAlerter:ApplyNameplateRange()
+						end,
+						disabled = function() return not sadb.proximityEnabled end,
+						width = "full",
+						order = 14,
+					},
+					nameplateRange = {
+						type = 'range',
+						name = "Nameplate Distance (yards)",
+						desc = "Distance to render nameplates. ~100 yards is effectively the practical ceiling - the client has no data on units beyond the server's own tracking range, so higher values have no further effect.",
+						min = 20,
+						max = 100,
+						step = 5,
+						get = function() return sadb.nameplateRange end,
+						set = function(info, value)
+							sadb.nameplateRange = value
+							SoundAlerter:ApplyNameplateRange()
+						end,
+						disabled = function() return not sadb.proximityEnabled or not sadb.overrideNameplateRange end,
+						width = "full",
+						order = 15,
 					},
 				},
 			},
@@ -1928,6 +1975,25 @@ function SoundAlerter:BuildCastingBarOptions()
 						width = "full",
 						order = 1,
 					},
+					applyPyramidLayout = {
+						type = 'execute',
+						name = "Apply Pyramid Layout",
+						desc = "Positions Player, Target, and Focus casting bars into a pyramid: Player centered on top, Target and Focus symmetrically below to the left and right. Bars remain draggable afterward.",
+						func = function()
+							local castingBars = SoundAlerter.db1.profile.castingBars
+							castingBars.player.PositionX = 0
+							castingBars.player.PositionY = -200
+							castingBars.target.PositionX = -160
+							castingBars.target.PositionY = -260
+							castingBars.focus.PositionX = 160
+							castingBars.focus.PositionY = -260
+							if SoundAlerter.CastingBars then
+								SoundAlerter.CastingBars:LoadSettings()
+							end
+						end,
+						width = "full",
+						order = 1.5,
+					},
 					barTexture = {
 						type = 'select',
 						name = "Bar Texture",
@@ -2045,6 +2111,50 @@ function SoundAlerter:BuildCastingBarOptions()
 						width = "full",
 						order = 3,
 					},
+					playerOrientation = {
+						type = 'select',
+						name = "Bar Orientation",
+						desc = "Horizontal or vertical fill for the player casting bar.",
+						values = { horizontal = "Horizontal", vertical = "Vertical" },
+						get = function() return SoundAlerter.db1.profile.castingBars.player.orientation end,
+						set = function(info, value)
+							local unitDB = SoundAlerter.db1.profile.castingBars.player
+							unitDB.orientation = value
+							if value == "vertical" and unitDB.fillDirection ~= "up" and unitDB.fillDirection ~= "down" then
+								unitDB.fillDirection = "up"
+							elseif value == "horizontal" and unitDB.fillDirection ~= "left" and unitDB.fillDirection ~= "right" then
+								unitDB.fillDirection = "right"
+							end
+							if SoundAlerter.CastingBars then
+								SoundAlerter.CastingBars:LoadSettings()
+							end
+						end,
+						disabled = function() return not SoundAlerter.db1.profile.castingBars.player.enabled end,
+						width = "full",
+						order = 4,
+					},
+					playerFillDirection = {
+						type = 'select',
+						name = "Fill Direction",
+						desc = "Direction the bar fills as the cast progresses.",
+						values = function()
+							if SoundAlerter.db1.profile.castingBars.player.orientation == "vertical" then
+								return { up = "Up", down = "Down" }
+							else
+								return { right = "Right", left = "Left" }
+							end
+						end,
+						get = function() return SoundAlerter.db1.profile.castingBars.player.fillDirection end,
+						set = function(info, value)
+							SoundAlerter.db1.profile.castingBars.player.fillDirection = value
+							if SoundAlerter.CastingBars then
+								SoundAlerter.CastingBars:LoadSettings()
+							end
+						end,
+						disabled = function() return not SoundAlerter.db1.profile.castingBars.player.enabled end,
+						width = "full",
+						order = 5,
+					},
 				},
 			},
 
@@ -2104,6 +2214,50 @@ function SoundAlerter:BuildCastingBarOptions()
 						width = "full",
 						order = 3,
 					},
+					targetOrientation = {
+						type = 'select',
+						name = "Bar Orientation",
+						desc = "Horizontal or vertical fill for the target casting bar.",
+						values = { horizontal = "Horizontal", vertical = "Vertical" },
+						get = function() return SoundAlerter.db1.profile.castingBars.target.orientation end,
+						set = function(info, value)
+							local unitDB = SoundAlerter.db1.profile.castingBars.target
+							unitDB.orientation = value
+							if value == "vertical" and unitDB.fillDirection ~= "up" and unitDB.fillDirection ~= "down" then
+								unitDB.fillDirection = "up"
+							elseif value == "horizontal" and unitDB.fillDirection ~= "left" and unitDB.fillDirection ~= "right" then
+								unitDB.fillDirection = "right"
+							end
+							if SoundAlerter.CastingBars then
+								SoundAlerter.CastingBars:LoadSettings()
+							end
+						end,
+						disabled = function() return not SoundAlerter.db1.profile.castingBars.target.enabled end,
+						width = "full",
+						order = 4,
+					},
+					targetFillDirection = {
+						type = 'select',
+						name = "Fill Direction",
+						desc = "Direction the bar fills as the cast progresses.",
+						values = function()
+							if SoundAlerter.db1.profile.castingBars.target.orientation == "vertical" then
+								return { up = "Up", down = "Down" }
+							else
+								return { right = "Right", left = "Left" }
+							end
+						end,
+						get = function() return SoundAlerter.db1.profile.castingBars.target.fillDirection end,
+						set = function(info, value)
+							SoundAlerter.db1.profile.castingBars.target.fillDirection = value
+							if SoundAlerter.CastingBars then
+								SoundAlerter.CastingBars:LoadSettings()
+							end
+						end,
+						disabled = function() return not SoundAlerter.db1.profile.castingBars.target.enabled end,
+						width = "full",
+						order = 5,
+					},
 				},
 			},
 
@@ -2162,6 +2316,50 @@ function SoundAlerter:BuildCastingBarOptions()
 						disabled = function() return not SoundAlerter.db1.profile.castingBars.focus.enabled end,
 						width = "full",
 						order = 3,
+					},
+					focusOrientation = {
+						type = 'select',
+						name = "Bar Orientation",
+						desc = "Horizontal or vertical fill for the focus casting bar.",
+						values = { horizontal = "Horizontal", vertical = "Vertical" },
+						get = function() return SoundAlerter.db1.profile.castingBars.focus.orientation end,
+						set = function(info, value)
+							local unitDB = SoundAlerter.db1.profile.castingBars.focus
+							unitDB.orientation = value
+							if value == "vertical" and unitDB.fillDirection ~= "up" and unitDB.fillDirection ~= "down" then
+								unitDB.fillDirection = "up"
+							elseif value == "horizontal" and unitDB.fillDirection ~= "left" and unitDB.fillDirection ~= "right" then
+								unitDB.fillDirection = "right"
+							end
+							if SoundAlerter.CastingBars then
+								SoundAlerter.CastingBars:LoadSettings()
+							end
+						end,
+						disabled = function() return not SoundAlerter.db1.profile.castingBars.focus.enabled end,
+						width = "full",
+						order = 4,
+					},
+					focusFillDirection = {
+						type = 'select',
+						name = "Fill Direction",
+						desc = "Direction the bar fills as the cast progresses.",
+						values = function()
+							if SoundAlerter.db1.profile.castingBars.focus.orientation == "vertical" then
+								return { up = "Up", down = "Down" }
+							else
+								return { right = "Right", left = "Left" }
+							end
+						end,
+						get = function() return SoundAlerter.db1.profile.castingBars.focus.fillDirection end,
+						set = function(info, value)
+							SoundAlerter.db1.profile.castingBars.focus.fillDirection = value
+							if SoundAlerter.CastingBars then
+								SoundAlerter.CastingBars:LoadSettings()
+							end
+						end,
+						disabled = function() return not SoundAlerter.db1.profile.castingBars.focus.enabled end,
+						width = "full",
+						order = 5,
 					},
 				},
 			},
@@ -2477,6 +2675,7 @@ function SoundAlerter:BuildStatisticsOptions()
 							name_desc = "Name (Z-A)",
 							danger = "Danger Rating (High to Low)",
 							class = "Class",
+							zone = "Top Zone",
 							time = "Most Recent"
 						},
 						width = "full",
@@ -3885,19 +4084,41 @@ function SoundAlerter:OnOptionsCreate()
 	local RebuildSpellTrackerOptions
 
 	local function BuildAddSpellPanel()
+		local function TryAddTrackedSpell()
+			local spellID = tonumber(spellTrackerAddForm.spellID)
+			if not spellID or spellID <= 0 then
+				SoundAlerter:Print("|cffff0000Invalid spell ID.|r")
+				return
+			end
+
+			if SoundAlerter.SpellTracker then
+				local success = SoundAlerter.SpellTracker:AddTrackedSpell(
+					spellID, spellTrackerAddForm.unit, spellTrackerAddForm.auraType)
+				if success then
+					SoundAlerter:Print("|cff00ff00Added spell " .. spellID .. " to tracker.|r")
+					spellTrackerAddForm.spellID = ""
+					RebuildSpellTrackerOptions()
+					LibStub("AceConfigRegistry-3.0"):NotifyChange("SoundAlerter")
+				end
+			end
+		end
+
 		return {
 			addDescription = {
 				type = 'description',
-				name = "Add a new spell to track. Enter the spell ID and configure settings below.",
+				name = "Add a new spell to track. Enter the spell ID and press Enter, or type it and click Add Spell.",
 				fontSize = "medium",
 				order = 1,
 			},
 			addSpellID = {
 				type = 'input',
 				name = "Spell ID",
-				desc = "Enter numeric spell ID",
+				desc = "Enter numeric spell ID and press Enter",
 				get = function() return spellTrackerAddForm.spellID end,
-				set = function(info, value) spellTrackerAddForm.spellID = value end,
+				set = function(info, value)
+					spellTrackerAddForm.spellID = value
+					TryAddTrackedSpell()
+				end,
 				width = "half",
 				order = 2,
 			},
@@ -3925,24 +4146,7 @@ function SoundAlerter:OnOptionsCreate()
 				type = 'execute',
 				name = "Add Spell",
 				desc = "Add this spell to the tracker",
-				func = function()
-					local spellID = tonumber(spellTrackerAddForm.spellID)
-					if not spellID or spellID <= 0 then
-						SoundAlerter:Print("|cffff0000Invalid spell ID.|r")
-						return
-					end
-
-					if SoundAlerter.SpellTracker then
-						local success = SoundAlerter.SpellTracker:AddTrackedSpell(
-							spellID, spellTrackerAddForm.unit, spellTrackerAddForm.auraType)
-						if success then
-							SoundAlerter:Print("|cff00ff00Added spell " .. spellID .. " to tracker.|r")
-							spellTrackerAddForm.spellID = ""
-							RebuildSpellTrackerOptions()
-							LibStub("AceConfigRegistry-3.0"):NotifyChange("SoundAlerter")
-						end
-					end
-				end,
+				func = TryAddTrackedSpell,
 				width = "full",
 				order = 5,
 			},
