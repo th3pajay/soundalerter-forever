@@ -653,6 +653,27 @@ function SpellTracker:LoadSettings()
     self:RefreshAllTrackers()
 end
 
+local SPELL_TRACKER_KEYS = {
+    locked = true,
+    showTimerText = true,
+    showCooldownText = true,
+}
+
+function SpellTracker:GetSettings()
+    return self.db
+end
+
+function SpellTracker:SetSetting(key, value)
+    if not SPELL_TRACKER_KEYS[key] then
+        error("SpellTracker:SetSetting - unknown setting key '"..tostring(key).."'", 2)
+    end
+    if key == "locked" then
+        self:SetLocked(value)
+    else
+        self.db[key] = value
+    end
+end
+
 function SpellTracker:SetLocked(locked)
     if not self.db then return end
     self.db.locked = locked

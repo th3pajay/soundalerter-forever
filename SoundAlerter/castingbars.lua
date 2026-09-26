@@ -13,6 +13,52 @@ local CAST_BAR_UNITS = {
 	focus = { frameName = "SoundAlerterCastingBar_Focus", titleText = "Focus Cast", defaultY = -260 },
 }
 
+local CASTING_BAR_GROUP_KEYS = {
+	locked = true,
+	barTexture = true,
+	timeFormat = true,
+	showSpellIcon = true,
+	showLatency = true,
+}
+
+local CASTING_BAR_UNIT_KEYS = {
+	enabled = true,
+	width = true,
+	height = true,
+	orientation = true,
+	fillDirection = true,
+	PositionX = true,
+	PositionY = true,
+}
+
+function CastingBars:GetSettings()
+	return self.db
+end
+
+function CastingBars:SetSetting(key, value)
+	local unit, field = key:match("^(%a+)%.(%a+)$")
+	if unit then
+		if not CAST_BAR_UNITS[unit] or not CASTING_BAR_UNIT_KEYS[field] then
+			error("CastingBars:SetSetting - unknown setting key '"..tostring(key).."'", 2)
+		end
+		self.db[unit][field] = value
+	else
+		if not CASTING_BAR_GROUP_KEYS[key] then
+			error("CastingBars:SetSetting - unknown setting key '"..tostring(key).."'", 2)
+		end
+		self.db[key] = value
+	end
+end
+
+function CastingBars:ApplyPyramidLayout()
+	self.db.player.PositionX = 0
+	self.db.player.PositionY = -200
+	self.db.target.PositionX = -160
+	self.db.target.PositionY = -260
+	self.db.focus.PositionX = 160
+	self.db.focus.PositionY = -260
+end
+
 function CastingBars:Initialize()
 	if self.initialized then return end
 

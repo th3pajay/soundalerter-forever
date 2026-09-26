@@ -755,13 +755,13 @@ function SoundAlerter:BuildProximityOptions()
 						width = "full",
 						order = 9,
 						set = function(info, value)
-							sadb.proximityToasts.enabled = value
+							SoundAlerter.ProximityToasts:SetSetting("enabled", value)
 							if not value and SoundAlerter.ProximityToasts then
 								SoundAlerter.ProximityToasts:OnDisable()
 							end
 						end,
 						get = function(info)
-							return sadb.proximityToasts.enabled
+							return SoundAlerter.ProximityToasts:GetSettings().enabled
 						end,
 					},
 					displayDuration = {
@@ -775,10 +775,10 @@ function SoundAlerter:BuildProximityOptions()
 						width = "full",
 						order = 10,
 						set = function(info, value)
-							sadb.proximityToasts.displayDuration = value
+							SoundAlerter.ProximityToasts:SetSetting("displayDuration", value)
 						end,
 						get = function(info)
-							return sadb.proximityToasts.displayDuration
+							return SoundAlerter.ProximityToasts:GetSettings().displayDuration
 						end,
 					},
 					maxConcurrent = {
@@ -792,10 +792,10 @@ function SoundAlerter:BuildProximityOptions()
 						width = "full",
 						order = 11,
 						set = function(info, value)
-							sadb.proximityToasts.maxConcurrent = value
+							SoundAlerter.ProximityToasts:SetSetting("maxConcurrent", value)
 						end,
 						get = function(info)
-							return sadb.proximityToasts.maxConcurrent
+							return SoundAlerter.ProximityToasts:GetSettings().maxConcurrent
 						end,
 					},
 				},
@@ -818,10 +818,10 @@ function SoundAlerter:BuildProximityOptions()
 						width = "full",
 						order = 2,
 						set = function(info, value)
-							sadb.proximityToasts.showPlayerName = value
+							SoundAlerter.ProximityToasts:SetSetting("showPlayerName", value)
 						end,
 						get = function(info)
-							return sadb.proximityToasts.showPlayerName
+							return SoundAlerter.ProximityToasts:GetSettings().showPlayerName
 						end,
 					},
 					useClassColors = {
@@ -832,10 +832,10 @@ function SoundAlerter:BuildProximityOptions()
 						width = "full",
 						order = 3,
 						set = function(info, value)
-							sadb.proximityToasts.useClassColors = value
+							SoundAlerter.ProximityToasts:SetSetting("useClassColors", value)
 						end,
 						get = function(info)
-							return sadb.proximityToasts.useClassColors
+							return SoundAlerter.ProximityToasts:GetSettings().useClassColors
 						end,
 					},
 					rainbowBorder = {
@@ -846,10 +846,10 @@ function SoundAlerter:BuildProximityOptions()
 						width = "full",
 						order = 4,
 						set = function(info, value)
-							sadb.proximityToasts.rainbowBorder = value
+							SoundAlerter.ProximityToasts:SetSetting("rainbowBorder", value)
 						end,
 						get = function(info)
-							return sadb.proximityToasts.rainbowBorder
+							return SoundAlerter.ProximityToasts:GetSettings().rainbowBorder
 						end,
 					},
 				},
@@ -875,13 +875,13 @@ function SoundAlerter:BuildProximityOptions()
 						width = "normal",
 						order = 2,
 						set = function(info, value)
-							sadb.proximityToasts.positionX = value
+							SoundAlerter.ProximityToasts:SetSetting("positionX", value)
 							if SoundAlerter.ProximityToasts then
 								SoundAlerter.ProximityToasts:UpdateLayout()
 							end
 						end,
 						get = function(info)
-							return sadb.proximityToasts.positionX
+							return SoundAlerter.ProximityToasts:GetSettings().positionX
 						end,
 					},
 					positionY = {
@@ -895,13 +895,13 @@ function SoundAlerter:BuildProximityOptions()
 						width = "normal",
 						order = 3,
 						set = function(info, value)
-							sadb.proximityToasts.positionY = value
+							SoundAlerter.ProximityToasts:SetSetting("positionY", value)
 							if SoundAlerter.ProximityToasts then
 								SoundAlerter.ProximityToasts:UpdateLayout()
 							end
 						end,
 						get = function(info)
-							return sadb.proximityToasts.positionY
+							return SoundAlerter.ProximityToasts:GetSettings().positionY
 						end,
 					},
 					spacer = {
@@ -949,10 +949,10 @@ function SoundAlerter:BuildProximityOptions()
 						width = "full",
 						order = 2,
 						set = function(info, value)
-							sadb.proximityToasts.clickEnabled = value
+							SoundAlerter.ProximityToasts:SetSetting("clickEnabled", value)
 						end,
 						get = function(info)
-							return sadb.proximityToasts.clickEnabled
+							return SoundAlerter.ProximityToasts:GetSettings().clickEnabled
 						end,
 					},
 					spacer1 = {
@@ -973,10 +973,10 @@ function SoundAlerter:BuildProximityOptions()
 						width = "full",
 						order = 5,
 						set = function(info, value)
-							sadb.proximityToasts.enableClickToTarget = value
+							SoundAlerter.ProximityToasts:SetSetting("enableClickToTarget", value)
 						end,
 						get = function(info)
-							return sadb.proximityToasts.enableClickToTarget
+							return SoundAlerter.ProximityToasts:GetSettings().enableClickToTarget
 						end,
 					},
 					enableFocusTarget = {
@@ -987,10 +987,10 @@ function SoundAlerter:BuildProximityOptions()
 						width = "full",
 						order = 6,
 						set = function(info, value)
-							sadb.proximityToasts.enableFocusTarget = value
+							SoundAlerter.ProximityToasts:SetSetting("enableFocusTarget", value)
 						end,
 						get = function(info)
-							return sadb.proximityToasts.enableFocusTarget
+							return SoundAlerter.ProximityToasts:GetSettings().enableFocusTarget
 						end,
 					},
 				},
@@ -1035,9 +1035,9 @@ function SoundAlerter:BuildFlagOptions()
 						type = 'toggle',
 						name = "Enable Battleground Alerts",
 						desc = "Master toggle for all battlefield objective alerts. Enable this first to activate all battleground features.",
-						get = function() return sadb.battlegroundAlertsEnabled end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().battlegroundAlertsEnabled end,
 						set = function(_, val)
-							sadb.battlegroundAlertsEnabled = val
+							SoundAlerter.FlagAlerts:SetSetting("battlegroundAlertsEnabled", val)
 							if SoundAlerter.UpdateMinimapButtonIcon then
 								SoundAlerter:UpdateMinimapButtonIcon()
 							end
@@ -1059,8 +1059,8 @@ function SoundAlerter:BuildFlagOptions()
 						type = 'toggle',
 						name = "Flag Pickups",
 						desc = "Alert when a player picks up a flag (e.g., 'Rogue picked up flag')",
-						get = function() return sadb.flagPickupAudio end,
-						set = function(_, val) sadb.flagPickupAudio = val end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().flagPickupAudio end,
+						set = function(_, val) SoundAlerter.FlagAlerts:SetSetting("flagPickupAudio", val) end,
 						disabled = function() return not sadb.battlegroundAlertsEnabled end,
 						width = "full",
 						order = 1,
@@ -1069,8 +1069,8 @@ function SoundAlerter:BuildFlagOptions()
 						type = 'toggle',
 						name = "Flag Drops",
 						desc = "Alert when a flag is dropped",
-						get = function() return sadb.flagDropAudio end,
-						set = function(_, val) sadb.flagDropAudio = val end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().flagDropAudio end,
+						set = function(_, val) SoundAlerter.FlagAlerts:SetSetting("flagDropAudio", val) end,
 						disabled = function() return not sadb.battlegroundAlertsEnabled end,
 						width = "full",
 						order = 2,
@@ -1079,8 +1079,8 @@ function SoundAlerter:BuildFlagOptions()
 						type = 'toggle',
 						name = "Flag Captures",
 						desc = "Alert when a flag is captured",
-						get = function() return sadb.flagCaptureAudio end,
-						set = function(_, val) sadb.flagCaptureAudio = val end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().flagCaptureAudio end,
+						set = function(_, val) SoundAlerter.FlagAlerts:SetSetting("flagCaptureAudio", val) end,
 						disabled = function() return not sadb.battlegroundAlertsEnabled end,
 						width = "full",
 						order = 3,
@@ -1089,8 +1089,8 @@ function SoundAlerter:BuildFlagOptions()
 						type = 'toggle',
 						name = "Flag Returns",
 						desc = "Alert when a flag is returned to base",
-						get = function() return sadb.flagReturnAudio end,
-						set = function(_, val) sadb.flagReturnAudio = val end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().flagReturnAudio end,
+						set = function(_, val) SoundAlerter.FlagAlerts:SetSetting("flagReturnAudio", val) end,
 						disabled = function() return not sadb.battlegroundAlertsEnabled end,
 						width = "full",
 						order = 4,
@@ -1109,8 +1109,8 @@ function SoundAlerter:BuildFlagOptions()
 						type = 'toggle',
 						name = "Show Toast Notifications",
 						desc = "Display visual toasts for flag carriers (uses proximity toast settings for appearance)",
-						get = function() return sadb.flagToastsEnabled end,
-						set = function(_, val) sadb.flagToastsEnabled = val end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().flagToastsEnabled end,
+						set = function(_, val) SoundAlerter.FlagAlerts:SetSetting("flagToastsEnabled", val) end,
 						disabled = function() return not sadb.battlegroundAlertsEnabled end,
 						width = "full",
 						order = 1,
@@ -1123,10 +1123,10 @@ function SoundAlerter:BuildFlagOptions()
 						width = "full",
 						order = 2,
 						set = function(info, value)
-							sadb.proximityToasts.rainbowBorder = value
+							SoundAlerter.ProximityToasts:SetSetting("rainbowBorder", value)
 						end,
 						get = function(info)
-							return sadb.proximityToasts.rainbowBorder
+							return SoundAlerter.ProximityToasts:GetSettings().rainbowBorder
 						end,
 					},
 					spacer1 = {
@@ -1141,8 +1141,8 @@ function SoundAlerter:BuildFlagOptions()
 						       "|cffFF5555• Red transparent background|r = Enemy team flag carrier\n" ..
 						       "|cff55FF55• Green transparent background|r = Friendly team flag carrier\n\n" ..
 						       "This helps you quickly identify which team picked up the flag without reading the toast.",
-						get = function() return sadb.flagTeamBackgroundColors end,
-						set = function(_, val) sadb.flagTeamBackgroundColors = val end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().flagTeamBackgroundColors end,
+						set = function(_, val) SoundAlerter.FlagAlerts:SetSetting("flagTeamBackgroundColors", val) end,
 						disabled = function() return not sadb.battlegroundAlertsEnabled or not sadb.flagToastsEnabled end,
 						width = "full",
 						order = 4,
@@ -1152,8 +1152,8 @@ function SoundAlerter:BuildFlagOptions()
 						name = "  Enemy Team: Red Background",
 						desc = "Show a red transparent background when an enemy team member picks up the flag. " ..
 						       "This provides instant visual recognition of threats.",
-						get = function() return sadb.flagEnemyRedBackground end,
-						set = function(_, val) sadb.flagEnemyRedBackground = val end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().flagEnemyRedBackground end,
+						set = function(_, val) SoundAlerter.FlagAlerts:SetSetting("flagEnemyRedBackground", val) end,
 						disabled = function()
 							return not sadb.battlegroundAlertsEnabled or
 							       not sadb.flagToastsEnabled or
@@ -1167,8 +1167,8 @@ function SoundAlerter:BuildFlagOptions()
 						name = "  Friendly Team: Green Background",
 						desc = "Show a green transparent background when a friendly team member picks up the flag. " ..
 						       "Useful for tracking your team's flag carrier.",
-						get = function() return sadb.flagFriendlyGreenBackground end,
-						set = function(_, val) sadb.flagFriendlyGreenBackground = val end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().flagFriendlyGreenBackground end,
+						set = function(_, val) SoundAlerter.FlagAlerts:SetSetting("flagFriendlyGreenBackground", val) end,
 						disabled = function()
 							return not sadb.battlegroundAlertsEnabled or
 							       not sadb.flagToastsEnabled or
@@ -1188,8 +1188,8 @@ function SoundAlerter:BuildFlagOptions()
 							["Solid"] = "Solid (Default)",
 							["DialogBox"] = "Dialog Box",
 						},
-						get = function() return sadb.flagEnemyTexture or "Solid" end,
-						set = function(_, val) sadb.flagEnemyTexture = val end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().flagEnemyTexture or "Solid" end,
+						set = function(_, val) SoundAlerter.FlagAlerts:SetSetting("flagEnemyTexture", val) end,
 						disabled = function()
 							return not sadb.battlegroundAlertsEnabled or
 							       not sadb.flagToastsEnabled or
@@ -1209,8 +1209,8 @@ function SoundAlerter:BuildFlagOptions()
 							["Solid"] = "Solid (Default)",
 							["DialogBox"] = "Dialog Box",
 						},
-						get = function() return sadb.flagFriendlyTexture or "Solid" end,
-						set = function(_, val) sadb.flagFriendlyTexture = val end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().flagFriendlyTexture or "Solid" end,
+						set = function(_, val) SoundAlerter.FlagAlerts:SetSetting("flagFriendlyTexture", val) end,
 						disabled = function()
 							return not sadb.battlegroundAlertsEnabled or
 							       not sadb.flagToastsEnabled or
@@ -1281,16 +1281,14 @@ function SoundAlerter:BuildFlagOptions()
 						width = "normal",
 						order = 6.9,
 						set = function(info, value)
-							if not sadb.flagToasts then
-								sadb.flagToasts = {}
-							end
-							sadb.flagToasts.positionX = value
+							SoundAlerter.FlagAlerts:SetSetting("flagToasts.positionX", value)
 							if SoundAlerter.FlagAlerts then
 								SoundAlerter.FlagAlerts:UpdateFlagToastLayout()
 							end
 						end,
 						get = function(info)
-							return sadb.flagToasts and sadb.flagToasts.positionX or 0
+							local settings = SoundAlerter.FlagAlerts:GetSettings()
+							return settings.flagToasts and settings.flagToasts.positionX or 0
 						end,
 					},
 					flagPositionY = {
@@ -1310,16 +1308,14 @@ function SoundAlerter:BuildFlagOptions()
 						width = "normal",
 						order = 6.95,
 						set = function(info, value)
-							if not sadb.flagToasts then
-								sadb.flagToasts = {}
-							end
-							sadb.flagToasts.positionY = value
+							SoundAlerter.FlagAlerts:SetSetting("flagToasts.positionY", value)
 							if SoundAlerter.FlagAlerts then
 								SoundAlerter.FlagAlerts:UpdateFlagToastLayout()
 							end
 						end,
 						get = function(info)
-							return sadb.flagToasts and sadb.flagToasts.positionY or -300
+							local settings = SoundAlerter.FlagAlerts:GetSettings()
+							return settings.flagToasts and settings.flagToasts.positionY or -300
 						end,
 					},
 					toastNote = {
@@ -1341,12 +1337,12 @@ function SoundAlerter:BuildFlagOptions()
 						type = 'toggle',
 						name = "Only Enemy Team Events",
 						desc = "Only alert for enemy flag pickups/captures (recommended for less spam). Automatically disabled when 'Alert All Flag Actions' is enabled.",
-						get = function() return sadb.flagOnlyEnemyTeam end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().flagOnlyEnemyTeam end,
 						set = function(_, val)
-							sadb.flagOnlyEnemyTeam = val
+							SoundAlerter.FlagAlerts:SetSetting("flagOnlyEnemyTeam", val)
 
 							if val then
-								sadb.flagOnlyFriendlyTeam = false
+								SoundAlerter.FlagAlerts:SetSetting("flagOnlyFriendlyTeam", false)
 							end
 						end,
 						disabled = function() return not sadb.battlegroundAlertsEnabled or sadb.flagAllActions end,
@@ -1357,12 +1353,12 @@ function SoundAlerter:BuildFlagOptions()
 						type = 'toggle',
 						name = "Only Friendly Team Events",
 						desc = "Only alert for friendly flag pickups/captures. Automatically disabled when 'Alert All Flag Actions' is enabled.",
-						get = function() return sadb.flagOnlyFriendlyTeam end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().flagOnlyFriendlyTeam end,
 						set = function(_, val)
-							sadb.flagOnlyFriendlyTeam = val
+							SoundAlerter.FlagAlerts:SetSetting("flagOnlyFriendlyTeam", val)
 
 							if val then
-								sadb.flagOnlyEnemyTeam = false
+								SoundAlerter.FlagAlerts:SetSetting("flagOnlyEnemyTeam", false)
 							end
 						end,
 						disabled = function() return not sadb.battlegroundAlertsEnabled or sadb.flagAllActions end,
@@ -1373,13 +1369,13 @@ function SoundAlerter:BuildFlagOptions()
 						type = 'toggle',
 						name = "Alert All Flag Actions",
 						desc = "Alert for ALL flag events (pickup, drop, capture, return) for BOTH enemy and friendly teams. Enabling this will automatically disable team-specific filters above. May be spammy in active battlegrounds.",
-						get = function() return sadb.flagAllActions end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().flagAllActions end,
 						set = function(_, val)
-							sadb.flagAllActions = val
+							SoundAlerter.FlagAlerts:SetSetting("flagAllActions", val)
 
 							if val then
-								sadb.flagOnlyEnemyTeam = false
-								sadb.flagOnlyFriendlyTeam = false
+								SoundAlerter.FlagAlerts:SetSetting("flagOnlyEnemyTeam", false)
+								SoundAlerter.FlagAlerts:SetSetting("flagOnlyFriendlyTeam", false)
 							end
 						end,
 						disabled = function() return not sadb.battlegroundAlertsEnabled end,
@@ -1399,8 +1395,8 @@ function SoundAlerter:BuildFlagOptions()
 						type = 'toggle',
 						name = "Send Chat Messages",
 						desc = "Announce flag events in chat channels",
-						get = function() return sadb.flagChatEnabled end,
-						set = function(_, val) sadb.flagChatEnabled = val end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().flagChatEnabled end,
+						set = function(_, val) SoundAlerter.FlagAlerts:SetSetting("flagChatEnabled", val) end,
 						disabled = function() return not sadb.battlegroundAlertsEnabled end,
 						width = "full",
 						order = 1,
@@ -1413,8 +1409,8 @@ function SoundAlerter:BuildFlagOptions()
 						       "#player# - Player name\n" ..
 						       "#action# - Action (picked up flag, captured flag, etc.)\n\n" ..
 						       "Example: [#class#] #player# #action#!",
-						get = function() return sadb.flagChatText end,
-						set = function(_, val) sadb.flagChatText = val end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().flagChatText end,
+						set = function(_, val) SoundAlerter.FlagAlerts:SetSetting("flagChatText", val) end,
 						disabled = function() return not sadb.battlegroundAlertsEnabled or not sadb.flagChatEnabled end,
 						width = 'full',
 						order = 2,
@@ -1429,8 +1425,8 @@ function SoundAlerter:BuildFlagOptions()
 							["RAID"] = "Raid",
 							["BATTLEGROUND"] = "Battleground",
 						},
-						get = function() return sadb.flagChatChannel end,
-						set = function(_, val) sadb.flagChatChannel = val end,
+						get = function() return SoundAlerter.FlagAlerts:GetSettings().flagChatChannel end,
+						set = function(_, val) SoundAlerter.FlagAlerts:SetSetting("flagChatChannel", val) end,
 						disabled = function() return not sadb.battlegroundAlertsEnabled or not sadb.flagChatEnabled end,
 						order = 3,
 					},
@@ -1515,9 +1511,9 @@ function SoundAlerter:BuildResourceBarOptions()
 						type = 'toggle',
 						name = "Lock Bars",
 						desc = "Lock all resource bars in place. Unlock to drag and reposition.",
-						get = function() return SoundAlerter.db1.profile.resourceBar.locked end,
+						get = function() return SoundAlerter.ResourceBar:GetSettings().locked end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.resourceBar.locked = value
+							SoundAlerter.ResourceBar:SetSetting("locked", value)
 							if SoundAlerter.ResourceBar then
 								SoundAlerter.ResourceBar:SetLocked(value)
 							end
@@ -1534,9 +1530,9 @@ function SoundAlerter:BuildResourceBarOptions()
 						solid = "Solid (Clean Fill)",
 						transparent = "Transparent (Semi-Opaque)",
 					},
-					get = function() return SoundAlerter.db1.profile.resourceBar.barTexture end,
+					get = function() return SoundAlerter.ResourceBar:GetSettings().barTexture end,
 					set = function(info, value)
-						SoundAlerter.db1.profile.resourceBar.barTexture = value
+						SoundAlerter.ResourceBar:SetSetting("barTexture", value)
 						if SoundAlerter.ResourceBar then
 							SoundAlerter.ResourceBar:ApplyBarTexture()
 						end
@@ -1557,9 +1553,9 @@ function SoundAlerter:BuildResourceBarOptions()
 						type = 'toggle',
 						name = "Show Energy Bar",
 						desc = "Display energy bar (for Rogues, Druids in Cat Form).",
-						get = function() return SoundAlerter.db1.profile.resourceBar.energyEnabled end,
+						get = function() return SoundAlerter.ResourceBar:GetSettings().energyEnabled end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.resourceBar.energyEnabled = value
+							SoundAlerter.ResourceBar:SetSetting("energyEnabled", value)
 							if SoundAlerter.ResourceBar then
 								SoundAlerter.ResourceBar:UpdateVisibility()
 							end
@@ -1574,9 +1570,9 @@ function SoundAlerter:BuildResourceBarOptions()
 						min = 0.5,
 						max = 2.0,
 						step = 0.05,
-						get = function() return SoundAlerter.db1.profile.resourceBar.energyScale end,
+						get = function() return SoundAlerter.ResourceBar:GetSettings().energyScale end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.resourceBar.energyScale = value
+							SoundAlerter.ResourceBar:SetSetting("energyScale", value)
 							if SoundAlerter.ResourceBar and SoundAlerter.ResourceBar.energyFrame then
 								SoundAlerter.ResourceBar.energyFrame:SetScale(value)
 							end
@@ -1590,11 +1586,11 @@ function SoundAlerter:BuildResourceBarOptions()
 						name = "Energy Color",
 						desc = "Color of the energy bar.",
 						get = function()
-							local c = SoundAlerter.db1.profile.resourceBar.energyColor
+							local c = SoundAlerter.ResourceBar:GetSettings().energyColor
 							return c.r, c.g, c.b
 						end,
 						set = function(info, r, g, b)
-							SoundAlerter.db1.profile.resourceBar.energyColor = {r = r, g = g, b = b}
+							SoundAlerter.ResourceBar:SetSetting("energyColor", {r = r, g = g, b = b})
 							if SoundAlerter.ResourceBar then
 								SoundAlerter.ResourceBar:CacheColors()
 								SoundAlerter.ResourceBar:UpdateEnergyBar()
@@ -1616,9 +1612,9 @@ function SoundAlerter:BuildResourceBarOptions()
 						type = 'toggle',
 						name = "Show Rage Bar",
 						desc = "Display rage bar (for Warriors, Druids in Bear Form).",
-						get = function() return SoundAlerter.db1.profile.resourceBar.rageEnabled end,
+						get = function() return SoundAlerter.ResourceBar:GetSettings().rageEnabled end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.resourceBar.rageEnabled = value
+							SoundAlerter.ResourceBar:SetSetting("rageEnabled", value)
 							if SoundAlerter.ResourceBar then
 								SoundAlerter.ResourceBar:UpdateVisibility()
 							end
@@ -1633,9 +1629,9 @@ function SoundAlerter:BuildResourceBarOptions()
 						min = 0.5,
 						max = 2.0,
 						step = 0.05,
-						get = function() return SoundAlerter.db1.profile.resourceBar.rageScale end,
+						get = function() return SoundAlerter.ResourceBar:GetSettings().rageScale end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.resourceBar.rageScale = value
+							SoundAlerter.ResourceBar:SetSetting("rageScale", value)
 							if SoundAlerter.ResourceBar and SoundAlerter.ResourceBar.rageFrame then
 								SoundAlerter.ResourceBar.rageFrame:SetScale(value)
 							end
@@ -1649,11 +1645,11 @@ function SoundAlerter:BuildResourceBarOptions()
 						name = "Rage Color",
 						desc = "Color of the rage bar.",
 						get = function()
-							local c = SoundAlerter.db1.profile.resourceBar.rageColor
+							local c = SoundAlerter.ResourceBar:GetSettings().rageColor
 							return c.r, c.g, c.b
 						end,
 						set = function(info, r, g, b)
-							SoundAlerter.db1.profile.resourceBar.rageColor = {r = r, g = g, b = b}
+							SoundAlerter.ResourceBar:SetSetting("rageColor", {r = r, g = g, b = b})
 							if SoundAlerter.ResourceBar then
 								SoundAlerter.ResourceBar:CacheColors()
 								SoundAlerter.ResourceBar:UpdateRageBar()
@@ -1675,9 +1671,9 @@ function SoundAlerter:BuildResourceBarOptions()
 						type = 'toggle',
 						name = "Show Health Bar",
 						desc = "Display health bar.",
-						get = function() return SoundAlerter.db1.profile.resourceBar.healthEnabled end,
+						get = function() return SoundAlerter.ResourceBar:GetSettings().healthEnabled end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.resourceBar.healthEnabled = value
+							SoundAlerter.ResourceBar:SetSetting("healthEnabled", value)
 							if SoundAlerter.ResourceBar then
 								SoundAlerter.ResourceBar:UpdateVisibility()
 							end
@@ -1692,9 +1688,9 @@ function SoundAlerter:BuildResourceBarOptions()
 						min = 0.5,
 						max = 2.0,
 						step = 0.05,
-						get = function() return SoundAlerter.db1.profile.resourceBar.healthScale end,
+						get = function() return SoundAlerter.ResourceBar:GetSettings().healthScale end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.resourceBar.healthScale = value
+							SoundAlerter.ResourceBar:SetSetting("healthScale", value)
 							if SoundAlerter.ResourceBar and SoundAlerter.ResourceBar.healthFrame then
 								SoundAlerter.ResourceBar.healthFrame:SetScale(value)
 							end
@@ -1710,9 +1706,9 @@ function SoundAlerter:BuildResourceBarOptions()
 						min = 10,
 						max = 40,
 						step = 1,
-						get = function() return SoundAlerter.db1.profile.resourceBar.healthHeight end,
+						get = function() return SoundAlerter.ResourceBar:GetSettings().healthHeight end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.resourceBar.healthHeight = value
+							SoundAlerter.ResourceBar:SetSetting("healthHeight", value)
 							if SoundAlerter.ResourceBar then
 								SoundAlerter.ResourceBar:LoadSettings()
 							end
@@ -1726,11 +1722,11 @@ function SoundAlerter:BuildResourceBarOptions()
 						name = "Health Color",
 						desc = "Color of the health bar.",
 						get = function()
-							local c = SoundAlerter.db1.profile.resourceBar.healthColor
+							local c = SoundAlerter.ResourceBar:GetSettings().healthColor
 							return c.r, c.g, c.b
 						end,
 						set = function(info, r, g, b)
-							SoundAlerter.db1.profile.resourceBar.healthColor = {r = r, g = g, b = b}
+							SoundAlerter.ResourceBar:SetSetting("healthColor", {r = r, g = g, b = b})
 							if SoundAlerter.ResourceBar then
 								SoundAlerter.ResourceBar:CacheColors()
 								SoundAlerter.ResourceBar:UpdateHealthBar()
@@ -1752,9 +1748,9 @@ function SoundAlerter:BuildResourceBarOptions()
 						type = 'toggle',
 						name = "Show Mana Bar",
 						desc = "Display mana bar (for casters).",
-						get = function() return SoundAlerter.db1.profile.resourceBar.manaEnabled end,
+						get = function() return SoundAlerter.ResourceBar:GetSettings().manaEnabled end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.resourceBar.manaEnabled = value
+							SoundAlerter.ResourceBar:SetSetting("manaEnabled", value)
 							if SoundAlerter.ResourceBar then
 								SoundAlerter.ResourceBar:UpdateVisibility()
 							end
@@ -1769,9 +1765,9 @@ function SoundAlerter:BuildResourceBarOptions()
 						min = 0.5,
 						max = 2.0,
 						step = 0.05,
-						get = function() return SoundAlerter.db1.profile.resourceBar.manaScale end,
+						get = function() return SoundAlerter.ResourceBar:GetSettings().manaScale end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.resourceBar.manaScale = value
+							SoundAlerter.ResourceBar:SetSetting("manaScale", value)
 							if SoundAlerter.ResourceBar and SoundAlerter.ResourceBar.manaFrame then
 								SoundAlerter.ResourceBar.manaFrame:SetScale(value)
 							end
@@ -1785,11 +1781,11 @@ function SoundAlerter:BuildResourceBarOptions()
 						name = "Mana Color",
 						desc = "Color of the mana bar.",
 						get = function()
-							local c = SoundAlerter.db1.profile.resourceBar.manaColor
+							local c = SoundAlerter.ResourceBar:GetSettings().manaColor
 							return c.r, c.g, c.b
 						end,
 						set = function(info, r, g, b)
-							SoundAlerter.db1.profile.resourceBar.manaColor = {r = r, g = g, b = b}
+							SoundAlerter.ResourceBar:SetSetting("manaColor", {r = r, g = g, b = b})
 							if SoundAlerter.ResourceBar then
 								SoundAlerter.ResourceBar:CacheColors()
 								SoundAlerter.ResourceBar:UpdateManaBar()
@@ -1811,9 +1807,9 @@ function SoundAlerter:BuildResourceBarOptions()
 						type = 'toggle',
 						name = "Show Combo Points",
 						desc = "Display combo points (for Rogues, Druids in Cat Form).",
-						get = function() return SoundAlerter.db1.profile.resourceBar.comboEnabled end,
+						get = function() return SoundAlerter.ResourceBar:GetSettings().comboEnabled end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.resourceBar.comboEnabled = value
+							SoundAlerter.ResourceBar:SetSetting("comboEnabled", value)
 							if SoundAlerter.ResourceBar then
 								SoundAlerter.ResourceBar:UpdateVisibility()
 							end
@@ -1828,9 +1824,9 @@ function SoundAlerter:BuildResourceBarOptions()
 						min = 0.5,
 						max = 2.0,
 						step = 0.05,
-						get = function() return SoundAlerter.db1.profile.resourceBar.comboScale end,
+						get = function() return SoundAlerter.ResourceBar:GetSettings().comboScale end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.resourceBar.comboScale = value
+							SoundAlerter.ResourceBar:SetSetting("comboScale", value)
 							if SoundAlerter.ResourceBar and SoundAlerter.ResourceBar.comboFrame then
 								SoundAlerter.ResourceBar.comboFrame:SetScale(value)
 							end
@@ -1847,9 +1843,9 @@ function SoundAlerter:BuildResourceBarOptions()
 						circle = "Circle",
 						square = "Square",
 					},
-					get = function() return SoundAlerter.db1.profile.resourceBar.comboStyle end,
+					get = function() return SoundAlerter.ResourceBar:GetSettings().comboStyle end,
 					set = function(info, value)
-						SoundAlerter.db1.profile.resourceBar.comboStyle = value
+						SoundAlerter.ResourceBar:SetSetting("comboStyle", value)
 						if SoundAlerter.ResourceBar then
 							SoundAlerter.ResourceBar:ApplyCPStyle()
 						end
@@ -1862,9 +1858,9 @@ function SoundAlerter:BuildResourceBarOptions()
 						type = 'toggle',
 						name = "Show Combo Text",
 						desc = "Display combo points as text (e.g., '3/5').",
-						get = function() return SoundAlerter.db1.profile.resourceBar.comboTextEnabled end,
+						get = function() return SoundAlerter.ResourceBar:GetSettings().comboTextEnabled end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.resourceBar.comboTextEnabled = value
+							SoundAlerter.ResourceBar:SetSetting("comboTextEnabled", value)
 							if SoundAlerter.ResourceBar then
 								SoundAlerter.ResourceBar:UpdateVisibility()
 							end
@@ -1878,11 +1874,11 @@ function SoundAlerter:BuildResourceBarOptions()
 						name = "Active Combo Color",
 						desc = "Color of active combo points (1-4).",
 						get = function()
-							local c = SoundAlerter.db1.profile.resourceBar.comboActiveColor
+							local c = SoundAlerter.ResourceBar:GetSettings().comboActiveColor
 							return c.r, c.g, c.b
 						end,
 						set = function(info, r, g, b)
-							SoundAlerter.db1.profile.resourceBar.comboActiveColor = {r = r, g = g, b = b}
+							SoundAlerter.ResourceBar:SetSetting("comboActiveColor", {r = r, g = g, b = b})
 							if SoundAlerter.ResourceBar then
 								SoundAlerter.ResourceBar:CacheColors()
 								SoundAlerter.ResourceBar:RefreshComboColors()
@@ -1896,11 +1892,11 @@ function SoundAlerter:BuildResourceBarOptions()
 						name = "Max Combo Color",
 						desc = "Color of combo points at maximum (5).",
 						get = function()
-							local c = SoundAlerter.db1.profile.resourceBar.comboMaxColor
+							local c = SoundAlerter.ResourceBar:GetSettings().comboMaxColor
 							return c.r, c.g, c.b
 						end,
 						set = function(info, r, g, b)
-							SoundAlerter.db1.profile.resourceBar.comboMaxColor = {r = r, g = g, b = b}
+							SoundAlerter.ResourceBar:SetSetting("comboMaxColor", {r = r, g = g, b = b})
 							if SoundAlerter.ResourceBar then
 								SoundAlerter.ResourceBar:CacheColors()
 								SoundAlerter.ResourceBar:RefreshComboColors()
@@ -1913,9 +1909,9 @@ function SoundAlerter:BuildResourceBarOptions()
 					type = 'toggle',
 					name = "5 CP Sound",
 					desc = "Play a satisfying chime when reaching 5 combo points.",
-					get = function() return SoundAlerter.db1.profile.resourceBar.fullCPSound end,
+					get = function() return SoundAlerter.ResourceBar:GetSettings().fullCPSound end,
 					set = function(info, value)
-						SoundAlerter.db1.profile.resourceBar.fullCPSound = value
+						SoundAlerter.ResourceBar:SetSetting("fullCPSound", value)
 					end,
 					disabled = function() return not SoundAlerter.db1.profile.resourceBar.comboEnabled end,
 					width = "full",
@@ -1965,9 +1961,9 @@ function SoundAlerter:BuildCastingBarOptions()
 						type = 'toggle',
 						name = "Lock Bars",
 						desc = "Lock all casting bars in place. Unlock to drag and reposition.",
-						get = function() return SoundAlerter.db1.profile.castingBars.locked end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().locked end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.locked = value
+							SoundAlerter.CastingBars:SetSetting("locked", value)
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:SetLocked(value)
 							end
@@ -1980,14 +1976,8 @@ function SoundAlerter:BuildCastingBarOptions()
 						name = "Apply Pyramid Layout",
 						desc = "Positions Player, Target, and Focus casting bars into a pyramid: Player centered on top, Target and Focus symmetrically below to the left and right. Bars remain draggable afterward.",
 						func = function()
-							local castingBars = SoundAlerter.db1.profile.castingBars
-							castingBars.player.PositionX = 0
-							castingBars.player.PositionY = -200
-							castingBars.target.PositionX = -160
-							castingBars.target.PositionY = -260
-							castingBars.focus.PositionX = 160
-							castingBars.focus.PositionY = -260
 							if SoundAlerter.CastingBars then
+								SoundAlerter.CastingBars:ApplyPyramidLayout()
 								SoundAlerter.CastingBars:LoadSettings()
 							end
 						end,
@@ -2005,9 +1995,9 @@ function SoundAlerter:BuildCastingBarOptions()
 							banto = "Banto",
 							halcyone = "Halcyone",
 						},
-						get = function() return SoundAlerter.db1.profile.castingBars.barTexture end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().barTexture end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.barTexture = value
+							SoundAlerter.CastingBars:SetSetting("barTexture", value)
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:UpdateTexture()
 							end
@@ -2023,9 +2013,9 @@ function SoundAlerter:BuildCastingBarOptions()
 							milliseconds = "SS.sss (Milliseconds)",
 							centiseconds = "SS.ss (Centiseconds)",
 						},
-						get = function() return SoundAlerter.db1.profile.castingBars.timeFormat end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().timeFormat end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.timeFormat = value
+							SoundAlerter.CastingBars:SetSetting("timeFormat", value)
 						end,
 						width = "full",
 						order = 3,
@@ -2034,9 +2024,9 @@ function SoundAlerter:BuildCastingBarOptions()
 						type = 'toggle',
 						name = "Show Spell Icons",
 						desc = "Display spell icons to the left of casting bars.",
-						get = function() return SoundAlerter.db1.profile.castingBars.showSpellIcon end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().showSpellIcon end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.showSpellIcon = value
+							SoundAlerter.CastingBars:SetSetting("showSpellIcon", value)
 						end,
 						width = "full",
 						order = 4,
@@ -2045,9 +2035,9 @@ function SoundAlerter:BuildCastingBarOptions()
 						type = 'toggle',
 						name = "Show Latency Shadow",
 						desc = "Display a red shadow at the end of the player casting bar representing network latency. Helps predict when the spell will actually cast on the server.",
-						get = function() return SoundAlerter.db1.profile.castingBars.showLatency end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().showLatency end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.showLatency = value
+							SoundAlerter.CastingBars:SetSetting("showLatency", value)
 						end,
 						width = "full",
 						order = 5,
@@ -2065,9 +2055,9 @@ function SoundAlerter:BuildCastingBarOptions()
 						type = 'toggle',
 						name = "Show Player Casting Bar",
 						desc = "Display casting bar for your own spells. Shows casting time in mm:ss.SSS format.",
-						get = function() return SoundAlerter.db1.profile.castingBars.player.enabled end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().player.enabled end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.player.enabled = value
+							SoundAlerter.CastingBars:SetSetting("player.enabled", value)
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:LoadSettings()
 							end
@@ -2082,9 +2072,9 @@ function SoundAlerter:BuildCastingBarOptions()
 						min = 100,
 						max = 500,
 						step = 10,
-						get = function() return SoundAlerter.db1.profile.castingBars.player.width end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().player.width end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.player.width = value
+							SoundAlerter.CastingBars:SetSetting("player.width", value)
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:LoadSettings()
 							end
@@ -2100,9 +2090,9 @@ function SoundAlerter:BuildCastingBarOptions()
 						min = 12,
 						max = 50,
 						step = 2,
-						get = function() return SoundAlerter.db1.profile.castingBars.player.height end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().player.height end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.player.height = value
+							SoundAlerter.CastingBars:SetSetting("player.height", value)
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:LoadSettings()
 							end
@@ -2116,14 +2106,14 @@ function SoundAlerter:BuildCastingBarOptions()
 						name = "Bar Orientation",
 						desc = "Horizontal or vertical fill for the player casting bar.",
 						values = { horizontal = "Horizontal", vertical = "Vertical" },
-						get = function() return SoundAlerter.db1.profile.castingBars.player.orientation end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().player.orientation end,
 						set = function(info, value)
-							local unitDB = SoundAlerter.db1.profile.castingBars.player
-							unitDB.orientation = value
+							local unitDB = SoundAlerter.CastingBars:GetSettings().player
+							SoundAlerter.CastingBars:SetSetting("player.orientation", value)
 							if value == "vertical" and unitDB.fillDirection ~= "up" and unitDB.fillDirection ~= "down" then
-								unitDB.fillDirection = "up"
+								SoundAlerter.CastingBars:SetSetting("player.fillDirection", "up")
 							elseif value == "horizontal" and unitDB.fillDirection ~= "left" and unitDB.fillDirection ~= "right" then
-								unitDB.fillDirection = "right"
+								SoundAlerter.CastingBars:SetSetting("player.fillDirection", "right")
 							end
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:LoadSettings()
@@ -2144,9 +2134,9 @@ function SoundAlerter:BuildCastingBarOptions()
 								return { right = "Right", left = "Left" }
 							end
 						end,
-						get = function() return SoundAlerter.db1.profile.castingBars.player.fillDirection end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().player.fillDirection end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.player.fillDirection = value
+							SoundAlerter.CastingBars:SetSetting("player.fillDirection", value)
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:LoadSettings()
 							end
@@ -2168,9 +2158,9 @@ function SoundAlerter:BuildCastingBarOptions()
 						type = 'toggle',
 						name = "Show Target Casting Bar",
 						desc = "Display casting bar for your target's spells. Essential for PvP interrupt timing.",
-						get = function() return SoundAlerter.db1.profile.castingBars.target.enabled end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().target.enabled end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.target.enabled = value
+							SoundAlerter.CastingBars:SetSetting("target.enabled", value)
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:LoadSettings()
 							end
@@ -2185,9 +2175,9 @@ function SoundAlerter:BuildCastingBarOptions()
 						min = 100,
 						max = 500,
 						step = 10,
-						get = function() return SoundAlerter.db1.profile.castingBars.target.width end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().target.width end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.target.width = value
+							SoundAlerter.CastingBars:SetSetting("target.width", value)
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:LoadSettings()
 							end
@@ -2203,9 +2193,9 @@ function SoundAlerter:BuildCastingBarOptions()
 						min = 12,
 						max = 50,
 						step = 2,
-						get = function() return SoundAlerter.db1.profile.castingBars.target.height end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().target.height end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.target.height = value
+							SoundAlerter.CastingBars:SetSetting("target.height", value)
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:LoadSettings()
 							end
@@ -2219,14 +2209,14 @@ function SoundAlerter:BuildCastingBarOptions()
 						name = "Bar Orientation",
 						desc = "Horizontal or vertical fill for the target casting bar.",
 						values = { horizontal = "Horizontal", vertical = "Vertical" },
-						get = function() return SoundAlerter.db1.profile.castingBars.target.orientation end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().target.orientation end,
 						set = function(info, value)
-							local unitDB = SoundAlerter.db1.profile.castingBars.target
-							unitDB.orientation = value
+							local unitDB = SoundAlerter.CastingBars:GetSettings().target
+							SoundAlerter.CastingBars:SetSetting("target.orientation", value)
 							if value == "vertical" and unitDB.fillDirection ~= "up" and unitDB.fillDirection ~= "down" then
-								unitDB.fillDirection = "up"
+								SoundAlerter.CastingBars:SetSetting("target.fillDirection", "up")
 							elseif value == "horizontal" and unitDB.fillDirection ~= "left" and unitDB.fillDirection ~= "right" then
-								unitDB.fillDirection = "right"
+								SoundAlerter.CastingBars:SetSetting("target.fillDirection", "right")
 							end
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:LoadSettings()
@@ -2247,9 +2237,9 @@ function SoundAlerter:BuildCastingBarOptions()
 								return { right = "Right", left = "Left" }
 							end
 						end,
-						get = function() return SoundAlerter.db1.profile.castingBars.target.fillDirection end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().target.fillDirection end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.target.fillDirection = value
+							SoundAlerter.CastingBars:SetSetting("target.fillDirection", value)
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:LoadSettings()
 							end
@@ -2271,9 +2261,9 @@ function SoundAlerter:BuildCastingBarOptions()
 						type = 'toggle',
 						name = "Show Focus Casting Bar",
 						desc = "Display casting bar for your focus target's spells. Perfect for arena focus target tracking.",
-						get = function() return SoundAlerter.db1.profile.castingBars.focus.enabled end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().focus.enabled end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.focus.enabled = value
+							SoundAlerter.CastingBars:SetSetting("focus.enabled", value)
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:LoadSettings()
 							end
@@ -2288,9 +2278,9 @@ function SoundAlerter:BuildCastingBarOptions()
 						min = 100,
 						max = 500,
 						step = 10,
-						get = function() return SoundAlerter.db1.profile.castingBars.focus.width end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().focus.width end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.focus.width = value
+							SoundAlerter.CastingBars:SetSetting("focus.width", value)
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:LoadSettings()
 							end
@@ -2306,9 +2296,9 @@ function SoundAlerter:BuildCastingBarOptions()
 						min = 12,
 						max = 50,
 						step = 2,
-						get = function() return SoundAlerter.db1.profile.castingBars.focus.height end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().focus.height end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.focus.height = value
+							SoundAlerter.CastingBars:SetSetting("focus.height", value)
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:LoadSettings()
 							end
@@ -2322,14 +2312,14 @@ function SoundAlerter:BuildCastingBarOptions()
 						name = "Bar Orientation",
 						desc = "Horizontal or vertical fill for the focus casting bar.",
 						values = { horizontal = "Horizontal", vertical = "Vertical" },
-						get = function() return SoundAlerter.db1.profile.castingBars.focus.orientation end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().focus.orientation end,
 						set = function(info, value)
-							local unitDB = SoundAlerter.db1.profile.castingBars.focus
-							unitDB.orientation = value
+							local unitDB = SoundAlerter.CastingBars:GetSettings().focus
+							SoundAlerter.CastingBars:SetSetting("focus.orientation", value)
 							if value == "vertical" and unitDB.fillDirection ~= "up" and unitDB.fillDirection ~= "down" then
-								unitDB.fillDirection = "up"
+								SoundAlerter.CastingBars:SetSetting("focus.fillDirection", "up")
 							elseif value == "horizontal" and unitDB.fillDirection ~= "left" and unitDB.fillDirection ~= "right" then
-								unitDB.fillDirection = "right"
+								SoundAlerter.CastingBars:SetSetting("focus.fillDirection", "right")
 							end
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:LoadSettings()
@@ -2350,9 +2340,9 @@ function SoundAlerter:BuildCastingBarOptions()
 								return { right = "Right", left = "Left" }
 							end
 						end,
-						get = function() return SoundAlerter.db1.profile.castingBars.focus.fillDirection end,
+						get = function() return SoundAlerter.CastingBars:GetSettings().focus.fillDirection end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.castingBars.focus.fillDirection = value
+							SoundAlerter.CastingBars:SetSetting("focus.fillDirection", value)
 							if SoundAlerter.CastingBars then
 								SoundAlerter.CastingBars:LoadSettings()
 							end
@@ -2405,12 +2395,9 @@ function SoundAlerter:BuildSpellTrackerOptions()
 						type = 'toggle',
 						name = "Lock Icons",
 						desc = "Lock all spell tracker icons in place. Unlock to drag and reposition individual icons.",
-						get = function() return SoundAlerter.db1.profile.spellTracker.locked end,
+						get = function() return SoundAlerter.SpellTracker:GetSettings().locked end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.spellTracker.locked = value
-							if SoundAlerter.SpellTracker then
-								SoundAlerter.SpellTracker:SetLocked(value)
-							end
+							SoundAlerter.SpellTracker:SetSetting("locked", value)
 						end,
 						width = "full",
 						order = 1,
@@ -2419,9 +2406,9 @@ function SoundAlerter:BuildSpellTrackerOptions()
 						type = 'toggle',
 						name = "Show Aura Duration Numbers",
 						desc = "Display aura duration countdown (SS.ss format) at bottom of spell tracker icons. This shows how long the buff/debuff lasts.",
-						get = function() return SoundAlerter.db1.profile.spellTracker.showTimerText end,
+						get = function() return SoundAlerter.SpellTracker:GetSettings().showTimerText end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.spellTracker.showTimerText = value
+							SoundAlerter.SpellTracker:SetSetting("showTimerText", value)
 						end,
 						width = "full",
 						order = 2,
@@ -2433,9 +2420,9 @@ function SoundAlerter:BuildSpellTrackerOptions()
 						       "Only affects spells with 'Track Cooldown' enabled.\n\n" ..
 						       "|cffFF7D0ANote:|r This tracks YOUR spell cooldowns (when the ability is ready to use again), " ..
 						       "not enemy cooldowns or aura durations.",
-						get = function() return SoundAlerter.db1.profile.spellTracker.showCooldownText end,
+						get = function() return SoundAlerter.SpellTracker:GetSettings().showCooldownText end,
 						set = function(info, value)
-							SoundAlerter.db1.profile.spellTracker.showCooldownText = value
+							SoundAlerter.SpellTracker:SetSetting("showCooldownText", value)
 						end,
 						width = "full",
 						order = 3,
@@ -2477,7 +2464,7 @@ function SoundAlerter:BuildStatisticsOptions()
 				width = "full",
 				order = 0.5,
 				set = function(info, value)
-					sadb.statistics.enabled = value
+					SoundAlerter:GetModule("Statistics"):SetSetting("enabled", value)
 					if value then
 						local Statistics = SoundAlerter:GetModule("Statistics")
 						if Statistics then
@@ -2488,7 +2475,7 @@ function SoundAlerter:BuildStatisticsOptions()
 						SoundAlerter:Print("Statistics tracking disabled (existing data preserved)")
 					end
 				end,
-				get = function() return sadb.statistics and sadb.statistics.enabled end,
+				get = function() return SoundAlerter:GetModule("Statistics"):GetSettings().enabled end,
 			},
 
 			sessionStats = {
@@ -3562,6 +3549,24 @@ function SoundAlerter:BuildVoiceAlertOptions()
 								desc = "Sends a chat message when an enemies debuff is down that came from yourself (eg. Hex down)",
 								order = 17,
 							},
+							chatauraApplied = {
+								type = 'toggle',
+								name = "Announce Enemy Defensives & Buffs",
+								desc = "Sends a chat message when a tracked enemy uses a defensive cooldown or buff.",
+								order = 18,
+							},
+							chatauraRemoved = {
+								type = 'toggle',
+								name = "Announce Enemy Defensives Expired",
+								desc = "Sends a chat message when a tracked enemy's defensive cooldown or buff wears off.",
+								order = 19,
+							},
+							chatcastStart = {
+								type = 'toggle',
+								name = "Announce Enemy Cast Start",
+								desc = "Sends a chat message when a tracked enemy begins casting.",
+								order = 20,
+							},
 						},
 					},
 					general = {
@@ -3595,6 +3600,20 @@ function SoundAlerter:BuildVoiceAlertOptions()
 								name = "Enemy buffs/cooldowns",
 								desc = "Example: '#enemy# casted #spell#  = Enemyname casted [Stealth]",
 								order = 4,
+								width = "full",
+							},
+							auraRemovedChat = {
+								type = "input",
+								name = "Enemy defensives expired",
+								desc = "Example: '#spell# wore off #enemy#' = [Ice Block] wore off Enemyname",
+								order = 5,
+								width = "full",
+							},
+							castStartChat = {
+								type = "input",
+								name = "Enemy cast start",
+								desc = "Example: '#enemy# is casting #spell#' = Enemyname is casting [Polymorph]",
+								order = 6,
 								width = "full",
 							},
 						},

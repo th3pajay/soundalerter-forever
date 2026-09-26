@@ -1,6 +1,6 @@
 dbDefaults = {
 	profile = {
-		sapath = SA_LOCALEPATH.enUS,
+		sapath = SA_LOCALEPATH[GetLocale()] or SA_LOCALEPATH.enUS,
 		debugmode = false,
 		spelldebug = false,
 
@@ -80,6 +80,10 @@ dbDefaults = {
 		sayspell = true,
 		chatgroups = {["SAY"] = false, ["PARTY"] = true, ["RAID"] = false, ["BATTLEGROUND"] = true, ["NONE"] = false,},
 
+		chatauraApplied = false,
+		chatauraRemoved = false,
+		chatcastStart = false,
+
 		InterruptEnemyText = "Interrupted #enemy#'s #interruptedspellname# with #spell#.",
 		InterruptSelfText = "#enemy# interrupted my #interruptedspellname# with #spell#.",
 
@@ -87,6 +91,8 @@ dbDefaults = {
 		selfchat = "#enemy# casted #spell# on me!",
 		enemychat = "#spell# up on #enemy#",
 		enemybuffchat = "#enemy# casted #spell#",
+		auraRemovedChat = "#spell# wore off #enemy#",
+		castStartChat = "#enemy# is casting #spell#",
 
 		sapselftext = "I'm Sapped!",
 		saptextself = "I'm Sapped!",

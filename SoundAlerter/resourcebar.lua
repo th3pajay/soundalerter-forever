@@ -86,6 +86,47 @@ local BAR_CONFIGS = {
 	}
 }
 
+local RESOURCE_BAR_KEYS = {
+	energyColor = true,
+	rageColor = true,
+	healthColor = true,
+	manaColor = true,
+	comboActiveColor = true,
+	comboMaxColor = true,
+	comboInactiveColor = true,
+	comboStyle = true,
+	fullCPSound = true,
+	barTexture = true,
+	healthHeight = true,
+	comboPositionX = true,
+	comboPositionY = true,
+	comboScale = true,
+	comboTextPositionX = true,
+	comboTextPositionY = true,
+	locked = true,
+	comboEnabled = true,
+	comboTextEnabled = true,
+	energyEnabled = true,
+	energyScale = true,
+	rageEnabled = true,
+	rageScale = true,
+	healthEnabled = true,
+	healthScale = true,
+	manaEnabled = true,
+	manaScale = true,
+}
+
+function ResourceBar:GetSettings()
+	return self.db
+end
+
+function ResourceBar:SetSetting(key, value)
+	if not RESOURCE_BAR_KEYS[key] then
+		error("ResourceBar:SetSetting - unknown setting key '"..tostring(key).."'", 2)
+	end
+	self.db[key] = value
+end
+
 function ResourceBar:Initialize()
 	if self.initialized then return end
 	self.db = SoundAlerter.db1.profile.resourceBar

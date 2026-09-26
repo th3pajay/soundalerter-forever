@@ -1,6 +1,6 @@
 # SoundAlerter - Forever (BETA BUILD)
 
-![Version](https://img.shields.io/badge/version-0.2.0-blue.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![WoW](https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg) ![Platform](https://img.shields.io/badge/platform-Windows-purple.svg)
+![Version](https://img.shields.io/badge/version-0.2.12-blue.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![WoW](https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg) ![Platform](https://img.shields.io/badge/platform-Windows-purple.svg)
 
 **What changed:** WoW Forever permanently restricts `COMBAT_LOG_EVENT_UNFILTERED` for every third-party addon — a Blizzard platform decision, not a bug, and not addon-specific. SoundAlerter has been rebuilt around nameplate and unit-event tracking instead.
 
@@ -76,7 +76,7 @@ Team-aware CTF tracking for WSG and Eye of the Storm.
 </p>
 
 **Features:**
-* Class identification via chat-message parsing and unit scanning
+* Class identification via GUID decoding, with a live unit-scan fallback
 * Visual flag status indicators
 
 **Configuration**: `/sa` -> Battleground Alerts tab

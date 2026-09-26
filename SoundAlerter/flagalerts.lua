@@ -25,6 +25,7 @@ local table_sort = table.sort
 local math_max = math.max
 local math_ceil = math.ceil
 local math_huge = math.huge
+local math_min = math.min
 local math_floor = math.floor
 local math_sin = math.sin
 local math_pi = math.pi
@@ -74,6 +75,52 @@ local LOCALE_PATTERNS = {
         { pattern = "^The .+ [Ff]lag was captured by (.+)!$", action = "CAPTURE" },
     },
 }
+
+local FLAG_ALERTS_KEYS = {
+    battlegroundAlertsEnabled = true,
+    flagToastsEnabled = true,
+    flagPickupAudio = true,
+    flagDropAudio = true,
+    flagCaptureAudio = true,
+    flagReturnAudio = true,
+    flagTeamBackgroundColors = true,
+    flagEnemyRedBackground = true,
+    flagFriendlyGreenBackground = true,
+    flagEnemyTexture = true,
+    flagFriendlyTexture = true,
+    flagOnlyEnemyTeam = true,
+    flagOnlyFriendlyTeam = true,
+    flagAllActions = true,
+    flagChatEnabled = true,
+    flagChatText = true,
+    flagChatChannel = true,
+    persistentCacheEnabled = true,
+    persistentCacheMaxSize = true,
+    persistentCacheMaxAge = true,
+    flagToastsUseClassIcons = true,
+    flagToastDisplayDuration = true,
+    ["flagToasts.positionX"] = true,
+    ["flagToasts.positionY"] = true,
+}
+
+function FlagAlerts:GetSettings()
+    return sadb
+end
+
+function FlagAlerts:SetSetting(key, value)
+    if not FLAG_ALERTS_KEYS[key] then
+        error("FlagAlerts:SetSetting - unknown setting key '"..tostring(key).."'", 2)
+    end
+    if key == "flagToasts.positionX" then
+        sadb.flagToasts = sadb.flagToasts or {}
+        sadb.flagToasts.positionX = value
+    elseif key == "flagToasts.positionY" then
+        sadb.flagToasts = sadb.flagToasts or {}
+        sadb.flagToasts.positionY = value
+    else
+        sadb[key] = value
+    end
+end
 
 function FlagAlerts:OnInitialize()
     sadb = SoundAlerter.db1.profile
@@ -154,8 +201,8 @@ function FlagAlerts:OnInitialize()
         toastsOutOfCombat = 0,
     }
 
-    local locale = "enUS"
-    self.flagPatterns = LOCALE_PATTERNS.enUS
+    local locale = GetLocale()
+    self.flagPatterns = LOCALE_PATTERNS[locale] or LOCALE_PATTERNS.enUS
 
     if sadb.debugmode then
         SoundAlerter:Print(string_format("[FlagAlerts] Initialized with locale: %s | Persistent cache: %d players",
@@ -494,6 +541,54 @@ local function GetOptimalCacheSize()
     end
 end
 
+local function LiveUnitLookup(unitToken)
+    if not UnitExists(unitToken) then
+        return nil, nil
+    end
+    local name = UnitName(unitToken)
+    local _, class = UnitClass(unitToken)
+    return name, class
+end
+
+local function ResolveClassFromUnits(playerName, numParty, numRaid, cache, cacheSize, maxCacheSize, lookupFn)
+    local cached = cache[playerName]
+    if cached then
+        return cached.class, "hit"
+    end
+
+    local candidates = { "target", "focus", "mouseover" }
+    for i = 1, numParty do
+        table_insert(candidates, "party" .. i)
+        table_insert(candidates, "party" .. i .. "target")
+    end
+    for i = 1, math_min(numRaid, MAX_RAID_SCAN) do
+        table_insert(candidates, "raid" .. i)
+        table_insert(candidates, "raid" .. i .. "target")
+    end
+
+    local class = nil
+    for _, unit in ipairs(candidates) do
+        local name, unitClass = lookupFn(unit)
+        if name == playerName then
+            class = unitClass
+            break
+        end
+    end
+
+    local evictedName = nil
+    if cacheSize >= maxCacheSize then
+        local oldestName, oldestTime = nil, math_huge
+        for name, data in pairs(cache) do
+            if data.timestamp < oldestTime then
+                oldestName, oldestTime = name, data.timestamp
+            end
+        end
+        evictedName = oldestName
+    end
+
+    return class, "miss", evictedName
+end
+
 function FlagAlerts:GetPlayerClassByName(playerName)
 
     if sadb.persistentCacheEnabled and self.persistentCache[playerName] then
@@ -508,79 +603,34 @@ function FlagAlerts:GetPlayerClassByName(playerName)
         return cached.class
     end
 
-    if not self:CleanupCacheEntry(playerName) and self.nameToClassCache[playerName] then
-        local cached = self.nameToClassCache[playerName]
-        cached.timestamp = GetTime()
+    self:CleanupCacheEntry(playerName)
+
+    local class, outcome, evictedName = ResolveClassFromUnits(
+        playerName,
+        GetNumPartyMembers(),
+        GetNumRaidMembers(),
+        self.nameToClassCache,
+        self.cacheSize,
+        GetOptimalCacheSize(),
+        LiveUnitLookup
+    )
+
+    if outcome == "hit" then
+        self.nameToClassCache[playerName].timestamp = GetTime()
         self.performanceMetrics.cacheHits = self.performanceMetrics.cacheHits + 1
-        return cached.class
+        return class
     end
 
     self.performanceMetrics.cacheMisses = self.performanceMetrics.cacheMisses + 1
 
-    if UnitExists("target") and UnitName("target") == playerName then
-        local _, class = UnitClass("target")
-        self:CachePlayerClass(playerName, class)
-        return class
+    if evictedName then
+        self.nameToClassCache[evictedName] = nil
+        self.cacheSize = self.cacheSize - 1
+        self.performanceMetrics.cacheEvictions = self.performanceMetrics.cacheEvictions + 1
     end
 
-    if UnitExists("focus") and UnitName("focus") == playerName then
-        local _, class = UnitClass("focus")
-        self:CachePlayerClass(playerName, class)
-        return class
-    end
-
-    if UnitExists("mouseover") and UnitName("mouseover") == playerName then
-        local _, class = UnitClass("mouseover")
-        self:CachePlayerClass(playerName, class)
-        return class
-    end
-
-    local numPartyMembers = GetNumPartyMembers()
-    if numPartyMembers > 0 then
-        for i = 1, 4 do
-            local unit = "party" .. i
-            if UnitExists(unit) and UnitName(unit) == playerName then
-                local _, class = UnitClass(unit)
-                self:CachePlayerClass(playerName, class)
-                return class
-            end
-
-            local targetUnit = unit .. "target"
-            if UnitExists(targetUnit) and UnitName(targetUnit) == playerName then
-                local _, class = UnitClass(targetUnit)
-                self:CachePlayerClass(playerName, class)
-                return class
-            end
-        end
-    end
-
-    local numRaidMembers = GetNumRaidMembers()
-    if numRaidMembers > 0 then
-        local scanned = 0
-        for i = 1, numRaidMembers do
-            if scanned >= MAX_RAID_SCAN then
-                break
-            end
-            scanned = scanned + 1
-
-            local unit = "raid" .. i
-            if UnitName(unit) == playerName then
-                local _, class = UnitClass(unit)
-                self:CachePlayerClass(playerName, class)
-                return class
-            end
-
-            local targetUnit = unit .. "target"
-            if UnitExists(targetUnit) and UnitName(targetUnit) == playerName then
-                local _, class = UnitClass(targetUnit)
-                self:CachePlayerClass(playerName, class)
-                return class
-            end
-        end
-    end
-
-    self:CachePlayerClass(playerName, "UNKNOWN")
-    return nil
+    self:CachePlayerClass(playerName, class or "UNKNOWN")
+    return class
 end
 
 function FlagAlerts:CachePlayerClass(playerName, class)
@@ -588,21 +638,6 @@ function FlagAlerts:CachePlayerClass(playerName, class)
 
     if class ~= "UNKNOWN" then
         self:SaveToPersistentCache(playerName, class)
-    end
-
-    local maxCacheSize = GetOptimalCacheSize()
-    if self.cacheSize >= maxCacheSize then
-        local oldestName, oldestTime = nil, math_huge
-        for name, data in pairs(self.nameToClassCache) do
-            if data.timestamp < oldestTime then
-                oldestName, oldestTime = name, data.timestamp
-            end
-        end
-        if oldestName then
-            self.nameToClassCache[oldestName] = nil
-            self.cacheSize = self.cacheSize - 1
-            self.performanceMetrics.cacheEvictions = self.performanceMetrics.cacheEvictions + 1
-        end
     end
 
     if not self.nameToClassCache[playerName] then
@@ -1518,7 +1553,7 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
         local currentTime = GetTime()
         local timeSinceStart = currentTime - self.startTime - self.pauseState.totalTime
 
-        if sadb.proximityToasts and sadb.proximityToasts.rainbowBorder then
+        if SoundAlerter.ProximityToasts and SoundAlerter.ProximityToasts:GetSettings().rainbowBorder then
             local r, g, b = GetRainbowColor(currentTime)
             self:SetBackdropBorderColor(r, g, b, 1)
         end

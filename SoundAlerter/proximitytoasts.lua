@@ -40,6 +40,38 @@ ProximityToasts.swapInProgress = false
 ProximityToasts.insecureSwapBuffer = {}
 ProximityToasts.swapMetrics = {count = 0, totalTime = 0, maxTime = 0, histogram = {}}
 
+local PROXIMITY_TOAST_KEYS = {
+    enabled = true,
+    displayDuration = true,
+    maxConcurrent = true,
+    showPlayerName = true,
+    useClassColors = true,
+    rainbowBorder = true,
+    positionX = true,
+    positionY = true,
+    clickEnabled = true,
+    enableClickToTarget = true,
+    enableFocusTarget = true,
+}
+
+local PROXIMITY_TOAST_PREVIEWABLE_KEYS = {}
+
+function ProximityToasts:GetSettings()
+    local db = SoundAlerter.db1.profile
+    db.proximityToasts = db.proximityToasts or {}
+    return db.proximityToasts
+end
+
+function ProximityToasts:SetSetting(key, value)
+    if not PROXIMITY_TOAST_KEYS[key] then
+        error("ProximityToasts:SetSetting - unknown setting key '"..tostring(key).."'", 2)
+    end
+    self:GetSettings()[key] = value
+    if value and PROXIMITY_TOAST_PREVIEWABLE_KEYS[key] then
+        PlaySoundFile(SoundAlerter.db1.profile.sapath..key..".mp3")
+    end
+end
+
 local function SafeUnitName(unit)
     local name = UnitName(unit)
     if issecretvalue(name) then return nil end
