@@ -16,6 +16,7 @@ local TOAST_HEIGHT = 90
 local VERTICAL_SPACING = 8
 local FADE_IN_DURATION = 0.2
 local FADE_OUT_DURATION = 0.5
+local SLIDE_DURATION = 0.2
 local MAX_AURA_ICONS = 3
 local AURA_ICON_SIZE = 18
 local AURA_ICON_SPACING = 4
@@ -537,6 +538,13 @@ function ProximityToasts:ReleaseToast(toast)
 
     toast.cachedSegmentData = nil
 
+    toast.currentY = nil
+    toast.isSliding = false
+    toast.slideFromY = nil
+    toast.slideToY = nil
+    toast.slideStartTime = nil
+    toast.slideBaseX = nil
+
     if toast.secureButton then
         if not InCombatLockdown() then
             toast.secureButton:Hide()
@@ -593,6 +601,14 @@ function ProximityToasts:CopyToastData(oldFrame, newFrame)
     newFrame.displayDuration = oldFrame.displayDuration
     newFrame.creationTime = oldFrame.creationTime
     newFrame.elapsedTime = oldFrame.elapsedTime
+    newFrame.currentY = oldFrame.currentY
+
+    if newFrame.currentY then
+        local sadb = SoundAlerter.db1.profile
+        local baseX = sadb.proximityToasts.positionX or 0
+        newFrame:ClearAllPoints()
+        newFrame:SetPoint("TOP", UIParent, "TOP", baseX, newFrame.currentY)
+    end
 
     newFrame.pauseState.active = oldFrame.pauseState.active
     newFrame.pauseState.startTime = oldFrame.pauseState.active and GetTime() or 0
@@ -683,11 +699,18 @@ function ProximityToasts:UpdateLayout()
     end)
 
     for i, toast in ipairs(self.activeToasts) do
-        toast:ClearAllPoints()
-        if i == 1 then
-            toast:SetPoint("TOP", UIParent, "TOP", baseX, baseY)
-        else
-            toast:SetPoint("TOP", self.activeToasts[i-1], "BOTTOM", 0, -VERTICAL_SPACING)
+        local targetY = baseY - (i - 1) * (TOAST_HEIGHT + VERTICAL_SPACING)
+
+        if toast.currentY == nil then
+            toast.currentY = targetY
+            toast:ClearAllPoints()
+            toast:SetPoint("TOP", UIParent, "TOP", baseX, targetY)
+        elseif toast.currentY ~= targetY then
+            toast.slideFromY = toast.currentY
+            toast.slideToY = targetY
+            toast.slideStartTime = GetTime()
+            toast.slideBaseX = baseX
+            toast.isSliding = true
         end
     end
 end
@@ -936,11 +959,24 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
     toast:Show()
 
     toast:SetScript("OnUpdate", function(self, frameDelta)
+        local now = GetTime()
+
+        if self.isSliding then
+            local t = (now - self.slideStartTime) / SLIDE_DURATION
+            if t >= 1 then
+                self.currentY = self.slideToY
+                self.isSliding = false
+            else
+                local eased = 1 - (1 - t) * (1 - t)
+                self.currentY = self.slideFromY + (self.slideToY - self.slideFromY) * eased
+            end
+            self:SetPoint("TOP", UIParent, "TOP", self.slideBaseX, self.currentY)
+        end
+
         if self.pauseState.active then
             return
         end
 
-        local now = GetTime()
         local elapsed = now - self.startTime - self.pauseState.totalTime
 
         if sadb.proximityToasts.rainbowBorder then

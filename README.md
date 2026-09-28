@@ -1,6 +1,6 @@
 # SoundAlerter - Forever (BETA BUILD)
 
-![Version](https://img.shields.io/badge/version-0.2.13-blue.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![WoW](https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg) ![Platform](https://img.shields.io/badge/platform-Windows-purple.svg)
+![Version](https://img.shields.io/badge/version-0.2.14-blue.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![WoW](https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg) ![Platform](https://img.shields.io/badge/platform-Windows-purple.svg)
 
 **What changed:** WoW Forever permanently restricts `COMBAT_LOG_EVENT_UNFILTERED` for every third-party addon — a Blizzard platform decision, not a bug, and not addon-specific. SoundAlerter has been rebuilt around nameplate and unit-event tracking instead.
 
@@ -66,6 +66,7 @@ Visual and audio alerts for nearby enemies. Sticky toasts include instant target
 * Up to 3 active buff/debuff icons shown on the toast, with remaining duration (defensive CDs, mount, existing debuffs)
 * One-click targeting from toast
 * PvE mode filtering
+* Stacked toasts slide smoothly into place as older ones expire, instead of snapping
 
 **Configuration**: `/sa` -> Proximity Alerts tab
 **Commands**: `/sa toast test` (preview), `/sa toast status` (metrics)
