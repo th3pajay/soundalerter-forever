@@ -6,14 +6,20 @@ end
 local ProximityToasts = {}
 SoundAlerter.ProximityToasts = ProximityToasts
 
+local UnitAura = SA_COMPAT.UnitAura
+
 ProximityToasts.inCombat = false
 
 local MAX_TOASTS = 5
 local TOAST_WIDTH = 300
-local TOAST_HEIGHT = 72
+local TOAST_HEIGHT = 90
 local VERTICAL_SPACING = 8
 local FADE_IN_DURATION = 0.2
 local FADE_OUT_DURATION = 0.5
+local MAX_AURA_ICONS = 3
+local AURA_ICON_SIZE = 18
+local AURA_ICON_SPACING = 4
+local AURA_SCAN_MAX = 6
 
 local RAID_CLASS_COLORS = RAID_CLASS_COLORS
 local CLASS_ICONS = {
@@ -45,6 +51,7 @@ local PROXIMITY_TOAST_KEYS = {
     displayDuration = true,
     maxConcurrent = true,
     showPlayerName = true,
+    showAuraIcons = true,
     useClassColors = true,
     rainbowBorder = true,
     positionX = true,
@@ -239,15 +246,38 @@ local function CreateToastFrame(index, isSecure)
     toast.titleText:SetJustifyH("LEFT")
     toast.titleText:SetTextColor(1, 1, 1)
 
-    toast.levelText = toast:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    toast.levelText:SetPoint("BOTTOMLEFT", toast.icon, "BOTTOMRIGHT", 10, 2)
-    toast.levelText:SetTextColor(1, 0.82, 0)
-
     toast.detailText = toast:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     toast.detailText:SetPoint("TOPLEFT", toast.titleText, "BOTTOMLEFT", 0, -4)
     toast.detailText:SetPoint("RIGHT", -8, 0)
     toast.detailText:SetJustifyH("LEFT")
     toast.detailText:SetTextColor(0.8, 0.8, 0.8)
+
+    toast.levelText = toast:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    toast.levelText:SetPoint("BOTTOM", toast.icon, "BOTTOM", 0, 2)
+    toast.levelText:SetTextColor(1, 0.82, 0)
+    toast.levelText:SetShadowOffset(1, -1)
+    toast.levelText:SetShadowColor(0, 0, 0, 1)
+
+    toast.auraIcons = {}
+    toast.auraDurationTexts = {}
+    for i = 1, MAX_AURA_ICONS do
+        local auraIcon = toast:CreateTexture(nil, "ARTWORK")
+        auraIcon:SetSize(AURA_ICON_SIZE, AURA_ICON_SIZE)
+        if i == 1 then
+            auraIcon:SetPoint("TOPLEFT", toast.detailText, "BOTTOMLEFT", 0, -4)
+        else
+            auraIcon:SetPoint("LEFT", toast.auraIcons[i - 1], "RIGHT", AURA_ICON_SPACING, 0)
+        end
+        auraIcon:Hide()
+        toast.auraIcons[i] = auraIcon
+
+        local durationText = toast:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local durationFont, _, durationFlags = durationText:GetFont()
+        durationText:SetFont(durationFont, 8, durationFlags)
+        durationText:SetPoint("TOP", auraIcon, "BOTTOM", 0, 0)
+        durationText:SetTextColor(1, 1, 1)
+        toast.auraDurationTexts[i] = durationText
+    end
 
     toast.countdownBar = CreateFrame("Frame", nil, toast)
     toast.countdownBar:SetHeight(3)
@@ -686,7 +716,45 @@ function ProximityToasts:CleanupHistory()
     end
 end
 
-function ProximityToasts:ShowToast(unitName, className, distance, guid, level, unitToken, customTitle, alertType)
+local AURA_FILTERS = {"HARMFUL", "HELPFUL"}
+
+local function FormatAuraDuration(remaining)
+    if remaining >= 60 then
+        return math.floor(remaining / 60) .. "m"
+    end
+    return tostring(math.ceil(remaining))
+end
+
+local function UpdateAuraIcons(toast, unitToken)
+    local shown = 0
+    if unitToken and UnitExists(unitToken) then
+        for _, filter in ipairs(AURA_FILTERS) do
+            for i = 1, AURA_SCAN_MAX do
+                local name, _, icon, _, _, duration, expirationTime = UnitAura(unitToken, i, filter)
+                if not name then break end
+                if shown < MAX_AURA_ICONS then
+                    shown = shown + 1
+                    toast.auraIcons[shown]:SetTexture(icon)
+                    toast.auraIcons[shown]:Show()
+
+                    local remaining = duration and duration > 0 and expirationTime and (expirationTime - GetTime())
+                    if remaining and remaining > 0 then
+                        toast.auraDurationTexts[shown]:SetText(FormatAuraDuration(remaining))
+                        toast.auraDurationTexts[shown]:Show()
+                    else
+                        toast.auraDurationTexts[shown]:Hide()
+                    end
+                end
+            end
+        end
+    end
+    for i = shown + 1, MAX_AURA_ICONS do
+        toast.auraIcons[i]:Hide()
+        toast.auraDurationTexts[i]:Hide()
+    end
+end
+
+function ProximityToasts:ShowToast(unitName, className, distance, guid, level, unitToken, customTitle, alertType, nearbyCount)
     local sadb = SoundAlerter.db1.profile
 
     if not self.initialized then
@@ -782,12 +850,26 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
 
     local extras = {}
     if distance then table.insert(extras, distance) end
+    if nearbyCount and nearbyCount > 1 then
+        table.insert(extras, nearbyCount .. " nearby")
+    elseif nearbyCount == 1 then
+        table.insert(extras, "Solo")
+    end
     if #extras > 0 then
         local extraText = table.concat(extras, ", ")
         detailText = (detailText ~= "") and (detailText .. " (" .. extraText .. ")") or extraText
     end
 
     toast.detailText:SetText(detailText)
+
+    if sadb.proximityToasts.showAuraIcons then
+        UpdateAuraIcons(toast, unitToken)
+    else
+        for i = 1, MAX_AURA_ICONS do
+            toast.auraIcons[i]:Hide()
+            toast.auraDurationTexts[i]:Hide()
+        end
+    end
 
     if toast.userData then
         toast.userData.unitName = unitName

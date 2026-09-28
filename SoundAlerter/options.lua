@@ -824,6 +824,20 @@ function SoundAlerter:BuildProximityOptions()
 							return SoundAlerter.ProximityToasts:GetSettings().showPlayerName
 						end,
 					},
+					showAuraIcons = {
+						type = 'toggle',
+						name = "Show Buff/Debuff Icons",
+						desc = "Display up to 3 active buff or debuff icons on the toast (defensive cooldowns, mount, existing debuffs)",
+						disabled = function() return not sadb.proximityEnabled or not sadb.proximityToasts.enabled end,
+						width = "full",
+						order = 2.5,
+						set = function(info, value)
+							SoundAlerter.ProximityToasts:SetSetting("showAuraIcons", value)
+						end,
+						get = function(info)
+							return SoundAlerter.ProximityToasts:GetSettings().showAuraIcons
+						end,
+					},
 					useClassColors = {
 						type = 'toggle',
 						name = "Use Class Colors",

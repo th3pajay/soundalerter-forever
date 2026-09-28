@@ -42,7 +42,6 @@ local BAR_CONFIGS = {
 		powerType = POWER_TYPE_ENERGY,
 		defaultY = -120,
 		updateFreq = ENERGY_UPDATE_THROTTLE,
-		textFormat = "number",
 		getValueFunc = function() return UnitPower("player", POWER_TYPE_ENERGY), UnitPowerMax("player", POWER_TYPE_ENERGY) end,
 		shouldUpdate = function(self, current, lastValue) return current ~= lastValue end,
 		continuousUpdate = true,
@@ -54,7 +53,6 @@ local BAR_CONFIGS = {
 		powerType = POWER_TYPE_RAGE,
 		defaultY = -120,
 		updateFreq = VALUE_UPDATE_THROTTLE,
-		textFormat = "number",
 		getValueFunc = function() return UnitPower("player", POWER_TYPE_RAGE), UnitPowerMax("player", POWER_TYPE_RAGE) end,
 		shouldUpdate = function(self, current, lastValue) return current ~= lastValue end,
 		continuousUpdate = false,
@@ -66,7 +64,6 @@ local BAR_CONFIGS = {
 		powerType = nil,
 		defaultY = -140,
 		updateFreq = VALUE_UPDATE_THROTTLE,
-		textFormat = "percent",
 		getValueFunc = function() return UnitHealth("player"), UnitHealthMax("player") end,
 		shouldUpdate = function(self, current, lastValue) return current ~= lastValue end,
 		continuousUpdate = false,
@@ -78,7 +75,6 @@ local BAR_CONFIGS = {
 		powerType = POWER_TYPE_MANA,
 		defaultY = -100,
 		updateFreq = VALUE_UPDATE_THROTTLE,
-		textFormat = "percent",
 		getValueFunc = function() return UnitPower("player", POWER_TYPE_MANA), UnitPowerMax("player", POWER_TYPE_MANA) end,
 		shouldUpdate = function(self, current, lastValue) return current ~= lastValue end,
 		continuousUpdate = false,
@@ -164,11 +160,6 @@ function ResourceBar:Initialize()
 	}
 
 	self.comboStrings = {"0/5", "1/5", "2/5", "3/5", "4/5", "5/5"}
-
-	self.percentStrings = {}
-	for i = 0, 100 do
-		self.percentStrings[i] = string.format("%.0f%%", i)
-	end
 
 	self.cachedTime = 0
 
@@ -294,7 +285,7 @@ function ResourceBar:UpdateResourceBar(barKey, config)
 
 	if issecretvalue(current) or issecretvalue(max) then
 		if SoundAlerter.db1.profile.debugmode and self.lastValues[barKey] ~= nil then
-			SoundAlerter:Print(string.format("[ResourceBar] %s using secret-value fallback (current/max not readable by addon code)", barKey))
+			SoundAlerter:Print(string.format("[ResourceBar] %s using secret-value display path", barKey))
 		end
 		local color = self.cachedColors[barKey]
 		if color then
@@ -302,11 +293,10 @@ function ResourceBar:UpdateResourceBar(barKey, config)
 		end
 		pcall(bar.SetMinMaxValues, bar, 0, max)
 		pcall(bar.SetValue, bar, current)
-		if self.lastText[barKey] ~= "" then
-			self[textName]:SetText("")
-			self.lastText[barKey] = ""
-		end
+		pcall(self[textName].SetFormattedText, self[textName], "%d", current)
+
 		self.lastValues[barKey] = nil
+		self.lastText[barKey] = nil
 		return
 	end
 
@@ -319,14 +309,7 @@ function ResourceBar:UpdateResourceBar(barKey, config)
 			bar:SetMinMaxValues(0, max)
 			bar:SetValue(current)
 
-			local newText
-			if config.textFormat == "percent" then
-				local percent = (current / max) * 100
-				local percentInt = math.floor(percent + 0.5)
-				newText = self.percentStrings[percentInt]
-			else
-				newText = tostring(current)
-			end
+			local newText = tostring(current)
 
 			if newText ~= self.lastText[barKey] then
 				self[textName]:SetText(newText)

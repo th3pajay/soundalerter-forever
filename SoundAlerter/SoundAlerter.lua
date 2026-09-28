@@ -1368,7 +1368,11 @@ function SoundAlerter:CheckProximityAlert(unit)
 
     if self.ProximityToasts and self.ProximityToasts:GetSettings().enabled then
         local approxRange = self:GetApproxRange(unit)
-        self.ProximityToasts:ShowToast(unitName, unitClass, approxRange, guid, unitLevel, unit)
+        local nearbyCount = 0
+        for _ in pairs(self.trackedNameplates) do
+            nearbyCount = nearbyCount + 1
+        end
+        self.ProximityToasts:ShowToast(unitName, unitClass, approxRange, guid, unitLevel, unit, nil, nil, nearbyCount)
     end
 
     if sadb.proximityChat and sadb.proximityChatText then

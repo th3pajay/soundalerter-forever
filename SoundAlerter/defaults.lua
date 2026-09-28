@@ -123,6 +123,7 @@ dbDefaults = {
 			enabled = false,
 			displayDuration = 3.0,
 			showPlayerName = true,
+			showAuraIcons = true,
 			useClassColors = true,
 			maxConcurrent = 3,
 			positionX = 0,
