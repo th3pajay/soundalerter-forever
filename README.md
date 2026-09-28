@@ -61,6 +61,7 @@ Visual and audio alerts for nearby enemies. Sticky toasts include instant target
 
 **Features:**
 * Automatic enemy detection via nameplate range, target, or mouseover
+* Distance shown on the toast: Close, Nearby, or Detected
 * One-click targeting from toast
 * PvE mode filtering
 

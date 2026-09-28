@@ -1297,10 +1297,12 @@ function SoundAlerter:GetApproxRange(unit)
     if CheckInteractDistance(unit, 3) then
         return "Close"
     elseif CheckInteractDistance(unit, 1) then
-        return "Near"
-    else
+        return "Nearby"
+    elseif UnitIsVisible(unit) then
         return "Detected"
     end
+
+    return nil
 end
 
 function SoundAlerter:CheckProximityAlert(unit)
