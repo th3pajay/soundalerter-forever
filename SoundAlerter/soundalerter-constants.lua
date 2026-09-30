@@ -11,6 +11,13 @@ SA_COMPAT.GetSpellInfo = function(spellID)
     return info.name, nil, info.iconID, info.castTime, info.minRange, info.maxRange, info.spellID
 end
 
+SA_COMPAT.GetSpellSubtext = function(spellID)
+    if C_Spell.GetSpellSubtext then
+        return C_Spell.GetSpellSubtext(spellID)
+    end
+    return nil
+end
+
 SA_COMPAT.GetSpellLink = function(spellID)
     return C_Spell.GetSpellLink(spellID)
 end

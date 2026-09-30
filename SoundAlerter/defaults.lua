@@ -9,8 +9,11 @@ dbDefaults = {
 		objectiveAlertsEnabled = false,
 
 		findSpell = {
-			autoSearch = false,
+			autocomplete = false,
+			fuzzy = false,
 			sortMode = "name",
+			sortDesc = false,
+			rankFilter = "all",
 		},
 
 		MinimapButtonPosition = nil,

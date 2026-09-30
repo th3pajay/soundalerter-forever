@@ -3789,7 +3789,7 @@ local function FormatAge(seconds)
 end
 
 local function StatLine(label, value)
-	return "|cffFFFFFF● " .. label .. ":|r " .. value .. "\n"
+	return "|cffFFFFFF" .. label .. ":|r " .. value .. "\n"
 end
 
 local function IsDatabaseBuilding()
@@ -3854,21 +3854,78 @@ function SoundAlerter:BuildSpellFinderOptions()
 						fontSize = "small",
 						order = 3,
 					},
-					autoSearch = {
-						type = 'toggle',
-						name = "Auto-Search As You Type",
-						desc = "Enable auto-search with 200ms debounce. When enabled, searches automatically as you type (minimum 2 characters). Press Enter to search immediately.",
-						width = "full",
-						order = 4,
+					searchScope = {
+						type = 'select',
+						name = "Search In",
+						desc = "Names: spell names only (autocomplete and fuzzy apply). Names + descriptions: name matches first, then matches inside spell descriptions. Descriptions only: match the text inside descriptions, nothing else. Either description option builds an index of every spell's description while the Spell Finder window is open (loaded from the game in small batches, paused when the window closes, resumable, saved between sessions in SoundAlerterSpellDescDB, a few MB). Until it finishes, only the indexed part is searched. Description searches need 3+ characters.",
+						values = {
+							names = "Names",
+							both = "Names + descriptions",
+							descriptions = "Descriptions only",
+						},
+						sorting = {"names", "both", "descriptions"},
+						width = "double",
+						order = 4.2,
 						get = function(info)
-							return SoundAlerter.db1.profile.findSpell and SoundAlerter.db1.profile.findSpell.autoSearch or false
+							return SoundAlerter:GetSearchScope()
+						end,
+						set = function(info, value)
+							SoundAlerter:SetSearchScope(value)
+							SoundAlerter:Print("Spell Finder search scope: " .. value)
+						end,
+					},
+					descriptionStatus = {
+						type = 'description',
+						name = function()
+							return SoundAlerter:GetDescriptionStatus()
+						end,
+						fontSize = "medium",
+						width = "full",
+						order = 4.3,
+					},
+					clearDescriptions = {
+						type = 'execute',
+						name = "Clear Description Index",
+						desc = "Stops indexing and deletes the saved description index (frees the SavedVariables space).",
+						order = 4.4,
+						func = function()
+							SoundAlerter:ClearDescriptionIndex()
+							SoundAlerter:Print("Spell description index cleared")
+						end,
+					},
+					fuzzy = {
+						type = 'toggle',
+						name = "Fuzzy Name Search",
+						desc = "Typo-tolerant matching: substring anywhere in the name, then in-order letters (abbreviations like 'frstblt'), then one or two typos (e.g. 'forstbolt'; the first letter must be right). Results rank by closeness (sort by Relevance). Typo-heavy queries cost more than plain ones.",
+						width = "full",
+						order = 4.5,
+						get = function(info)
+							return SoundAlerter.db1.profile.findSpell and SoundAlerter.db1.profile.findSpell.fuzzy or false
 						end,
 						set = function(info, value)
 							if not SoundAlerter.db1.profile.findSpell then
 								SoundAlerter.db1.profile.findSpell = {}
 							end
-							SoundAlerter.db1.profile.findSpell.autoSearch = value
-							SoundAlerter:Print(value and "|cFF00FF00Auto-search enabled|r" or "|cFFFF0000Auto-search disabled|r")
+							SoundAlerter.db1.profile.findSpell.fuzzy = value
+							SoundAlerter:ClearSearchCache()
+							SoundAlerter:Print(value and "|cFF00FF00Fuzzy search enabled|r" or "|cFFFF0000Fuzzy search disabled|r")
+						end,
+					},
+					autocomplete = {
+						type = 'toggle',
+						name = "Autocomplete Spell Names",
+						desc = "Show up to 8 spell-name suggestions under the search box while typing (minimum 2 characters, prefix match). Tab accepts the first or highlighted suggestion, Up/Down moves the highlight, click searches it.",
+						width = "full",
+						order = 5,
+						get = function(info)
+							return SoundAlerter.db1.profile.findSpell and SoundAlerter.db1.profile.findSpell.autocomplete or false
+						end,
+						set = function(info, value)
+							if not SoundAlerter.db1.profile.findSpell then
+								SoundAlerter.db1.profile.findSpell = {}
+							end
+							SoundAlerter.db1.profile.findSpell.autocomplete = value
+							SoundAlerter:Print(value and "|cFF00FF00Autocomplete enabled|r" or "|cFFFF0000Autocomplete disabled|r")
 						end,
 					},
 				},
@@ -3975,12 +4032,22 @@ function SoundAlerter:BuildSpellFinderOptions()
 							local stats = SoundAlerter:GetDatabaseStats()
 							local text
 
-							local sp50, sp95, sp99, spMax, spCount = SoundAlerter:GetSearchPercentiles()
-							if sp50 then
-								text = StatLine("Search Timing", string.format("p50 %.3fms  p95 %.3fms  p99 %.3fms  max %.3fms |cff888888(last %d)|r",
-									sp50, sp95, sp99, spMax, spCount))
-							else
-								text = StatLine("Search Timing", "|cff888888no searches yet this session|r")
+							text = ""
+							local timingModes = {
+								{"search", "Search Timing"},
+								{"fuzzy", "Fuzzy Timing"},
+								{"description", "Description Timing"},
+								{"perform", "Search + Render"},
+								{"autocomplete", "Autocomplete"},
+							}
+							for _, entry in ipairs(timingModes) do
+								local sp50, sp95, sp99, spMax, spCount = SoundAlerter:GetSearchPercentiles(entry[1])
+								if sp50 then
+									text = text .. StatLine(entry[2], string.format("p50 %.3fms  p95 %.3fms  p99 %.3fms  max %.3fms |cff888888(last %d)|r",
+										sp50, sp95, sp99, spMax, spCount))
+								else
+									text = text .. StatLine(entry[2], "|cff888888no samples yet this session|r")
+								end
 							end
 
 							text = text .. StatLine("Result Cache", stats.cacheEntries .. " / " .. stats.cacheMax .. " entries")

@@ -1,6 +1,6 @@
 # SoundAlerter - Forever (BETA BUILD)
 
-![Version](https://img.shields.io/badge/version-0.2.14-blue.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![WoW](https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg) ![Platform](https://img.shields.io/badge/platform-Windows-purple.svg)
+![Version](https://img.shields.io/badge/version-0.2.16-blue.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![WoW](https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg) ![Platform](https://img.shields.io/badge/platform-Windows-purple.svg)
 
 **What changed:** WoW Forever permanently restricts `COMBAT_LOG_EVENT_UNFILTERED` for every third-party addon — a Blizzard platform decision, not a bug, and not addon-specific. SoundAlerter has been rebuilt around nameplate and unit-event tracking instead.
 
@@ -136,6 +136,14 @@ Search 12,000+ spells instantly for IDs and tooltip data.
 
 **Configuration**: `/sa` -> Developer Tools tab
 
+**Autocomplete** (off by default): tick *Autocomplete* in the Spell Finder window, or in the Developer Tools tab, to get up to 8 spell-name suggestions under the search box after 2 characters. Tab accepts the first or highlighted suggestion, Up/Down moves the highlight, and clicking a suggestion searches it.
+
+**Description search** (off by default): use the *Search in:* dropdown in the Spell Finder window, or *Search In* in the Developer Tools tab: *Names* (default), *Names + descriptions* (name matches first, then matches inside spell descriptions) or *Descriptions only* (needs 3+ characters; the box relabels itself to "Description text:" and autocomplete and fuzzy don't apply). The first time, the addon indexes every spell's description in the background (a small batch every tenth of a second, so it does not hitch); progress shows in the window and in Developer Tools, and searches cover whatever is indexed so far. Indexing only runs while the Spell Finder window is open and pauses when you close it. The index is saved between sessions (a few MB in `SoundAlerterSpellDescDB`) and can be deleted with *Clear Description Index*. Description matches are listed after name matches.
+
+**Fuzzy search** (off by default): tick *Fuzzy* in the Spell Finder window, or in the Developer Tools tab, to find names by substring anywhere, by abbreviation (`frstblt`) or with a typo or two (`forstbolt`, `firebal`); the first letter must be right. Results are ranked by closeness (Sort By: Relevance, selected automatically when you tick the box).
+**Filtering and sorting**: sort by Name, Spell ID, Rank or Relevance (ascending or descending), filter by rank with the Rank dropdown or a typed `r2` / `rank:2` token (the token wins over the dropdown). Changing any of these re-sorts the current results immediately.
+
+Spell ranks are read from the spell subtext (`C_Spell.GetSpellSubtext`) during the scan; the saved database carries a format number, so an older save is rebuilt automatically after an update.
 The **Spell Database** panel shows build progress, indexed/unique/ranked spell counts, scan range, last update and auto-rebuild countdown, the game build it was indexed on, search timing percentiles, result-cache fill and addon memory.
 
 ---
