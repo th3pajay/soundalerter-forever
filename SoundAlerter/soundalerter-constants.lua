@@ -78,3 +78,7 @@ SA_COMPAT.UnitAura = function(unit, indexOrName, filter)
     end
     return nil
 end
+
+SA_COMPAT.GetUnitAuraBySpellID = function(unit, spellID)
+    return pcall(C_UnitAuras.GetUnitAuraBySpellID, unit, spellID)
+end

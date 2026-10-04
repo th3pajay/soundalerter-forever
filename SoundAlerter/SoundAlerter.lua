@@ -41,6 +41,7 @@ local function SafeUnitName(unit)
     return name
 end
 
+SoundAlerter.SafeUnitName = SafeUnitName
 
 self.SA_LOCALEPATH = SA_LOCALEPATH
 self.SA_LANGUAGE = {
@@ -108,6 +109,10 @@ function SoundAlerter:ChangeProfile()
 
 	if self.SpellTracker then
 		self.SpellTracker:OnProfileChanged()
+	end
+
+	if self.CastFeed then
+		self.CastFeed:OnProfileChanged()
 	end
 
 	if self.FlagAlerts then
@@ -576,6 +581,7 @@ function SoundAlerter:OnEnable()
     self:InitializeModule("ResourceBar")
     self:InitializeModule("CastingBars")
     self:InitializeModule("SpellTracker")
+    self:InitializeModule("CastFeed")
 
     local Statistics = self:GetModule("Statistics")
     if Statistics then

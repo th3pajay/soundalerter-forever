@@ -1,7 +1,7 @@
 local SpellTracker = {}
 local GetSpellInfo = SA_COMPAT.GetSpellInfo
 local GetSpellCooldown = SA_COMPAT.GetSpellCooldown
-local UnitAura = SA_COMPAT.UnitAura
+local GetUnitAuraBySpellID = SA_COMPAT.GetUnitAuraBySpellID
 
 local ICON_SIZE = 48
 local ICON_SPACING = 4
@@ -11,7 +11,6 @@ local UPDATE_THROTTLE = 0.033
 local CONSTANTS = {
     INACTIVE_ALPHA = 0.3,
     ACTIVE_ALPHA = 1.0,
-    MAX_AURA_SCAN = 40,
     GCD_THRESHOLD = 1.5,
     ICON_INSET = 4,
     BACKDROP_EDGE_SIZE = 16,
@@ -30,8 +29,13 @@ local cooldownState = {}
 local cooldownThrottle = 0
 local COOLDOWN_UPDATE_INTERVAL = 0.1
 
-local scratchFoundSpells = {}
 local cooldownEnabledTrackers = {}
+
+local function MatchesAuraType(data, auraType)
+    local isHarmful = data.isHarmful
+    if isHarmful == nil or issecretvalue(isHarmful) then return true end
+    return (auraType == "HARMFUL") == isHarmful
+end
 
 function SpellTracker:Initialize()
     if self.initialized then return end
@@ -49,6 +53,7 @@ function SpellTracker:Initialize()
     self.lastCooldownText = {}
     self.cachedTime = 0
     self.lastIconPositions = {}
+    self.lookupFailed = {}
 
     self.timeStrings = {}
     for i = 0, 60 do
@@ -104,17 +109,26 @@ function SpellTracker:CreateIconCooldown(frame)
 end
 
 function SpellTracker:CreateIconText(frame)
-    local timerText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    timerText:SetPoint("BOTTOM", frame, "BOTTOM", 0, 2)
+    local textLayer = CreateFrame("Frame", nil, frame)
+    textLayer:SetAllPoints(frame)
+    textLayer:SetFrameLevel(frame.cooldown:GetFrameLevel() + 2)
+    frame.textLayer = textLayer
+
+    local timerText = textLayer:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    timerText:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 2)
+    timerText:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 2)
+    timerText:SetJustifyH("CENTER")
     timerText:SetTextColor(1, 1, 1, 1)
     timerText:SetFont("Fonts\\FRIZQT__.TTF", CONSTANTS.DEFAULT_COOLDOWN_TEXT_SIZE, "OUTLINE")
     timerText:SetText("")
     frame.timerText = timerText
 
-    local cooldownText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    cooldownText:SetPoint("CENTER", frame, "CENTER", 0, 8)
-    cooldownText:SetTextColor(1, 1, 1, 1)
-    cooldownText:SetFont("Fonts\\FRIZQT__.TTF", CONSTANTS.DEFAULT_COOLDOWN_TEXT_SIZE, "OUTLINE, THICKOUTLINE")
+    local cooldownText = textLayer:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    cooldownText:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -1)
+    cooldownText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -1)
+    cooldownText:SetJustifyH("CENTER")
+    cooldownText:SetTextColor(1, 0.82, 0, 1)
+    cooldownText:SetFont("Fonts\\FRIZQT__.TTF", CONSTANTS.DEFAULT_COOLDOWN_TEXT_SIZE, "OUTLINE")
     cooldownText:SetText("")
     frame.cooldownText = cooldownText
 end
@@ -182,6 +196,7 @@ function SpellTracker:RegisterEvents()
     eventFrame:RegisterEvent("UNIT_AURA")
     eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    pcall(eventFrame.RegisterEvent, eventFrame, "UPDATE_SHAPESHIFT_FORM")
 
     eventFrame:SetScript("OnEvent", function(self, event, ...)
         SpellTracker:OnEvent(event, ...)
@@ -200,7 +215,7 @@ function SpellTracker:OnEvent(event, ...)
         end
     elseif event == "PLAYER_TARGET_CHANGED" then
         self:ScanAuras("target")
-    elseif event == "PLAYER_ENTERING_WORLD" then
+    elseif event == "PLAYER_ENTERING_WORLD" or event == "UPDATE_SHAPESHIFT_FORM" then
         self:RefreshAllTrackers()
     end
 end
@@ -211,34 +226,17 @@ function SpellTracker:ScanAuras(unit)
     local trackedSpells = trackedSpellsByUnit[unit]
     if not trackedSpells or not next(trackedSpells) then return end
 
-    for k in pairs(scratchFoundSpells) do
-        scratchFoundSpells[k] = nil
-    end
-
-    for i = 1, CONSTANTS.MAX_AURA_SCAN do
-        local name, _, _, _, _, duration, expirationTime, _, _, _, foundSpellID = UnitAura(unit, i, "HELPFUL")
-        if not name then break end
-
-        local config = trackedSpells[foundSpellID]
-        if config and config.auraType == "HELPFUL" then
-            scratchFoundSpells[foundSpellID] = true
-            self:UpdateTracker(config.trackerIndex, foundSpellID, expirationTime, duration)
-        end
-    end
-
-    for i = 1, CONSTANTS.MAX_AURA_SCAN do
-        local name, _, _, _, _, duration, expirationTime, _, _, _, foundSpellID = UnitAura(unit, i, "HARMFUL")
-        if not name then break end
-
-        local config = trackedSpells[foundSpellID]
-        if config and config.auraType == "HARMFUL" then
-            scratchFoundSpells[foundSpellID] = true
-            self:UpdateTracker(config.trackerIndex, foundSpellID, expirationTime, duration)
-        end
-    end
-
     for spellID, config in pairs(trackedSpells) do
-        if not scratchFoundSpells[spellID] then
+        local ok, data = GetUnitAuraBySpellID(unit, spellID)
+
+        if not ok then
+            if self.addon.db1.profile.debugmode and not self.lookupFailed[unit] then
+                self.lookupFailed[unit] = true
+                self.addon:Print(string.format("[SpellTracker] aura lookup failed for %s", unit))
+            end
+        elseif data and MatchesAuraType(data, config.auraType) then
+            self:UpdateTracker(config.trackerIndex, spellID, data.expirationTime, data.duration)
+        else
             self:HideTracker(config.trackerIndex)
         end
     end
@@ -263,7 +261,7 @@ function SpellTracker:UpdateTracker(trackerIndex, spellID, expirationTime, durat
 
     frame.trackerIndex = trackerIndex
     frame.spellID = spellID
-    frame.expirationTime = expirationTime
+    frame.expirationTime = not issecretvalue(expirationTime) and expirationTime or nil
 
     local texture = self:GetSpellTexture(spellID)
     if texture and texture ~= "" then
@@ -550,7 +548,7 @@ function SpellTracker:SetFramePosition(frame, trackerIndex)
     frame:SetSize(size, size)
 
     if frame.cooldownText then
-        frame.cooldownText:SetFont("Fonts\\FRIZQT__.TTF", cooldownTextSize, "OUTLINE, THICKOUTLINE")
+        frame.cooldownText:SetFont("Fonts\\FRIZQT__.TTF", cooldownTextSize, "OUTLINE")
     end
 
     self.lastIconPositions[trackerIndex] = {

@@ -6,6 +6,8 @@ SoundAlerter.ResourceBar = ResourceBar
 
 local math_sin = math.sin
 local math_pi = math.pi
+local math_floor = math.floor
+local math_max = math.max
 local GetTime = GetTime
 local UnitPower = UnitPower
 local UnitPowerMax = UnitPowerMax
@@ -41,22 +43,22 @@ local BAR_CONFIGS = {
 		globalName = "SoundAlerterResourceBar_Energy",
 		powerType = POWER_TYPE_ENERGY,
 		defaultY = -120,
+		powerToken = "ENERGY",
 		updateFreq = ENERGY_UPDATE_THROTTLE,
 		getValueFunc = function() return UnitPower("player", POWER_TYPE_ENERGY), UnitPowerMax("player", POWER_TYPE_ENERGY) end,
 		shouldUpdate = function(self, current, lastValue) return current ~= lastValue end,
-		continuousUpdate = true,
-		events = {"UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "PLAYER_ENTERING_WORLD"}
+		events = {"UNIT_POWER_FREQUENT", "UNIT_MAXPOWER"}
 	},
 	rage = {
 		key = "rage",
 		globalName = "SoundAlerterResourceBar_Rage",
 		powerType = POWER_TYPE_RAGE,
 		defaultY = -120,
+		powerToken = "RAGE",
 		updateFreq = VALUE_UPDATE_THROTTLE,
 		getValueFunc = function() return UnitPower("player", POWER_TYPE_RAGE), UnitPowerMax("player", POWER_TYPE_RAGE) end,
 		shouldUpdate = function(self, current, lastValue) return current ~= lastValue end,
-		continuousUpdate = false,
-		events = {"UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "PLAYER_ENTERING_WORLD"}
+		events = {"UNIT_POWER_FREQUENT", "UNIT_MAXPOWER"}
 	},
 	health = {
 		key = "health",
@@ -66,19 +68,18 @@ local BAR_CONFIGS = {
 		updateFreq = VALUE_UPDATE_THROTTLE,
 		getValueFunc = function() return UnitHealth("player"), UnitHealthMax("player") end,
 		shouldUpdate = function(self, current, lastValue) return current ~= lastValue end,
-		continuousUpdate = false,
-		events = {"UNIT_HEALTH", "UNIT_MAXHEALTH", "PLAYER_ENTERING_WORLD"}
+		events = {"UNIT_HEALTH", "UNIT_MAXHEALTH"}
 	},
 	mana = {
 		key = "mana",
 		globalName = "SoundAlerterResourceBar_Mana",
 		powerType = POWER_TYPE_MANA,
 		defaultY = -100,
+		powerToken = "MANA",
 		updateFreq = VALUE_UPDATE_THROTTLE,
 		getValueFunc = function() return UnitPower("player", POWER_TYPE_MANA), UnitPowerMax("player", POWER_TYPE_MANA) end,
 		shouldUpdate = function(self, current, lastValue) return current ~= lastValue end,
-		continuousUpdate = false,
-		events = {"UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "PLAYER_ENTERING_WORLD"}
+		events = {"UNIT_POWER_FREQUENT", "UNIT_MAXPOWER"}
 	}
 }
 
@@ -163,7 +164,9 @@ function ResourceBar:Initialize()
 
 	self.cachedTime = 0
 
-	self.screenWidth, self.screenHeight = UIParent:GetSize()
+	self.extents = {}
+	self.animating = {}
+	self.updaters = {}
 
 	for barKey, config in pairs(BAR_CONFIGS) do
 		self:CreateResourceBar(barKey, config)
@@ -297,37 +300,70 @@ function ResourceBar:UpdateResourceBar(barKey, config)
 
 		self.lastValues[barKey] = nil
 		self.lastText[barKey] = nil
+		self:SetAnimating(barKey, false)
 		return
 	end
 
 	if max == 0 then return end
 
-	local shouldUpdate = config.shouldUpdate(self, current, self.lastValues[barKey])
+	if config.shouldUpdate(self, current, self.lastValues[barKey]) then
+		local extent = self.extents[barKey] or BAR_WIDTH
+		bar:SetMinMaxValues(0, max)
+		bar:SetValue(math_floor(current / max * extent + 0.5) / extent * max)
 
-	if shouldUpdate or config.continuousUpdate then
-		if shouldUpdate then
-			bar:SetMinMaxValues(0, max)
-			bar:SetValue(current)
+		local newText = tostring(current)
 
-			local newText = tostring(current)
-
-			if newText ~= self.lastText[barKey] then
-				self[textName]:SetText(newText)
-				self.lastText[barKey] = newText
-			end
-
-			self.lastValues[barKey] = current
-		elseif config.continuousUpdate then
-			bar:SetValue(current)
+		if newText ~= self.lastText[barKey] then
+			self[textName]:SetText(newText)
+			self.lastText[barKey] = newText
 		end
+
+		self.lastValues[barKey] = current
 	end
 
 	local percent = (current / max) * 100
 	local color = self.cachedColors[barKey]
-	local time = self.cachedTime
+	local time = GetTime()
+	self.cachedTime = time
 
 	self:ApplyLowPowerAnimation(bar, percent, color, time)
 	self:ApplyOvercapAnimation(bar, percent, color, time)
+
+	self:SetAnimating(barKey, percent < 25 or percent >= 95)
+end
+
+function ResourceBar:SetAnimating(barKey, on)
+	local frame = self[barKey .. "Frame"]
+	if not frame or self.animating[barKey] == on then return end
+
+	self.animating[barKey] = on
+
+	if not on then
+		frame:SetScript("OnUpdate", nil)
+		return
+	end
+
+	local updater = self.updaters[barKey]
+	if not updater then
+		local config = BAR_CONFIGS[barKey]
+		updater = function()
+			local shouldUpdate, now = SoundAlerter.BarUtils:ShouldUpdate(self.lastBarUpdate[barKey], config.updateFreq)
+			if shouldUpdate then
+				self.lastBarUpdate[barKey] = now
+				self:UpdateResourceBar(barKey, config)
+			end
+		end
+		self.updaters[barKey] = updater
+	end
+
+	frame:SetScript("OnUpdate", updater)
+end
+
+function ResourceBar:RefreshBar(barKey)
+	local frame = self[barKey .. "Frame"]
+	if frame and frame:IsShown() then
+		self:UpdateResourceBar(barKey, BAR_CONFIGS[barKey])
+	end
 end
 
 function ResourceBar:CreateCPFrame()
@@ -429,59 +465,50 @@ function ResourceBar:CreateCPTextFrame()
 end
 
 function ResourceBar:RegisterEvents()
-	self.energyFrame:RegisterEvent("UNIT_POWER_FREQUENT")
-	self.energyFrame:RegisterEvent("UNIT_MAXPOWER")
-	self.energyFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+	for barKey, config in pairs(BAR_CONFIGS) do
+		local frame = self[barKey .. "Frame"]
+		local powerToken = config.powerToken
 
-	self.rageFrame:RegisterEvent("UNIT_POWER_FREQUENT")
-	self.rageFrame:RegisterEvent("UNIT_MAXPOWER")
-	self.rageFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+		for _, event in ipairs(config.events) do
+			frame:RegisterEvent(event)
+		end
 
-	self.healthFrame:RegisterEvent("UNIT_HEALTH")
-	self.healthFrame:RegisterEvent("UNIT_MAXHEALTH")
-	self.healthFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-
-	self.manaFrame:RegisterEvent("UNIT_POWER_FREQUENT")
-	self.manaFrame:RegisterEvent("UNIT_MAXPOWER")
-	self.manaFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+		frame:SetScript("OnEvent", function(_, _, unitId, powerType)
+			if unitId ~= "player" then return end
+			if powerToken and powerType ~= powerToken then return end
+			self:RefreshBar(barKey)
+		end)
+	end
 
 	self.comboFrame:RegisterEvent("UNIT_POWER_FREQUENT")
 	self.comboFrame:RegisterEvent("UNIT_POWER_UPDATE")
 	self.comboFrame:RegisterEvent("UNIT_MAXPOWER")
 	self.comboFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 	self.comboFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+	self.comboFrame:RegisterEvent("UI_SCALE_CHANGED")
+	self.comboFrame:RegisterEvent("DISPLAY_SIZE_CHANGED")
 
-	local function HandleEvents(frame, event, ...)
+	self.comboFrame:SetScript("OnEvent", function(_, event, ...)
 		if ResourceBar[event] then
 			ResourceBar[event](ResourceBar, event, ...)
 		end
-	end
-
-	self.energyFrame:SetScript("OnEvent", HandleEvents)
-	self.rageFrame:SetScript("OnEvent", HandleEvents)
-	self.healthFrame:SetScript("OnEvent", HandleEvents)
-	self.manaFrame:SetScript("OnEvent", HandleEvents)
-	self.comboFrame:SetScript("OnEvent", HandleEvents)
+	end)
 end
 
 function ResourceBar:UNIT_POWER_FREQUENT(event, unitId, powerType)
 	if unitId ~= "player" then return end
 
-	if self.energyFrame and self.energyFrame:IsShown() then
-		self.lastBarUpdate.energy = nil
-	end
-
-	if self.rageFrame and self.rageFrame:IsShown() then
-		self.lastBarUpdate.rage = nil
-	end
-
-	if self.manaFrame and self.manaFrame:IsShown() then
-		self.lastBarUpdate.mana = nil
-	end
-
 	if powerType == "COMBO_POINTS" and self.comboFrame and self.comboFrame:IsShown() then
 		self:UpdateComboPoints()
 	end
+end
+
+function ResourceBar:UI_SCALE_CHANGED()
+	self:LoadSettings()
+end
+
+function ResourceBar:DISPLAY_SIZE_CHANGED()
+	self:LoadSettings()
 end
 
 function ResourceBar:UNIT_MAXPOWER(event, unitId, powerType)
@@ -492,18 +519,6 @@ end
 function ResourceBar:UNIT_POWER_UPDATE(event, unitId, powerType)
 	if unitId ~= "player" then return end
 	self:UNIT_POWER_FREQUENT(event, unitId, powerType)
-end
-
-function ResourceBar:UNIT_HEALTH(event, unitId)
-	if unitId ~= "player" then return end
-	if self.healthFrame and self.healthFrame:IsShown() then
-		self.lastBarUpdate.health = nil
-	end
-end
-
-function ResourceBar:UNIT_MAXHEALTH(event, unitId)
-	if unitId ~= "player" then return end
-	self:UNIT_HEALTH(event, unitId)
 end
 
 function ResourceBar:PLAYER_TARGET_CHANGED()
@@ -802,69 +817,65 @@ end
 function ResourceBar:LoadSettings()
 	if not self.db then return end
 
-	self.screenWidth, self.screenHeight = UIParent:GetSize()
+	local BarUtils = SoundAlerter.BarUtils
 
 	for barKey, config in pairs(BAR_CONFIGS) do
-		local frameName = barKey .. "Frame"
-		local barName = barKey .. "Bar"
-		local frame = self[frameName]
+		local frame = self[barKey .. "Frame"]
+		local bar = self[barKey .. "Bar"]
 
 		if frame then
-			local xKey = barKey .. "PositionX"
-			local yKey = barKey .. "PositionY"
-			local scaleKey = barKey .. "Scale"
+			frame:SetScale(self.db[barKey .. "Scale"] or 1.0)
 
-			local x = (self.db[xKey] or 0) + (self.screenWidth / 2)
-			local y = (self.db[yKey] or config.defaultY) + (self.screenHeight / 2)
-			frame:ClearAllPoints()
-			frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
-			frame:SetScale(self.db[scaleKey] or 1.0)
+			local height = barKey == "health" and (self.db.healthHeight or BAR_HEIGHT) or BAR_HEIGHT
+			local barWidth = BarUtils:Snap(BAR_WIDTH, frame)
+			local barHeight = BarUtils:Snap(height, frame)
 
-			if barKey == "health" then
-				local height = self.db.healthHeight or BAR_HEIGHT
-				self[barName]:SetSize(BAR_WIDTH, height)
-				frame:SetSize(BAR_WIDTH + 20, height + 20)
-			end
+			bar:SetSize(barWidth, barHeight)
+			frame:SetSize(BarUtils:Snap(BAR_WIDTH + 20, frame), BarUtils:Snap(height + 20, frame))
+
+			self.extents[barKey] = math_max(1, math_floor(barWidth * BarUtils:PixelsPerUnit(bar) + 0.5))
+			self.lastValues[barKey] = -1
+
+			BarUtils:LoadPosition(frame, self.db, barKey, 0, config.defaultY)
+			self:RefreshBar(barKey)
 		end
 	end
 
 	if self.comboFrame then
-		local x = (self.db.comboPositionX or 0) + (self.screenWidth / 2)
-		local y = (self.db.comboPositionY or -85) + (self.screenHeight / 2)
-		self.comboFrame:ClearAllPoints()
-		self.comboFrame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
 		self.comboFrame:SetScale(self.db.comboScale or 1.0)
+		self:ApplyComboLayout()
+		BarUtils:LoadPosition(self.comboFrame, self.db, "combo", 0, -85)
 	end
 
 	if self.comboTextFrame then
-		local x = (self.db.comboTextPositionX or 0) + (self.screenWidth / 2)
-		local y = (self.db.comboTextPositionY or -50) + (self.screenHeight / 2)
-		self.comboTextFrame:ClearAllPoints()
-		self.comboTextFrame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
+		BarUtils:LoadPosition(self.comboTextFrame, self.db, "comboText", 0, -50)
 	end
 end
 
-function ResourceBar:StartBarUpdates(barKey, config)
-	local frameName = barKey .. "Frame"
-	local frame = self[frameName]
-	if not frame then return end
+function ResourceBar:ApplyComboLayout()
+	local BarUtils = SoundAlerter.BarUtils
+	local frame = self.comboFrame
 
-	frame:SetScript("OnUpdate", function(f, elapsed)
-		self.cachedTime = GetTime()
-		local shouldUpdate, now = SoundAlerter.BarUtils:ShouldUpdate(self.lastBarUpdate[barKey], config.updateFreq)
-		if shouldUpdate then
-			self:UpdateResourceBar(barKey, config)
-			self.lastBarUpdate[barKey] = now
+	local size = BarUtils:Snap(CP_HEIGHT, frame)
+	local spacing = BarUtils:Snap(CP_SPACING, frame)
+	local inset = BarUtils:Snap(10, frame)
+
+	frame:SetSize(BarUtils:Snap(CP_CONTAINER_WIDTH + 20, frame), BarUtils:Snap(CP_HEIGHT + 20, frame))
+
+	for i = 1, 5 do
+		local cp = self.comboPoints[i]
+		cp:SetSize(size, size)
+		cp:ClearAllPoints()
+		if i == 1 then
+			cp:SetPoint("LEFT", frame, "LEFT", inset, 0)
+		else
+			cp:SetPoint("LEFT", self.comboPoints[i - 1], "RIGHT", spacing, 0)
 		end
-	end)
+	end
 end
 
 function ResourceBar:StopBarUpdates(barKey)
-	local frameName = barKey .. "Frame"
-	local frame = self[frameName]
-	if not frame then return end
-
-	frame:SetScript("OnUpdate", nil)
+	self:SetAnimating(barKey, false)
 	self.lastBarUpdate[barKey] = nil
 end
 
@@ -894,7 +905,6 @@ function ResourceBar:UpdateVisibility()
 				frame:Show()
 				frame:EnableMouse(not self.db.locked)
 				self:UpdateResourceBar(barKey, config)
-				self:StartBarUpdates(barKey, config)
 			else
 				frame:Hide()
 				self:StopBarUpdates(barKey)

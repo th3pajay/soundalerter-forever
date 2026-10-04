@@ -1,6 +1,6 @@
 # SoundAlerter - Forever (BETA BUILD)
 
-![Version](https://img.shields.io/badge/version-0.2.16-blue.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![WoW](https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg) ![Platform](https://img.shields.io/badge/platform-Windows-purple.svg)
+![Version](https://img.shields.io/badge/version-0.2.19-blue.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![WoW](https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg) ![Platform](https://img.shields.io/badge/platform-Windows-purple.svg)
 
 **What changed:** WoW Forever permanently restricts `COMBAT_LOG_EVENT_UNFILTERED` for every third-party addon — a Blizzard platform decision, not a bug, and not addon-specific. SoundAlerter has been rebuilt around nameplate and unit-event tracking instead.
 
@@ -13,7 +13,7 @@
 - Voice alerts for your target, focus, and any enemy player with a visible nameplate nearby
 - Proximity detection and toasts (now nameplate + target/mouseover driven)
 - Battleground flag tracking (already chat-message based, unaffected)
-- Casting bars, resource bars, spell tracker (never depended on combat log)
+- Casting bars, cast feed, resource bars, spell tracker (never depended on combat log)
 - All existing settings and Custom Sound Alert rules carry over automatically, no reconfiguration needed
 
 ---
@@ -97,6 +97,8 @@ Unified bars for Health, Mana, Energy, Rage, and Combo Points.
 **Features:**
 * Feral Druid form-switching support
 * Position memory per profile
+* Pixel-perfect: sizes, positions and the fill edge snap to whole screen pixels (exact at scale 1.0; other scale values stay approximately sharp)
+* Event-driven: a bar only runs a per-frame update while its low-power pulse or overcap glow is showing
 
 **Configuration**: `/sa` -> Resource Bars tab
 
@@ -107,10 +109,30 @@ Cast bars for Player, Target, and Focus units.
 
 **Features:**
 * Channeled and mid-cast targeting support
-* Interrupt flash effects
+* Finish animations: a completed cast flashes green and fades out, an interrupted cast turns red, shows "Interrupted" and fades out; cancelled casts just disappear
 * Configurable orientation (horizontal/vertical) and fill direction per bar
+* Pixel-perfect: sizes, positions and the fill edge snap to whole screen pixels at any UI scale, and the bars cost nothing while idle (the update loop only runs during a cast; the time text only redraws when its digits change)
 
 **Configuration**: `/sa` -> Casting Bars tab
+
+---
+
+### Cast Feed - Scrolling Cast History
+Casts by you, your target, focus and party members (Party 1-4) appear as icons that move along a row. Each unit has its own row. Your own casts are fully readable, including instants.
+
+**Features:**
+* One row per unit: Player, Target, Focus, Party 1-4, each shown or hidden separately
+* Direction, scale and position are set per row (left, right, up or down): pick a row under *Edit Row*, or copy its settings to all rows in one click; icon size, spacing, length and speed are shared
+* Hover any icon to freeze its row and see the spell and its caster, with the spell ID in gold on the bottom line; moving off it speeds the row up until it is current again
+* Border colour shows state: casting/channeling, success, interrupted, cancelled
+* Optional time between casts (`MM:SS:ms`, cast start to cast start) shown between neighbouring icons; icons spread out to make room, and the text size is adjustable
+* Row length, speed and catch-up speed are adjustable; rows are draggable when unlocked
+* Settings live in the active profile, so profile switch, copy and reset apply to it
+* Off by default
+
+**Limitations:** the client hides other units' casts from addons. A hidden spell still gets its icon (from the cast bar) and its cast name on hover, but not the full spell tooltip, and the addon can never read, match or filter it; per-spell alerts on other units stay impossible. Instant casts by other units, players and NPCs alike, are not delivered at all and cannot be shown. Their aura changes cannot stand in for them either: the client hides the contents of other units' aura updates and blocks reading their aura list. An instant whose event does arrive but whose spell cannot be displayed shows a generic lightning marker.
+
+**Configuration**: `/sa` -> Cast Feed tab
 
 ---
 
@@ -123,6 +145,7 @@ Icon-based tracking for buffs, debuffs, and cooldowns.
 **Features:**
 * Simultaneous player and target tracking
 * Cooldown spiral animations and duration overlays
+* Icons stay correct through druid form swaps and other aura changes (auras are looked up by spell ID)
 
 **Configuration**: `/sa` -> Spell Tracker tab
 

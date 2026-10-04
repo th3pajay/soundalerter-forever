@@ -2371,6 +2371,255 @@ function SoundAlerter:BuildCastingBarOptions()
 	}
 end
 
+function SoundAlerter:BuildCastFeedOptions()
+	local function Feed()
+		return SoundAlerter.CastFeed
+	end
+
+	local function Apply(key, value)
+		local feed = Feed()
+		if not feed then return end
+		feed:SetSetting(key, value)
+		feed:LoadSettings()
+	end
+
+	local function Disabled()
+		local feed = Feed()
+		return not feed or not feed:GetSettings().enabled
+	end
+
+	local function Range(order, name, desc, key, min, max, step)
+		return {
+			type = 'range',
+			name = name,
+			desc = desc,
+			min = min,
+			max = max,
+			step = step,
+			get = function() return Feed():GetSettings()[key] end,
+			set = function(info, value) Apply(key, value) end,
+			disabled = Disabled,
+			order = order,
+		}
+	end
+
+	local rowUnits = { "player", "target", "focus", "party1", "party2", "party3", "party4" }
+	local rowLabels = {
+		player = "Player",
+		target = "Target",
+		focus = "Focus",
+		party1 = "Party 1",
+		party2 = "Party 2",
+		party3 = "Party 3",
+		party4 = "Party 4",
+	}
+
+	local selectedRow = "player"
+
+	local function SelectedRow()
+		return Feed():GetSettings().rows[selectedRow]
+	end
+
+	local function RowDisabled()
+		return Disabled() or not SelectedRow().enabled
+	end
+
+	local function ApplyRow(field, value)
+		local feed = Feed()
+		if not feed then return end
+		feed:SetSetting(selectedRow .. "." .. field, value)
+		feed:LoadSettings()
+	end
+
+	local function CopyToAll()
+		local feed = Feed()
+		if not feed then return end
+		local source = SelectedRow()
+		for _, unit in ipairs(rowUnits) do
+			feed:SetSetting(unit .. ".direction", source.direction)
+			feed:SetSetting(unit .. ".scale", source.scale)
+		end
+		feed:LoadSettings()
+	end
+
+	return {
+		type = 'group',
+		name = "Cast Feed",
+		icon = "Interface\\Icons\\Spell_Nature_Lightning",
+		desc = "Icons of player, target, focus and party casts moving across the screen, one row per unit.",
+		order = 2.86,
+		args = {
+			description = {
+				type = 'description',
+				name = "|cffFFD700Cast Feed|r\n\n" ..
+				       "Every cast by you, your target, focus and party members becomes an icon that moves along that unit's own row. " ..
+				       "Hover any icon to freeze its row and see the spell; leaving it speeds the row up until it is current again. " ..
+				       "Unlock to drag the rows into position. Disabled by default.\n",
+				fontSize = "medium",
+				order = 1,
+			},
+
+			initErrorWarning = {
+				type = 'description',
+				name = function()
+					return "|cffFF0000Cast Feed failed to initialize this session:|r\n" ..
+					       tostring(SoundAlerter.moduleInitErrors and SoundAlerter.moduleInitErrors.CastFeed) ..
+					       "\n\n|cffFFFFFFToggles below will not take effect until this is fixed and you /reload.|r\n"
+				end,
+				fontSize = "medium",
+				order = 1.5,
+				hidden = function() return SoundAlerter.CastFeed ~= nil end,
+			},
+
+			generalGroup = {
+				type = 'group',
+				inline = true,
+				name = "General",
+				order = 2,
+				args = {
+					enabled = {
+						type = 'toggle',
+						name = "Enable Cast Feed",
+						get = function() return Feed():GetSettings().enabled end,
+						set = function(info, value) Apply("enabled", value) end,
+						width = "full",
+						order = 1,
+					},
+					locked = {
+						type = 'toggle',
+						name = "Lock Position",
+						desc = "Unlock to drag the rows. A shaded outline marks each row while unlocked.",
+						get = function() return Feed():GetSettings().locked end,
+						set = function(info, value) Apply("locked", value) end,
+						disabled = Disabled,
+						order = 2,
+					},
+					showInstants = {
+						type = 'toggle',
+						name = "Show Instant Casts",
+						desc = "Include casts that have no cast time. The client hides other units' instant casts from addons, so these mostly appear only for units whose casts are readable.",
+						get = function() return Feed():GetSettings().showInstants end,
+						set = function(info, value) Apply("showInstants", value) end,
+						disabled = Disabled,
+						order = 4,
+					},
+					showGaps = {
+						type = 'toggle',
+						name = "Show Time Between Casts",
+						desc = "Show the time between two casts (MM:SS:ms) between their icons. Icons spread out to make room.",
+						get = function() return Feed():GetSettings().showGaps end,
+						set = function(info, value) Apply("showGaps", value) end,
+						disabled = Disabled,
+						order = 4.5,
+					},
+					test = {
+						type = 'execute',
+						name = "Test",
+						desc = "Spawn a few sample casts.",
+						func = function()
+							if Feed() then Feed():RunTest() end
+						end,
+						disabled = Disabled,
+						order = 5,
+					},
+					resetPosition = {
+						type = 'execute',
+						name = "Reset Positions",
+						func = function()
+							if Feed() then Feed():ResetPositions() end
+						end,
+						disabled = Disabled,
+						order = 6,
+					},
+				},
+			},
+
+			rowsGroup = {
+				type = 'group',
+				inline = true,
+				name = "Rows",
+				order = 3,
+				args = {
+					shown = {
+						type = 'multiselect',
+						name = "Show Rows",
+						desc = "Each ticked unit gets its own row.",
+						values = rowLabels,
+						get = function(info, unit) return Feed():GetSettings().rows[unit].enabled end,
+						set = function(info, unit, value) Apply(unit .. ".enabled", value) end,
+						disabled = Disabled,
+						width = "half",
+						order = 1,
+					},
+					selected = {
+						type = 'select',
+						name = "Edit Row",
+						desc = "Pick the row that Direction and Scale apply to.",
+						values = rowLabels,
+						sorting = rowUnits,
+						get = function() return selectedRow end,
+						set = function(info, value) selectedRow = value end,
+						disabled = Disabled,
+						order = 2,
+					},
+					direction = {
+						type = 'select',
+						name = "Direction",
+						desc = "Direction the icons travel. New casts appear at the opposite edge.",
+						values = {
+							left = "Left",
+							right = "Right",
+							up = "Up",
+							down = "Down",
+						},
+						sorting = { "left", "right", "up", "down" },
+						get = function() return SelectedRow().direction end,
+						set = function(info, value) ApplyRow("direction", value) end,
+						disabled = RowDisabled,
+						order = 3,
+					},
+					scale = {
+						type = 'range',
+						name = "Scale",
+						desc = "Scales this row's icons, spacing and length together.",
+						min = 0.5,
+						max = 3,
+						step = 0.05,
+						get = function() return SelectedRow().scale end,
+						set = function(info, value) ApplyRow("scale", value) end,
+						disabled = RowDisabled,
+						order = 4,
+					},
+					copyToAll = {
+						type = 'execute',
+						name = "Copy to All Rows",
+						desc = "Give every row the selected row's direction and scale.",
+						func = CopyToAll,
+						disabled = RowDisabled,
+						order = 5,
+					},
+				},
+			},
+
+			appearanceGroup = {
+				type = 'group',
+				inline = true,
+				name = "Appearance (all rows)",
+				order = 4,
+				args = {
+					iconSize = Range(1, "Icon Size", "Icon size before each row's scale.", "iconSize", 16, 64, 1),
+					spacing = Range(2, "Spacing", "Minimum gap between icons.", "spacing", 0, 24, 1),
+					length = Range(3, "Row Length", "Distance icons travel before they disappear.", "length", 100, 1000, 10),
+					maxIcons = Range(4, "Max Icons", "Casts kept in each row; extra casts wait their turn.", "maxIcons", 3, 30, 1),
+					speed = Range(5, "Speed", "Travel speed in pixels per second.", "speed", 20, 300, 5),
+					catchUp = Range(6, "Catch-Up Speed", "How many times faster a row moves after you stop hovering, until it is current again.", "catchUp", 1.5, 10, 0.5),
+						gapFontSize = Range(7, "Time Text Size", "Font size of the time between casts.", "gapFontSize", 8, 20, 1),
+				},
+			},
+		},
+	}
+end
+
 function SoundAlerter:BuildSpellTrackerOptions()
 	return {
 		type = 'group',
@@ -2430,7 +2679,7 @@ function SoundAlerter:BuildSpellTrackerOptions()
 					showCooldownText = {
 						type = 'toggle',
 						name = "Show Spell Cooldown Numbers",
-						desc = "Display spell cooldown countdown (integer seconds) at center of spell tracker icons. " ..
+						desc = "Display spell cooldown countdown (integer seconds, gold) at the top center of spell tracker icons. " ..
 						       "Only affects spells with 'Track Cooldown' enabled.\n\n" ..
 						       "|cffFF7D0ANote:|r This tracks YOUR spell cooldowns (when the ability is ready to use again), " ..
 						       "not enemy cooldowns or aura durations.",
@@ -4180,6 +4429,8 @@ function SoundAlerter:OnOptionsCreate()
 	self:AddOption('ResourceBar', self:BuildResourceBarOptions())
 
 	self:AddOption('CastingBars', self:BuildCastingBarOptions())
+
+	self:AddOption('CastFeed', self:BuildCastFeedOptions())
 
 	local RebuildSpellTrackerOptions
 

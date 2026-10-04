@@ -239,6 +239,29 @@ dbDefaults = {
 			},
 		},
 
+		castFeed = {
+			enabled = false,
+			locked = true,
+			iconSize = 32,
+			spacing = 4,
+			speed = 60,
+			catchUp = 4,
+			length = 400,
+			maxIcons = 12,
+			showInstants = true,
+			showGaps = false,
+			gapFontSize = 10,
+			rows = {
+				player = { enabled = true, direction = "left", scale = 1, PositionX = 0, PositionY = -150 },
+				target = { enabled = true, direction = "left", scale = 1, PositionX = 0, PositionY = -198 },
+				focus = { enabled = true, direction = "left", scale = 1, PositionX = 0, PositionY = -246 },
+				party1 = { enabled = true, direction = "left", scale = 1, PositionX = 0, PositionY = -294 },
+				party2 = { enabled = true, direction = "left", scale = 1, PositionX = 0, PositionY = -342 },
+				party3 = { enabled = true, direction = "left", scale = 1, PositionX = 0, PositionY = -390 },
+				party4 = { enabled = true, direction = "left", scale = 1, PositionX = 0, PositionY = -438 },
+			},
+		},
+
 		spellTracker = {
 			locked = false,
 			showTimerText = true,

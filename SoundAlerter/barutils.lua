@@ -23,12 +23,33 @@ function BarUtils:SavePosition(frame, db, prefix)
 	db[prefix .. "PositionY"] = y - (screenHeight / 2)
 end
 
+function BarUtils:PixelsPerUnit(frame)
+	if not GetPhysicalScreenSize then return 1 end
+
+	local _, physicalHeight = GetPhysicalScreenSize()
+	local parentHeight = UIParent:GetHeight() * UIParent:GetEffectiveScale()
+	if not physicalHeight or parentHeight <= 0 then return 1 end
+
+	return physicalHeight / parentHeight * (frame or UIParent):GetEffectiveScale()
+end
+
+function BarUtils:Snap(value, frame)
+	if not GetPhysicalScreenSize then return value end
+
+	local ppu = self:PixelsPerUnit(frame)
+	return math.floor(value * ppu + 0.5) / ppu
+end
+
 function BarUtils:LoadPosition(frame, db, prefix, defaultX, defaultY)
 	if not frame or not db or not prefix then return end
 
 	local screenWidth, screenHeight = UIParent:GetSize()
 	local x = (db[prefix .. "PositionX"] or defaultX or 0) + (screenWidth / 2)
 	local y = (db[prefix .. "PositionY"] or defaultY or 0) + (screenHeight / 2)
+
+	local width, height = frame:GetSize()
+	x = self:Snap(x - width / 2, frame) + width / 2
+	y = self:Snap(y - height / 2, frame) + height / 2
 
 	frame:ClearAllPoints()
 	frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
