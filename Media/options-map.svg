@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500" viewBox="0 0 1000 500" role="img" aria-label="Where everything is in the /sa options window" font-family="Segoe UI, Helvetica Neue, Helvetica, Arial, sans-serif">
+<title>Where everything is in the /sa options window</title>
+<rect width="1000" height="500" rx="14" fill="#0e1117"/>
+<text x="26" y="50" font-size="22" font-weight="700" fill="#ffd100">/sa</text><text x="82" y="50" font-size="16" fill="#98a0b3">options window, one tab per feature (illustration of the tab list)</text>
+<rect x="20" y="74" width="470" height="48" rx="8" fill="#151a23" stroke="#ffd100" stroke-width="2"/>
+<circle cx="42" cy="98" r="7" fill="#ffd100"/>
+<text x="62" y="95" font-size="16" font-weight="600" fill="#e8eaf0">Quick Start</text>
+<text x="62" y="112" font-size="12.5" fill="#98a0b3">Pick a style, check the sound, choose alert types</text>
+<rect x="386" y="84" width="92" height="22" rx="11" fill="#ffd100"/><text x="432" y="100" font-size="12" font-weight="700" fill="#1a1400" text-anchor="middle">START HERE</text>
+<rect x="20" y="132" width="470" height="48" rx="8" fill="#151a23" stroke="#2a3140" stroke-width="1"/>
+<circle cx="42" cy="156" r="7" fill="#98a0b3"/>
+<text x="62" y="153" font-size="16" font-weight="600" fill="#e8eaf0">General</text>
+<text x="62" y="170" font-size="12.5" fill="#98a0b3">Volume, enable everything, import and export</text>
+<rect x="20" y="190" width="470" height="48" rx="8" fill="#151a23" stroke="#2a3140" stroke-width="1"/>
+<circle cx="42" cy="214" r="7" fill="#00d4ff"/>
+<text x="62" y="211" font-size="16" font-weight="600" fill="#e8eaf0">Voice Alerts</text>
+<text x="62" y="228" font-size="12.5" fill="#98a0b3">Per-spell voice alerts by category</text>
+<rect x="20" y="248" width="470" height="48" rx="8" fill="#151a23" stroke="#2a3140" stroke-width="1"/>
+<circle cx="42" cy="272" r="7" fill="#ff5a4d"/>
+<text x="62" y="269" font-size="16" font-weight="600" fill="#e8eaf0">Proximity Alerts</text>
+<text x="62" y="286" font-size="12.5" fill="#98a0b3">Enemy-nearby toasts and click to target</text>
+<rect x="20" y="306" width="470" height="48" rx="8" fill="#151a23" stroke="#2a3140" stroke-width="1"/>
+<circle cx="42" cy="330" r="7" fill="#ffb020"/>
+<text x="62" y="327" font-size="16" font-weight="600" fill="#e8eaf0">Battleground Alerts</text>
+<text x="62" y="344" font-size="12.5" fill="#98a0b3">Flag carrier and objective alerts</text>
+<rect x="20" y="364" width="470" height="48" rx="8" fill="#151a23" stroke="#2a3140" stroke-width="1"/>
+<circle cx="42" cy="388" r="7" fill="#3ddc84"/>
+<text x="62" y="385" font-size="16" font-weight="600" fill="#e8eaf0">Resource Management</text>
+<text x="62" y="402" font-size="12.5" fill="#98a0b3">Health, power and combo point bars</text>
+<rect x="20" y="422" width="470" height="48" rx="8" fill="#151a23" stroke="#2a3140" stroke-width="1"/>
+<circle cx="42" cy="446" r="7" fill="#5aa8ff"/>
+<text x="62" y="443" font-size="16" font-weight="600" fill="#e8eaf0">Casting Bars</text>
+<text x="62" y="460" font-size="12.5" fill="#98a0b3">Player, target and focus cast bars</text>
+<rect x="510" y="74" width="470" height="48" rx="8" fill="#151a23" stroke="#2a3140" stroke-width="1"/>
+<circle cx="532" cy="98" r="7" fill="#c78bff"/>
+<text x="552" y="95" font-size="16" font-weight="600" fill="#e8eaf0">Cast Feed</text>
+<text x="552" y="112" font-size="12.5" fill="#98a0b3">Scrolling history of casts</text>
+<rect x="510" y="132" width="470" height="48" rx="8" fill="#151a23" stroke="#2a3140" stroke-width="1"/>
+<circle cx="532" cy="156" r="7" fill="#00d4ff"/>
+<text x="552" y="153" font-size="16" font-weight="600" fill="#e8eaf0">Spell Tracker</text>
+<text x="552" y="170" font-size="12.5" fill="#98a0b3">Spells, Add Spell and Display tabs</text>
+<rect x="510" y="190" width="470" height="48" rx="8" fill="#151a23" stroke="#2a3140" stroke-width="1"/>
+<circle cx="532" cy="214" r="7" fill="#3ddc84"/>
+<text x="552" y="211" font-size="16" font-weight="600" fill="#e8eaf0">Statistics</text>
+<text x="552" y="228" font-size="12.5" fill="#98a0b3">Overview, Spells, Enemies, Classes, Data</text>
+<rect x="510" y="248" width="470" height="48" rx="8" fill="#151a23" stroke="#2a3140" stroke-width="1"/>
+<circle cx="532" cy="272" r="7" fill="#98a0b3"/>
+<text x="552" y="269" font-size="16" font-weight="600" fill="#e8eaf0">Developer Tools</text>
+<text x="552" y="286" font-size="12.5" fill="#98a0b3">Finder, Database, Performance, Debug</text>
+<rect x="510" y="306" width="470" height="48" rx="8" fill="#151a23" stroke="#2a3140" stroke-width="1"/>
+<circle cx="532" cy="330" r="7" fill="#ffb020"/>
+<text x="552" y="327" font-size="16" font-weight="600" fill="#e8eaf0">Advanced</text>
+<text x="552" y="344" font-size="12.5" fill="#98a0b3">Custom sound alerts and filters</text>
+<rect x="510" y="364" width="470" height="48" rx="8" fill="#151a23" stroke="#2a3140" stroke-width="1"/>
+<circle cx="532" cy="388" r="7" fill="#98a0b3"/>
+<text x="552" y="385" font-size="16" font-weight="600" fill="#e8eaf0">Profiles</text>
+<text x="552" y="402" font-size="12.5" fill="#98a0b3">Per-character profiles, copy and reset</text>
+</svg>
