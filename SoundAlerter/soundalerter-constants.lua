@@ -32,12 +32,6 @@ SA_COMPAT.GetSpellDescription = function(spellID)
     return C_Spell.GetSpellDescription(spellID)
 end
 
-SA_COMPAT.GetSpellCooldown = function(spellID)
-    local info = C_Spell.GetSpellCooldown(spellID)
-    if not info then return nil end
-    return info.startTime, info.duration, info.isEnabled, info.modRate, info.isActive
-end
-
 SA_COMPAT.UnitCastingInfo = function(unit)
     local name, text, texture, startTimeMS, endTimeMS, isTradeSkill, _, notInterruptible, _ = UnitCastingInfo(unit)
     return name, nil, text, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible
@@ -79,6 +73,3 @@ SA_COMPAT.UnitAura = function(unit, indexOrName, filter)
     return nil
 end
 
-SA_COMPAT.GetUnitAuraBySpellID = function(unit, spellID)
-    return pcall(C_UnitAuras.GetUnitAuraBySpellID, unit, spellID)
-end

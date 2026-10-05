@@ -2,6 +2,7 @@
 local Statistics = SoundAlerter:NewModule("Statistics", "AceEvent-3.0")
 SoundAlerter.Statistics = Statistics
 local GetSpellInfo = SA_COMPAT.GetSpellInfo
+local Format = SA_StatsFormat
 
 local function GetDB()
 	return SoundAlerter.db1 and SoundAlerter.db1.profile
@@ -26,26 +27,23 @@ end
 
 local STATS_CONSTANTS = {
 	MAX_TOP_SPELLS = 50,
-	MAX_RECENT_ALERTS = 100,
 	MAX_ENEMIES = 100,
 	MAX_SESSION_HISTORY = 50,
 	MAX_DISPLAY_ROWS = 20,
 
 	TREND_INCREASE_THRESHOLD = 1.2,
 	TREND_DECREASE_THRESHOLD = 0.8,
-
-	DANGER_HIGH = 5,
-	DANGER_MEDIUM = 3,
-
-	TABLE_BORDERS = {
-		TOP    = "",
-		HEADER = "|cff888888--------------------------|r",
-		ROW    = "",
-		BOTTOM = "",
-		LEFT   = "",
-		WIDTH  = 28
-	}
 }
+
+Format.ClassColor = function(class)
+	local color = RAID_CLASS_COLORS[class]
+	if color then
+		return math.floor(color.r * 255 + 0.5), math.floor(color.g * 255 + 0.5), math.floor(color.b * 255 + 0.5)
+	end
+	return 255, 255, 255
+end
+
+local dataVersion = 0
 
 local spellNameCache = {}
 
@@ -60,33 +58,6 @@ local function GetCachedSpellName(spellID)
 		spellNameCache[spellID] = GetSpellInfo(spellID) or "Unknown"
 	end
 	return spellNameCache[spellID]
-end
-
-local function TruncateString(str, maxLen)
-	if not str then return "" end
-	if string.len(str) <= maxLen then return str end
-	return str:sub(1, maxLen - 2) .. ".."
-end
-
-local function FormatDanger(danger)
-	local color = "ff00FF00"
-	if danger > STATS_CONSTANTS.DANGER_HIGH then
-		color = "ffFF0000"
-	elseif danger > STATS_CONSTANTS.DANGER_MEDIUM then
-		color = "ffFFD700"
-	end
-	return "|c" .. color .. string.format("%.1f", danger) .. "|r"
-end
-
-local function GetClassColorHex(class)
-	local classColor = RAID_CLASS_COLORS[class]
-	if classColor then
-		return string.format("ff%02x%02x%02x",
-			classColor.r * 255,
-			classColor.g * 255,
-			classColor.b * 255)
-	end
-	return "ffFFFFFF"
 end
 
 local function FormatClassName(class)
@@ -196,45 +167,6 @@ local function SortStatisticsList(list, tableType, sortType)
 	if strategy then
 		table.sort(list, strategy)
 	end
-end
-
-local function RenderStatsTable(config)
-	if not config.data or #config.data == 0 then
-		return config.emptyMessage or "|cffFFFFFFNo data available.|r"
-	end
-
-	local parts = {}
-	local borders = STATS_CONSTANTS.TABLE_BORDERS
-
-	parts[#parts + 1] = "|cffFFD700" .. (config.title or "STATISTICS") .. "|r\n"
-	parts[#parts + 1] = borders.HEADER
-	parts[#parts + 1] = "\n"
-
-	local maxDisplay = math.min(config.maxRows or STATS_CONSTANTS.MAX_DISPLAY_ROWS, #config.data)
-
-	for i = 1, maxDisplay do
-		local row = config.data[i]
-
-		if config.rowRenderer then
-			local rowText = config.rowRenderer(row, i)
-			parts[#parts + 1] = rowText
-		end
-
-		if i < maxDisplay then
-			parts[#parts + 1] = borders.ROW
-			parts[#parts + 1] = "\n"
-		end
-	end
-
-	parts[#parts + 1] = borders.BOTTOM
-
-	if #config.data > maxDisplay then
-		parts[#parts + 1] = "\n\n|cff888888... and "
-		parts[#parts + 1] = tostring(#config.data - maxDisplay)
-		parts[#parts + 1] = " more entries|r"
-	end
-
-	return table.concat(parts)
 end
 
 local function PrepareTopSpellsData()
@@ -357,113 +289,158 @@ local function PrepareClassDistributionData()
 	return classList
 end
 
-local barRowCache = {
-	topSpells = { data = nil, errorMsg = nil, computedAt = 0 },
-	classes = { data = nil, errorMsg = nil, computedAt = 0 },
-}
-local BAR_CACHE_TTL = 1
+local viewCache = {}
 
-local function GetBarRowSource(tableType)
-	local cache = barRowCache[tableType]
-	if cache.data and (GetTime() - cache.computedAt) < BAR_CACHE_TTL then
-		return cache.data, cache.errorMsg
+local function cachedText(key, source, version, variant, builder)
+	local entry = viewCache[key]
+	if entry and entry.source == source and entry.version == version and entry.variant == variant then
+		return entry.text
 	end
 
-	local data, errorMsg
-	if tableType == "topSpells" then
-		data, errorMsg = PrepareTopSpellsData()
-	elseif tableType == "classes" then
-		data, errorMsg = PrepareClassDistributionData()
+	if not entry then
+		entry = {}
+		viewCache[key] = entry
 	end
-
-	cache.data = data
-	cache.errorMsg = errorMsg
-	cache.computedAt = GetTime()
-	return data, errorMsg
+	entry.source = source
+	entry.version = version
+	entry.variant = variant
+	entry.text = builder(key)
+	return entry.text
 end
 
-function Statistics:InvalidateBarRowCache()
-	barRowCache.topSpells.computedAt = 0
-	barRowCache.classes.computedAt = 0
+local kpiScratch = {}
+
+local function buildKpi()
+	local stats = GetDB().statistics
+	local session = stats.session or {}
+	local allTime = stats.allTime or {}
+	local minutes = math.max(0, math.floor((GetTime() - (session.startTime or 0)) / 60))
+	local sessions = allTime.totalSessions or 0
+
+	kpiScratch.sessionTotal = session.totalAlerts or 0
+	kpiScratch.minutes = minutes
+	kpiScratch.perMinute = minutes > 0 and kpiScratch.sessionTotal / minutes or 0
+	kpiScratch.allTimeTotal = allTime.totalAlerts or 0
+	kpiScratch.sessions = sessions
+	kpiScratch.avgPerSession = sessions > 0 and kpiScratch.allTimeTotal / sessions or 0
+	return Format.Kpi(kpiScratch)
 end
 
-function Statistics:GetBarRowCount(tableType)
-	local data = GetBarRowSource(tableType)
-	if not data then return 0 end
-	local maxRows = tableType == "topSpells" and STATS_CONSTANTS.MAX_DISPLAY_ROWS or #data
-	return math.min(maxRows, #data)
+local function buildOverview()
+	local stats = GetDB().statistics
+	return Format.Overview(stats.session, stats.allTime)
 end
 
-function Statistics:GetBarRowErrorMessage(tableType)
-	local data, errorMsg = GetBarRowSource(tableType)
-	if data then return nil end
-	return errorMsg or "|cffFF0000No data available|r"
-end
-
-function Statistics:GetBarRowLabel(tableType, n)
-	local data = GetBarRowSource(tableType)
-	local row = data and data[n]
-	if not row then return "" end
-
-	if tableType == "topSpells" then
-		return string.format("|cff888888#%d|r |cffFFFFFF%s|r  |cff00FF00%d|r (%.0f%%)",
-			n, TruncateString(row.name or "Unknown", 24), row.count or 0, row.percentage or 0)
-	else
-		local classHex = GetClassColorHex(row.class)
-		return string.format("|c%s%s|r  |cff00FF00%d|r (%.0f%%)",
-			classHex, FormatClassName(row.class), row.alerts or 0, row.percentage or 0)
+local function buildList(key)
+	local rows = STATS_CONSTANTS.MAX_DISPLAY_ROWS
+	if key == "topSpells" then
+		return Format.SpellRows(PrepareTopSpellsData(), rows)
+	elseif key == "enemies" then
+		return Format.EnemyRows(PrepareEnemiesData(), rows)
 	end
+	return Format.ClassRows(PrepareClassDistributionData(), rows)
 end
 
-function Statistics:GetBarRowPercent(tableType, n)
-	local data = GetBarRowSource(tableType)
-	local row = data and data[n]
-	return (row and row.percentage) or 0
+local function buildExport()
+	return Statistics:BuildExportString()
 end
 
-local function GenerateEnemiesTable()
-	local data, errorMsg = PrepareEnemiesData()
-	if not data then return errorMsg end
+local function trackedStatistics()
+	local sadb = GetDB()
+	local stats = sadb and sadb.statistics
+	if stats and stats.enabled and stats.session and stats.allTime then
+		return stats
+	end
+	return nil
+end
 
-	return RenderStatsTable({
-		title = "TOP ENEMIES",
-		data = data,
-		maxRows = STATS_CONSTANTS.MAX_DISPLAY_ROWS,
-		emptyMessage = "|cffFFFFFFNo enemies tracked yet.|r",
-		rowRenderer = function(enemy, rank)
-			local borders = STATS_CONSTANTS.TABLE_BORDERS
-			local parts = {}
+function Statistics:GetKpiText()
+	local stats = trackedStatistics()
+	if not stats then return "" end
+	local minutes = math.floor((GetTime() - (stats.session.startTime or 0)) / 60)
+	return cachedText("kpi", stats, dataVersion, minutes, buildKpi)
+end
 
-			local classHex = GetClassColorHex(enemy.class)
-			parts[#parts + 1] = borders.LEFT
-			parts[#parts + 1] = "|cff888888#"
-			parts[#parts + 1] = string.format("%2d", rank)
-			parts[#parts + 1] = "|r |c"
-			parts[#parts + 1] = classHex
-			parts[#parts + 1] = TruncateString(enemy.name or "Unknown", 18)
-			parts[#parts + 1] = "|r\n"
+function Statistics:GetOverviewText()
+	local stats = trackedStatistics()
+	if not stats then return "" end
+	return cachedText("overview", stats, dataVersion, 0, buildOverview)
+end
 
-			local dangerText = FormatDanger(enemy.danger)
-			parts[#parts + 1] = borders.LEFT
-			parts[#parts + 1] = " |cff00FF00"
-			parts[#parts + 1] = tostring(enemy.alerts)
-			parts[#parts + 1] = "|r"
-			parts[#parts + 1] = string.format(" (%.0f%%)", enemy.percentage or 0)
-			parts[#parts + 1] = " danger:"
-			parts[#parts + 1] = dangerText
-			parts[#parts + 1] = " |cff888888"
-			parts[#parts + 1] = enemy.topZone or "N/A"
-			parts[#parts + 1] = "|r\n"
+function Statistics:GetListText(tableType)
+	local stats = trackedStatistics()
+	if not stats then return "" end
+	return cachedText(tableType, stats, dataVersion, statisticsSortState[tableType].sortType, buildList)
+end
 
-			return table.concat(parts)
-		end
-	})
+function Statistics:GetExportText()
+	local stats = trackedStatistics()
+	if not stats then return "" end
+	return cachedText("export", stats, dataVersion, 0, buildExport)
+end
+
+local function newSession(number)
+	return {
+		totalAlerts = 0,
+		startTime = GetTime(),
+		sessionNumber = number,
+		byCategory = {
+			spellAlerts = 0,
+			proximityAlerts = 0,
+			trinketAlerts = 0,
+			flagAlerts = 0,
+		},
+		byClass = {},
+		enemiesEncountered = {},
+		spellsThisSession = {},
+	}
+end
+
+local function newAllTime()
+	return {
+		totalAlerts = 0,
+		totalSessions = 1,
+		topSpells = {},
+		byCategory = {
+			spellAlerts = 0,
+			proximityAlerts = 0,
+			trinketAlerts = 0,
+			flagAlerts = 0,
+		},
+		byZone = {
+			arena = 0,
+			battleground = 0,
+			worldPvP = 0,
+		},
+		playerTracking = {
+			enemies = {},
+			classSummary = {},
+		},
+	}
+end
+
+function Statistics:ResetSession()
+	local sadb = GetDB()
+	if not sadb or not sadb.statistics then return end
+	local allTime = sadb.statistics.allTime
+	sadb.statistics.session = newSession(allTime and allTime.totalSessions or 1)
+	dataVersion = dataVersion + 1
+end
+
+function Statistics:ResetAllTime()
+	local sadb = GetDB()
+	if not sadb or not sadb.statistics then return end
+	sadb.statistics.allTime = newAllTime()
+	sadb.statistics.session = newSession(1)
+	sadb.statistics.trackingStartTime = time()
+	dataVersion = dataVersion + 1
 end
 
 function Statistics:RecordAlert(category, spellID, sourceGUID, sourceName, spellSchool)
 	local sadb = GetDB()
 	if not sadb or not sadb.statistics or not sadb.statistics.enabled then return end
 
+	dataVersion = dataVersion + 1
 	sadb.statistics.session.totalAlerts = (sadb.statistics.session.totalAlerts or 0) + 1
 	sadb.statistics.session.byCategory[category] = (sadb.statistics.session.byCategory[category] or 0) + 1
 
@@ -483,40 +460,8 @@ function Statistics:RecordAlert(category, spellID, sourceGUID, sourceName, spell
 		self:TrackEnemyPlayer(sourceGUID, sourceName, spellID)
 	end
 
-	self:RecordRecentAlert(sadb, category, spellID, sourceName)
-
 	if sadb.debugmode then
 		print(string.format("<SA> STATS: Recorded %s alert (Total: %d)", category, sadb.statistics.session.totalAlerts))
-	end
-end
-
-function Statistics:RecordRecentAlert(sadb, category, spellID, sourceName)
-	local recentAlerts = sadb.statistics.session.recentAlerts
-	if not recentAlerts then return end
-
-	local mapID = C_Map.GetBestMapForUnit("player")
-	local x, y = nil, nil
-	if mapID then
-		local pos = C_Map.GetPlayerMapPosition(mapID, "player")
-		if pos then
-			x, y = pos:GetXY()
-		end
-	end
-
-	recentAlerts[#recentAlerts + 1] = {
-		category = category,
-		spellID = spellID,
-		sourceName = sourceName,
-		timestamp = time(),
-		zoneName = GetRealZoneText() or GetZoneText() or "Unknown",
-		mapID = mapID,
-		x = x,
-		y = y,
-	}
-
-	local maxRecentAlerts = sadb.statistics.maxRecentAlerts or STATS_CONSTANTS.MAX_RECENT_ALERTS
-	while #recentAlerts > maxRecentAlerts do
-		table.remove(recentAlerts, 1)
 	end
 end
 
@@ -739,6 +684,8 @@ function Statistics:SaveSessionHistory()
 	local sessionNum = session.sessionNumber or 1
 	local currentTime = time()
 
+	dataVersion = dataVersion + 1
+
 	for spellID, data in pairs(topSpells) do
 		if not data.trend then
 			data.trend = {
@@ -801,20 +748,8 @@ function Statistics:InitializeStatistics()
 
 		sadb.statistics.allTime.totalSessions = (sadb.statistics.allTime.totalSessions or 0) + 1
 
-		sadb.statistics.session = {
-			totalAlerts = 0,
-			startTime = GetTime(),
-			sessionNumber = sadb.statistics.allTime.totalSessions,
-			byCategory = {
-				spellAlerts = 0,
-				proximityAlerts = 0,
-				trinketAlerts = 0,
-				flagAlerts = 0,
-			},
-			byClass = {},
-			enemiesEncountered = {},
-			spellsThisSession = {}
-		}
+		sadb.statistics.session = newSession(sadb.statistics.allTime.totalSessions)
+		dataVersion = dataVersion + 1
 
 		if not sadb.statistics.allTime.playerTracking then
 			sadb.statistics.allTime.playerTracking = {
@@ -924,11 +859,12 @@ function Statistics:OnInitialize()
 end
 
 function Statistics:OnEnable()
+	local sadb = GetDB()
+	if sadb then
+		sadb.statsExportbox = nil
+		sadb.showAdvancedStatistics = nil
+	end
 	self:InitializeStatistics()
-end
-
-function Statistics:GetEnemiesTable()
-	return GenerateEnemiesTable()
 end
 
 function Statistics:GetSortState()
@@ -993,6 +929,5 @@ end
 function Statistics:SetSortState(tableType, sortType)
 	if statisticsSortState[tableType] then
 		statisticsSortState[tableType].sortType = sortType
-		self:InvalidateBarRowCache()
 	end
 end

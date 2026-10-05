@@ -4,8 +4,6 @@ dbDefaults = {
 		debugmode = false,
 		spelldebug = false,
 
-		quickStartEnabled = false,
-		showDeveloperTools = false,
 		objectiveAlertsEnabled = false,
 
 		findSpell = {
@@ -266,6 +264,7 @@ dbDefaults = {
 			locked = false,
 			showTimerText = true,
 			showCooldownText = true,
+			showReadyText = false,
 			icons = {},
 		},
 
@@ -317,7 +316,6 @@ dbDefaults = {
 		negativeCacheEnabled = true,
 		negativeCacheTTL = 5,
 
-		showAdvancedStatistics = false,
 		statistics = {
 			enabled = true,
 
@@ -334,7 +332,6 @@ dbDefaults = {
 				byClass = {},
 				enemiesEncountered = {},
 				spellsThisSession = {},
-				recentAlerts = {},
 			},
 
 			allTime = {
@@ -365,7 +362,6 @@ dbDefaults = {
 			},
 
 			maxTopSpells = 50,
-			maxRecentAlerts = 100,
 			trackingStartTime = 0,
 		},
 	}

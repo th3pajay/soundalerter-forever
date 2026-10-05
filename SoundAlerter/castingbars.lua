@@ -677,6 +677,10 @@ function CastingBars:LoadSettings()
 	local BarUtils = self.addon.BarUtils
 	local locked = self.db.locked
 
+	if not BarUtils.TEXTURE_SETTINGS[self.db.barTexture] then
+		self.db.barTexture = "default"
+	end
+
 	for _, b in ipairs(self.barList) do
 		local unitDB = self.db[b.unit]
 

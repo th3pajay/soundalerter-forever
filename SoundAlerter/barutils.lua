@@ -4,8 +4,21 @@ local BarUtils = {}
 local TEXTURE_STATUSBAR = "Interface\\TargetingFrame\\UI-StatusBar"
 local TEXTURE_SOLID = "Interface\\Buttons\\WHITE8X8"
 local TEXTURE_BORDER = "Interface\\Tooltips\\UI-Tooltip-Border"
-local TEXTURE_BANTO = "Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar"
-local TEXTURE_HALCYONE = "Interface\\RaidFrame\\Raid-Bar-HP-Fill"
+
+local WAVE_SETTING = "waves"
+local WAVE_INTERVAL = 0.05
+local WAVE_COLUMN_PIXELS = { 6, 5, 4 }
+local WAVE_LAYER_ALPHA = { 0.35, 0.6, 1 }
+
+local waveBars = {}
+local waveDriver
+
+BarUtils.TEXTURE_SETTINGS = {
+	default = true,
+	solid = true,
+	transparent = true,
+	waves = true,
+}
 
 BarUtils.BACKDROP_TEXTURES = {
 	Solid = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -113,10 +126,6 @@ function BarUtils:ApplyBarTexture(bar, textureSetting)
 		texturePath = TEXTURE_SOLID
 	elseif textureSetting == "transparent" then
 		texturePath = TEXTURE_SOLID
-	elseif textureSetting == "banto" then
-		texturePath = TEXTURE_BANTO
-	elseif textureSetting == "halcyone" then
-		texturePath = TEXTURE_HALCYONE
 	end
 
 	bar:SetStatusBarTexture(texturePath)
@@ -126,10 +135,233 @@ function BarUtils:ApplyBarTexture(bar, textureSetting)
 		bar.bg:SetTexture(texturePath)
 	end
 
+	self:SetWavesEnabled(bar, textureSetting == WAVE_SETTING)
+
 	if textureSetting == "transparent" then
 		bar:SetAlpha(0.7)
 	else
 		bar:SetAlpha(1.0)
+	end
+end
+
+local function hideWaveColumns(bar)
+	local state = bar.waveState
+	if not state then return end
+
+	for layer = 1, #state.columns do
+		for _, column in ipairs(state.columns[layer]) do
+			column:Hide()
+			column.visible = false
+		end
+	end
+
+	local fill = bar:GetStatusBarTexture()
+	if fill then
+		fill:SetAlpha(1)
+	end
+end
+
+local function waveColumn(bar, state, layer, index)
+	local columns = state.columns[layer]
+	local column = columns[index]
+	if column then return column end
+
+	column = state.clip:CreateTexture(nil, "ARTWORK", nil, layer)
+	column:SetTexture(TEXTURE_STATUSBAR)
+	column.x = (index - 1) * WAVE_COLUMN_PIXELS[layer]
+	column.anchoredReverse = nil
+	column.visible = false
+	column:Hide()
+	columns[index] = column
+	return column
+end
+
+local function readFillFraction(bar)
+	local value = bar:GetValue()
+	local minValue, maxValue = bar:GetMinMaxValues()
+	if issecretvalue(value) or issecretvalue(minValue) or issecretvalue(maxValue) then
+		return nil
+	end
+	if maxValue <= minValue then
+		return nil
+	end
+
+	local fraction = (value - minValue) / (maxValue - minValue)
+	if fraction < 0 then return 0 end
+	if fraction > 1 then return 1 end
+	return fraction
+end
+
+local function createWaveFrames(bar, state)
+	if state.clip then return end
+
+	state.clip = CreateFrame("Frame", nil, bar)
+	state.clip:SetClipsChildren(true)
+	state.clip:SetFrameLevel(bar:GetFrameLevel() + 1)
+
+	state.overlay = CreateFrame("Frame", nil, bar)
+	state.overlay:SetAllPoints(bar)
+	state.overlay:SetFrameLevel(bar:GetFrameLevel() + 2)
+
+	state.lifted = {}
+end
+
+local function liftBarText(bar, state)
+	for _, region in ipairs({ bar:GetRegions() }) do
+		if region:GetObjectType() == "FontString" then
+			region:SetParent(state.overlay)
+			state.lifted[#state.lifted + 1] = region
+		end
+	end
+end
+
+local function dropBarText(bar, state)
+	for index = #state.lifted, 1, -1 do
+		state.lifted[index]:SetParent(bar)
+		state.lifted[index] = nil
+	end
+end
+
+local function ensureWaveClip(state, fill)
+	if state.clipFill == fill then return end
+
+	state.clip:ClearAllPoints()
+	state.clip:SetPoint("TOPLEFT", fill, "TOPLEFT")
+	state.clip:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT")
+	state.clipFill = fill
+end
+
+local function anchorWaveColumn(bar, column, reverse)
+	if column.anchoredReverse == reverse then return end
+
+	column:ClearAllPoints()
+	if reverse then
+		column:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -column.x, 0)
+	else
+		column:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", column.x, 0)
+	end
+	column.anchoredReverse = reverse
+end
+
+function BarUtils:UpdateWaveBar(bar, dt)
+	local state = bar.waveState
+	local width, height = bar:GetSize()
+
+	if bar:GetOrientation() ~= "HORIZONTAL" or width <= 0 or height <= 0 then
+		hideWaveColumns(bar)
+		return
+	end
+
+	local fill = bar:GetStatusBarTexture()
+	fill:SetAlpha(0)
+
+	if not state.wave or state.wave.width ~= width then
+		state.wave = SA_BarWave.New(width)
+	end
+	local wave = state.wave
+	wave:Advance(dt)
+
+	ensureWaveClip(state, fill)
+
+	local fraction = readFillFraction(bar)
+	local fillWidth = fraction and fraction * width or nil
+
+	local reverse = bar:GetReverseFill() and true or false
+	local ppu = self:PixelsPerUnit(bar)
+	local r, g, b = bar:GetStatusBarColor()
+	if state.r ~= r or state.g ~= g or state.b ~= b then
+		state.r, state.g, state.b = r, g, b
+		state.colorVersion = (state.colorVersion or 0) + 1
+	end
+
+	for layer = 1, SA_BarWave.LAYER_COUNT do
+		local spacing = WAVE_COLUMN_PIXELS[layer]
+		local count = math.ceil(width / spacing)
+		local columns = state.columns[layer]
+
+		for index = 1, count do
+			local column = waveColumn(bar, state, layer, index)
+			local x = column.x
+			local columnWidth = math.min(spacing, (fillWidth or width) - x)
+			local top = columnWidth > 0 and wave:Height(layer, x + columnWidth / 2, height) or 0
+			top = math.floor(top * ppu + 0.5) / ppu
+
+			if columnWidth <= 0 or top < 1 / ppu then
+				if column.visible then
+					column:Hide()
+					column.visible = false
+				end
+			else
+				anchorWaveColumn(bar, column, reverse)
+				if column.colorVersion ~= state.colorVersion then
+					column:SetVertexColor(r, g, b, WAVE_LAYER_ALPHA[layer])
+					column.colorVersion = state.colorVersion
+				end
+				if column.shownWidth ~= columnWidth then
+					column:SetWidth(columnWidth)
+					column.shownWidth = columnWidth
+				end
+				if column.shownHeight ~= top then
+					column:SetHeight(top)
+					column:SetTexCoord(0, 1, 1 - top / height, 1)
+					column.shownHeight = top
+				end
+				if not column.visible then
+					column:Show()
+					column.visible = true
+				end
+			end
+		end
+
+		for index = count + 1, #columns do
+			if columns[index].visible then
+				columns[index]:Hide()
+				columns[index].visible = false
+			end
+		end
+	end
+
+end
+
+local function ensureWaveDriver()
+	if waveDriver then return waveDriver end
+
+	waveDriver = CreateFrame("Frame")
+	waveDriver.elapsed = 0
+	waveDriver:SetScript("OnUpdate", function(self, elapsed)
+		self.elapsed = self.elapsed + elapsed
+		if self.elapsed < WAVE_INTERVAL then return end
+
+		local dt = self.elapsed
+		self.elapsed = 0
+		for bar in pairs(waveBars) do
+			if bar:IsVisible() then
+				BarUtils:UpdateWaveBar(bar, dt)
+			end
+		end
+	end)
+	return waveDriver
+end
+
+function BarUtils:SetWavesEnabled(bar, enabled)
+	if enabled then
+		if not bar.waveState then
+			bar.waveState = { columns = { {}, {}, {} } }
+		end
+		local state = bar.waveState
+		createWaveFrames(bar, state)
+		liftBarText(bar, state)
+		state.clip:Show()
+		waveBars[bar] = true
+		ensureWaveDriver():Show()
+		return
+	end
+
+	if waveBars[bar] then
+		waveBars[bar] = nil
+		hideWaveColumns(bar)
+		bar.waveState.clip:Hide()
+		dropBarText(bar, bar.waveState)
 	end
 end
 

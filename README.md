@@ -1,6 +1,6 @@
 # SoundAlerter - Forever (BETA BUILD)
 
-![Version](https://img.shields.io/badge/version-0.2.19-blue.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![WoW](https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg) ![Platform](https://img.shields.io/badge/platform-Windows-purple.svg)
+![Version](https://img.shields.io/badge/version-0.2.25-blue.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![WoW](https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg) ![Platform](https://img.shields.io/badge/platform-Windows-purple.svg)
 
 **What changed:** WoW Forever permanently restricts `COMBAT_LOG_EVENT_UNFILTERED` for every third-party addon — a Blizzard platform decision, not a bug, and not addon-specific. SoundAlerter has been rebuilt around nameplate and unit-event tracking instead.
 
@@ -99,6 +99,7 @@ Unified bars for Health, Mana, Energy, Rage, and Combo Points.
 * Position memory per profile
 * Pixel-perfect: sizes, positions and the fill edge snap to whole screen pixels (exact at scale 1.0; other scale values stay approximately sharp)
 * Event-driven: a bar only runs a per-frame update while its low-power pulse or overcap glow is showing
+* Optional "Animated Waves" bar texture: the top edge of the fill is a smooth, random, slowly travelling water surface in three depth layers (off by default; adds a 20 Hz update only while a wave-textured bar is visible; horizontal bars only)
 
 **Configuration**: `/sa` -> Resource Bars tab
 
@@ -111,6 +112,7 @@ Cast bars for Player, Target, and Focus units.
 * Channeled and mid-cast targeting support
 * Finish animations: a completed cast flashes green and fades out, an interrupted cast turns red, shows "Interrupted" and fades out; cancelled casts just disappear
 * Configurable orientation (horizontal/vertical) and fill direction per bar
+* Optional "Animated Waves" bar texture (off by default): see Resource Bars; vertical casting bars keep the default texture
 * Pixel-perfect: sizes, positions and the fill edge snap to whole screen pixels at any UI scale, and the bars cost nothing while idle (the update loop only runs during a cast; the time text only redraws when its digits change)
 
 **Configuration**: `/sa` -> Casting Bars tab
@@ -144,8 +146,13 @@ Icon-based tracking for buffs, debuffs, and cooldowns.
 
 **Features:**
 * Simultaneous player and target tracking
-* Cooldown spiral animations and duration overlays
+* Aura spiral animation and duration number, kept working in combat (when the game hides the aura, a timer starts on your own cast using the duration last seen out of combat, or a per-spell Aura Duration you set for combat-only spells)
+* Optional spell cooldown numbers (gold, top of icon) for spells with Track Cooldown enabled, also working in combat
+* Optional green "Ready!" in the same spot when a tracked spell is off cooldown (`Show 'Ready!' When Cooldown Finished`, off by default)
+* Cooldown text, numbers and the aura spiral stay fully visible when the icon itself is dimmed
 * Icons stay correct through druid form swaps and other aura changes (auras are looked up by spell ID)
+
+**Spell Tracker tab** (`/sa` -> Spell Tracker): three tabs. *Spells* shows every tracked spell as an icon (name, Player/Target, Buff/Debuff; grey when disabled) and the selected spell's settings in four groups: Tracking, Icon, Cooldown, In Combat. *Add Spell* takes a spell ID, where to track it and the aura type, and switches back to Spells. *Display* holds the global toggles: lock icons, aura numbers, cooldown numbers and "Ready!".
 
 **Configuration**: `/sa` -> Spell Tracker tab
 
@@ -156,6 +163,10 @@ Search 12,000+ spells instantly for IDs and tooltip data.
 <p align="center">
 <img src="Media/find_spell_db_progress.gif?raw=true" alt="Find Spell" width="256"/>
 </p>
+
+**Spell Finder panel:** a search bar with scope, rank, sort, fuzzy and autocomplete controls above a two-pane view: a one-line-per-spell result list on the left (name, rank, ID) and the selected spell's details on the right (icon, name, rank, ID to copy, full description, Insert in chat, With description). Hover a row for the game tooltip; the status line shows the result count, database and description index state.
+
+**Developer Tools tab** (`/sa` -> Developer Tools): one status line (database state, spell count, last update, build check, memory, debug on/off) above four tabs: Finder (open the panel, search scope, fuzzy, autocomplete, description index), Database (contents, freshness, rebuild), Performance (p50/p95/p99/max timings per operation, cache and memory) and Debug.
 
 **Configuration**: `/sa` -> Developer Tools tab
 
@@ -172,7 +183,15 @@ The **Spell Database** panel shows build progress, indexed/unique/ranked spell c
 ---
 
 ### Statistics - Combat Intelligence
-Per-encounter data, alert frequency tracking, and enemy danger ratings.
+Alert frequency tracking and enemy danger ratings, laid out as one summary line plus tabs.
+
+**Features:**
+* Summary line: session alerts, alerts per minute, session length, all-time total, sessions and average per session
+* Overview tab: session mix, all-time mix and zone split as colored bars with counts and shares
+* Spells, Enemies and Classes tabs: ranked lists with bars (spells: trend and top zone; enemies: class color, danger and top zone; classes: players and alerts per player), each with its own sort
+* Data tab: copyable plain-text export, reset session and reset all-time (both ask first)
+
+**Configuration**: `/sa` -> Statistics tab
 
 ---
 
@@ -189,10 +208,11 @@ Per-encounter data, alert frequency tracking, and enemy danger ratings.
 
 ### Quick Setup
 1. Type `/sa`.
-2. Go to **Quick Start** tab.
-3. Select combat zones (Arena, BGs, World).
-4. Choose alert scope.
-5. Test audio via preview.
+2. Go to the **Quick Start** tab; the top line always shows your current setup.
+3. Pick your style (Arena player, Battleground player or Everything), or set the zones and the alert scope yourself.
+4. Set the volume and press **Play test sound**.
+5. Choose which alert types you want to hear: enemy defensives and buffs, spell casts, cooldowns, crowd control on you and on enemies, interrupts, chat messages.
+6. Use **Tabs at a glance** to jump to the tab you need next.
 
 ---
 
@@ -202,7 +222,7 @@ Per-encounter data, alert frequency tracking, and enemy danger ratings.
 | :--- | :--- | :--- |
 | Alert Latency | Real p50/p95/p99 via `/sa stats` | Timed with `debugprofilestop()`, not a guessed number |
 | Flag Processing | P99 target: <10ms ("Excellent" rating) | Real per-event timing, via `/sa flag metrics` |
-| Spell Search | Typically sub-ms for 3+ char terms | Real p50/p95/p99/max in Developer Tools -> Spell Database |
+| Spell Search | Typically sub-ms for 3+ char terms | Real p50/p95/p99/max in Developer Tools -> Performance |
 | Class Detection | Microsecond-scale, tiered GUID-to-class cache | Shared by voice alerts and proximity toasts, via `/sa stats` |
 
 ---

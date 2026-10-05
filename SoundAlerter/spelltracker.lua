@@ -1,9 +1,9 @@
 local SpellTracker = {}
 local GetSpellInfo = SA_COMPAT.GetSpellInfo
-local GetSpellCooldown = SA_COMPAT.GetSpellCooldown
-local GetUnitAuraBySpellID = SA_COMPAT.GetUnitAuraBySpellID
+local Game = SA_TrackerGame
 
-local ICON_SIZE = 48
+local Settings = SA_TrackerSettings
+local ICON_SIZE = Settings.DEFAULT_ICON_SIZE
 local ICON_SPACING = 4
 local ICON_POOL_SIZE = 20
 local UPDATE_THROTTLE = 0.033
@@ -11,31 +11,22 @@ local UPDATE_THROTTLE = 0.033
 local CONSTANTS = {
     INACTIVE_ALPHA = 0.3,
     ACTIVE_ALPHA = 1.0,
-    GCD_THRESHOLD = 1.5,
     ICON_INSET = 4,
     BACKDROP_EDGE_SIZE = 16,
     DEFAULT_POS_X_OFFSET = -200,
     DEFAULT_POS_Y = -100,
-    DEFAULT_COOLDOWN_TEXT_SIZE = 14,
+    DEFAULT_COOLDOWN_TEXT_SIZE = Settings.IconDefault("cooldownTextSize"),
 }
 
 local iconFrames = {}
-local activeTrackers = {}
 local throttleTime = 0
 local spellTextureCache = {}
 local trackedSpellsByUnit = { player = {}, target = {} }
 
-local cooldownState = {}
 local cooldownThrottle = 0
 local COOLDOWN_UPDATE_INTERVAL = 0.1
 
 local cooldownEnabledTrackers = {}
-
-local function MatchesAuraType(data, auraType)
-    local isHarmful = data.isHarmful
-    if isHarmful == nil or issecretvalue(isHarmful) then return true end
-    return (auraType == "HARMFUL") == isHarmful
-end
 
 function SpellTracker:Initialize()
     if self.initialized then return end
@@ -49,10 +40,8 @@ function SpellTracker:Initialize()
     self.addon = SoundAlerter
     self.db = self.addon.db1.profile.spellTracker
 
-    self.lastTimerText = {}
-    self.lastCooldownText = {}
+    self.state = SA_TrackerState.New()
     self.cachedTime = 0
-    self.lastIconPositions = {}
     self.lookupFailed = {}
 
     self.timeStrings = {}
@@ -106,12 +95,50 @@ function SpellTracker:CreateIconCooldown(frame)
     cooldown:SetAllPoints(frame.texture)
     cooldown:SetReverse(true)
     frame.cooldown = cooldown
+
+    frame.cooldownNumbers = self:CreateNumbersFrame(frame)
+    frame.auraNumbers = self:CreateNumbersFrame(frame)
+end
+
+function SpellTracker:CreateNumbersFrame(frame)
+    local numbers = CreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
+    numbers:SetAllPoints(frame.texture)
+    numbers:SetFrameLevel(frame.cooldown:GetFrameLevel() + 3)
+    numbers:SetIgnoreParentAlpha(true)
+    numbers:SetDrawSwipe(false)
+    numbers:SetDrawEdge(false)
+    numbers:SetDrawBling(false)
+    numbers:SetHideCountdownNumbers(false)
+    for _, region in ipairs({ numbers:GetRegions() }) do
+        if region.GetObjectType and region:GetObjectType() == "FontString" then
+            numbers.text = region
+        end
+    end
+    return numbers
+end
+
+function SpellTracker:StyleCooldownNumbers(frame, size)
+    local text = frame.cooldownNumbers and frame.cooldownNumbers.text
+    if not text then return end
+    text:ClearAllPoints()
+    text:SetPoint("TOP", frame, "TOP", 0, -1)
+    text:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE")
+    text:SetTextColor(1, 0.82, 0, 1)
+
+    local auraText = frame.auraNumbers and frame.auraNumbers.text
+    if auraText then
+        auraText:ClearAllPoints()
+        auraText:SetPoint("BOTTOM", frame, "BOTTOM", 0, 2)
+        auraText:SetFont("Fonts\\FRIZQT__.TTF", CONSTANTS.DEFAULT_COOLDOWN_TEXT_SIZE, "OUTLINE")
+        auraText:SetTextColor(1, 1, 1, 1)
+    end
 end
 
 function SpellTracker:CreateIconText(frame)
     local textLayer = CreateFrame("Frame", nil, frame)
     textLayer:SetAllPoints(frame)
     textLayer:SetFrameLevel(frame.cooldown:GetFrameLevel() + 2)
+    textLayer:SetIgnoreParentAlpha(true)
     frame.textLayer = textLayer
 
     local timerText = textLayer:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -171,7 +198,7 @@ function SpellTracker:SaveIconPosition(trackerIndex)
     config.posX = x - (screenWidth / 2)
     config.posY = y - (screenHeight / 2)
 
-    self.lastIconPositions[trackerIndex] = nil
+    frame.lastPosition = nil
 end
 
 function SpellTracker:CreateIcon(index)
@@ -186,7 +213,6 @@ function SpellTracker:CreateIcon(index)
     frame:Hide()
     frame.trackerIndex = nil
     frame.spellID = nil
-    frame.expirationTime = nil
 
     return frame
 end
@@ -197,6 +223,7 @@ function SpellTracker:RegisterEvents()
     eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     pcall(eventFrame.RegisterEvent, eventFrame, "UPDATE_SHAPESHIFT_FORM")
+    pcall(eventFrame.RegisterUnitEvent, eventFrame, "UNIT_SPELLCAST_SUCCEEDED", "player")
 
     eventFrame:SetScript("OnEvent", function(self, event, ...)
         SpellTracker:OnEvent(event, ...)
@@ -213,10 +240,35 @@ function SpellTracker:OnEvent(event, ...)
         if unit == "player" or unit == "target" then
             self:ScanAuras(unit)
         end
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        local unit, _, spellID = ...
+        spellID = Game.Readable(spellID)
+        if unit == "player" and spellID ~= nil then
+            self:OnTrackedCast(spellID)
+        end
     elseif event == "PLAYER_TARGET_CHANGED" then
+        for spellID, config in pairs(trackedSpellsByUnit.target) do
+            self.state:ClearPredicted(config.trackerIndex)
+        end
         self:ScanAuras("target")
     elseif event == "PLAYER_ENTERING_WORLD" or event == "UPDATE_SHAPESHIFT_FORM" then
         self:RefreshAllTrackers()
+    end
+end
+
+function SpellTracker:OnTrackedCast(spellID)
+    if not InCombatLockdown() then return end
+
+    for _, unit in ipairs({ "player", "target" }) do
+        local config = trackedSpellsByUnit[unit][spellID]
+        if config then
+            local iconConfig = self.db.icons[config.trackerIndex]
+            local manual = iconConfig and iconConfig.auraDuration
+            local decision = self.state:Predict(config.trackerIndex, spellID, manual, GetTime())
+            if decision then
+                self:UpdateTracker(config.trackerIndex, spellID, decision)
+            end
+        end
     end
 end
 
@@ -227,22 +279,25 @@ function SpellTracker:ScanAuras(unit)
     if not trackedSpells or not next(trackedSpells) then return end
 
     for spellID, config in pairs(trackedSpells) do
-        local ok, data = GetUnitAuraBySpellID(unit, spellID)
+        local ok, observation, auraInstanceID = Game.LookupAura(unit, spellID, config.auraType)
 
         if not ok then
             if self.addon.db1.profile.debugmode and not self.lookupFailed[unit] then
                 self.lookupFailed[unit] = true
                 self.addon:Print(string.format("[SpellTracker] aura lookup failed for %s", unit))
             end
-        elseif data and MatchesAuraType(data, config.auraType) then
-            self:UpdateTracker(config.trackerIndex, spellID, data.expirationTime, data.duration)
         else
-            self:HideTracker(config.trackerIndex)
+            local decision = self.state:Observe(config.trackerIndex, observation, GetTime())
+            if decision.action == "show" then
+                self:UpdateTracker(config.trackerIndex, spellID, decision, unit, auraInstanceID)
+            elseif decision.action == "hide" then
+                self:HideTracker(config.trackerIndex)
+            end
         end
     end
 end
 
-function SpellTracker:UpdateTracker(trackerIndex, spellID, expirationTime, duration)
+function SpellTracker:UpdateTracker(trackerIndex, spellID, decision, unit, auraInstanceID)
     if not trackerIndex or trackerIndex < 1 or trackerIndex > ICON_POOL_SIZE then
         return
     end
@@ -257,11 +312,8 @@ function SpellTracker:UpdateTracker(trackerIndex, spellID, expirationTime, durat
     local frame = iconFrames[trackerIndex]
     if not frame then return end
 
-    local isNewApplication = not activeTrackers[trackerIndex]
-
     frame.trackerIndex = trackerIndex
     frame.spellID = spellID
-    frame.expirationTime = not issecretvalue(expirationTime) and expirationTime or nil
 
     local texture = self:GetSpellTexture(spellID)
     if texture and texture ~= "" then
@@ -270,16 +322,27 @@ function SpellTracker:UpdateTracker(trackerIndex, spellID, expirationTime, durat
         frame.texture:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
     end
 
-    if duration and expirationTime and not (issecretvalue(duration) or issecretvalue(expirationTime)) and duration > 0 and expirationTime > 0 then
-        local startTime = expirationTime - duration
+    if decision.expiration then
+        local startTime = decision.expiration - decision.duration
         if startTime > 0 then
-            frame.cooldown:SetCooldown(startTime, duration)
+            frame.cooldown:SetCooldown(startTime, decision.duration)
             frame.cooldown:Show()
         else
             frame.cooldown:Clear()
         end
+        frame.auraNumbers:Clear()
     else
         frame.cooldown:Clear()
+        local auraDuration = decision.secret and Game.AuraDurationObject(unit, auraInstanceID)
+        if auraDuration and frame.cooldown.SetCooldownFromDurationObject then
+            frame.cooldown:SetCooldownFromDurationObject(auraDuration, true)
+            frame.auraNumbers:SetHideCountdownNumbers(not self.db.showTimerText)
+            frame.auraNumbers:SetCooldownFromDurationObject(auraDuration, true)
+            frame.timerText:SetText("")
+            frame.lastTimerText = ""
+        else
+            frame.auraNumbers:Clear()
+        end
     end
 
     self:SetFramePosition(frame, trackerIndex)
@@ -292,15 +355,13 @@ function SpellTracker:UpdateTracker(trackerIndex, spellID, expirationTime, durat
         frame:Hide()
     end
 
-    if isNewApplication and frame.pulseAnim then
+    if decision.isNew and frame.pulseAnim then
         frame.pulseAnim:Play()
     end
 
-    if isNewApplication and self.addon.db1.profile.debugmode then
+    if decision.isNew and self.addon.db1.profile.debugmode then
         self.addon:Print(string.format("[SpellTracker] Tracker %d activated: spellID %d", trackerIndex, spellID))
     end
-
-    activeTrackers[trackerIndex] = true
 end
 
 function SpellTracker:DetermineVisibility(trackerIndex, isActive)
@@ -329,8 +390,10 @@ function SpellTracker:HideTracker(trackerIndex)
     if not frame then return end
 
     frame.timerText:SetText("")
-    self.lastTimerText[trackerIndex] = ""
+    frame.lastTimerText = ""
     frame.cooldown:Clear()
+    frame.auraNumbers:Clear()
+    self.state:Hide(trackerIndex)
 
     local shouldShow, alpha = self:DetermineVisibility(trackerIndex, false)
 
@@ -340,9 +403,6 @@ function SpellTracker:HideTracker(trackerIndex)
     else
         frame:Hide()
     end
-
-    frame.expirationTime = nil
-    activeTrackers[trackerIndex] = nil
 end
 
 function SpellTracker:OnUpdate(elapsed)
@@ -352,24 +412,23 @@ function SpellTracker:OnUpdate(elapsed)
 
         self.cachedTime = GetTime()
 
-        for trackerIndex in pairs(activeTrackers) do
+        for trackerIndex = 1, ICON_POOL_SIZE do
             local frame = iconFrames[trackerIndex]
-            if frame and frame.expirationTime and frame.expirationTime > 0 then
-                local remaining = frame.expirationTime - self.cachedTime
-
+            local remaining = frame and self.state:Remaining(trackerIndex, self.cachedTime)
+            if remaining then
                 if remaining <= 0 then
                     self:HideTracker(trackerIndex)
                 else
                     if self.db.showTimerText then
                         local newText = self:FormatTime(remaining)
-                        if newText ~= self.lastTimerText[trackerIndex] then
+                        if newText ~= frame.lastTimerText then
                             frame.timerText:SetText(newText)
-                            self.lastTimerText[trackerIndex] = newText
+                            frame.lastTimerText = newText
                         end
                     else
-                        if self.lastTimerText[trackerIndex] ~= "" then
+                        if frame.lastTimerText ~= "" then
                             frame.timerText:SetText("")
-                            self.lastTimerText[trackerIndex] = ""
+                            frame.lastTimerText = ""
                         end
                     end
                 end
@@ -383,8 +442,7 @@ function SpellTracker:OnUpdate(elapsed)
 
         for j = 1, #cooldownEnabledTrackers do
             local i = cooldownEnabledTrackers[j]
-            self:UpdateCooldownTracking(i)
-            self:UpdateCooldownText(i, self.cachedTime)
+            self:UpdateCooldown(i, self.cachedTime)
         end
     end
 end
@@ -427,7 +485,67 @@ function SpellTracker:GetSpellTexture(spellID)
     return nil
 end
 
-function SpellTracker:UpdateCooldownTracking(trackerIndex)
+local READY_TEXT = "Ready!"
+local READY_COLOR = { 0.2, 1, 0.2 }
+local COUNTDOWN_COLOR = { 1, 0.82, 0 }
+
+local cooldownReading = {}
+
+local function applyCooldownText(frame, text)
+    if text == frame.lastCooldownText then
+        return
+    end
+    if text == READY_TEXT then
+        frame.cooldownText:SetTextColor(READY_COLOR[1], READY_COLOR[2], READY_COLOR[3], 1)
+    elseif frame.lastCooldownText == READY_TEXT then
+        frame.cooldownText:SetTextColor(COUNTDOWN_COLOR[1], COUNTDOWN_COLOR[2], COUNTDOWN_COLOR[3], 1)
+    end
+    frame.cooldownText:SetText(text)
+    frame.lastCooldownText = text
+end
+
+local function clearCooldownNumbers(numbers)
+    if numbers.secretShown then
+        numbers:Clear()
+        numbers.secretShown = nil
+    end
+    if numbers.sentStart then
+        numbers:Clear()
+        numbers.sentStart = nil
+        numbers.sentDuration = nil
+    end
+end
+
+function SpellTracker:DrawCooldownNumbers(numbers, spellID, readout)
+    if readout.numbers == "secret" then
+        numbers.sentStart = nil
+        numbers.sentDuration = nil
+        numbers:SetHideCountdownNumbers(not self.db.showCooldownText)
+        local durationObject = Game.SpellCooldownDurationObject(spellID)
+        if durationObject and numbers.SetCooldownFromDurationObject then
+            numbers:SetCooldownFromDurationObject(durationObject, true)
+            numbers.secretShown = true
+        elseif numbers.secretShown then
+            numbers:Clear()
+            numbers.secretShown = nil
+        end
+    elseif readout.numbers == "countdown" then
+        if numbers.secretShown then
+            numbers:Clear()
+            numbers.secretShown = nil
+        end
+        numbers:SetHideCountdownNumbers(not self.db.showCooldownText)
+        if numbers.sentStart ~= readout.start or numbers.sentDuration ~= readout.duration then
+            numbers:SetCooldown(readout.start, readout.duration)
+            numbers.sentStart = readout.start
+            numbers.sentDuration = readout.duration
+        end
+    else
+        clearCooldownNumbers(numbers)
+    end
+end
+
+function SpellTracker:UpdateCooldown(trackerIndex, now)
     local config = self.db.icons[trackerIndex]
     if not config or not config.enabled or not config.trackCooldown then
         return
@@ -438,78 +556,19 @@ function SpellTracker:UpdateCooldownTracking(trackerIndex)
         return
     end
 
-    local start, duration, _, _, isActive = GetSpellCooldown(spellID)
-
-    if start == nil or duration == nil then
-        return
-    end
-
-    if issecretvalue(start) or issecretvalue(duration) then
-        cooldownState[trackerIndex] = {
-            spellID = spellID,
-            startTime = nil,
-            duration = nil,
-            isOnCooldown = isActive,
-        }
-        return
-    end
-
-    local isOnCooldown = (start > 0 and duration > CONSTANTS.GCD_THRESHOLD)
-
-    cooldownState[trackerIndex] = {
-        spellID = spellID,
-        startTime = start,
-        duration = duration,
-        isOnCooldown = isOnCooldown,
-    }
-end
-
-function SpellTracker:UpdateCooldownText(trackerIndex, now)
     local frame = iconFrames[trackerIndex]
     if not frame or not frame.cooldownText then
         return
     end
 
-    local state = cooldownState[trackerIndex]
-    if not state then
-        if self.lastCooldownText[trackerIndex] ~= "" then
-            frame.cooldownText:SetText("")
-            self.lastCooldownText[trackerIndex] = ""
-        end
-        return
-    end
+    local reading = Game.ReadSpellCooldown(spellID, cooldownReading)
 
-    if not self.db.showCooldownText then
-        if self.lastCooldownText[trackerIndex] ~= "" then
-            frame.cooldownText:SetText("")
-            self.lastCooldownText[trackerIndex] = ""
-        end
-        return
-    end
+    local readout = self.state:ReadCooldown(trackerIndex, reading, now, self.db.showReadyText)
 
-    if not state.isOnCooldown or state.startTime == nil or state.duration == nil then
-        if self.lastCooldownText[trackerIndex] ~= "" then
-            frame.cooldownText:SetText("")
-            self.lastCooldownText[trackerIndex] = ""
-        end
-        return
+    if frame.cooldownNumbers then
+        self:DrawCooldownNumbers(frame.cooldownNumbers, spellID, readout)
     end
-
-    local elapsed = now - state.startTime
-    local remaining = state.duration - elapsed
-
-    if remaining <= 0 then
-        if self.lastCooldownText[trackerIndex] ~= "" then
-            frame.cooldownText:SetText("")
-            self.lastCooldownText[trackerIndex] = ""
-        end
-    else
-        local newText = self:FormatTime(remaining)
-        if newText ~= self.lastCooldownText[trackerIndex] then
-            frame.cooldownText:SetText(newText)
-            self.lastCooldownText[trackerIndex] = newText
-        end
-    end
+    applyCooldownText(frame, readout.ready and READY_TEXT or "")
 end
 
 function SpellTracker:RefreshAllTrackers()
@@ -534,7 +593,7 @@ function SpellTracker:SetFramePosition(frame, trackerIndex)
     local size = config.size or ICON_SIZE
     local cooldownTextSize = config.cooldownTextSize or CONSTANTS.DEFAULT_COOLDOWN_TEXT_SIZE
 
-    local lastPos = self.lastIconPositions[trackerIndex]
+    local lastPos = frame.lastPosition
     if lastPos and lastPos.x == relativeX and lastPos.y == relativeY and lastPos.size == size and lastPos.textSize == cooldownTextSize then
         return
     end
@@ -550,8 +609,9 @@ function SpellTracker:SetFramePosition(frame, trackerIndex)
     if frame.cooldownText then
         frame.cooldownText:SetFont("Fonts\\FRIZQT__.TTF", cooldownTextSize, "OUTLINE")
     end
+    self:StyleCooldownNumbers(frame, cooldownTextSize)
 
-    self.lastIconPositions[trackerIndex] = {
+    frame.lastPosition = {
         x = relativeX,
         y = relativeY,
         size = size,
@@ -561,8 +621,8 @@ end
 
 function SpellTracker:MigrateIconSettings()
     for i = 1, #self.db.icons do
-        if self.db.icons[i] and not self.db.icons[i].cooldownTextSize then
-            self.db.icons[i].cooldownTextSize = CONSTANTS.DEFAULT_COOLDOWN_TEXT_SIZE
+        if self.db.icons[i] then
+            Settings.Backfill(self.db.icons[i])
         end
     end
 end
@@ -603,7 +663,7 @@ function SpellTracker:RestoreIconStates()
 
                 self:SetFramePosition(frame, i)
 
-                local shouldShow, alpha = self:DetermineVisibility(i, activeTrackers[i] ~= nil)
+                local shouldShow, alpha = self:DetermineVisibility(i, self.state:IsActive(i))
 
                 if shouldShow then
                     frame:SetAlpha(alpha)
@@ -644,6 +704,9 @@ end
 function SpellTracker:LoadSettings()
     if not self.db then return end
 
+    self.db.knownDurations = self.db.knownDurations or {}
+    self.state:SetKnownDurations(self.db.knownDurations)
+
     self:MigrateIconSettings()
     self:UpdateContainerVisibility()
     self:RestoreIconStates()
@@ -651,24 +714,35 @@ function SpellTracker:LoadSettings()
     self:RefreshAllTrackers()
 end
 
-local SPELL_TRACKER_KEYS = {
-    locked = true,
-    showTimerText = true,
-    showCooldownText = true,
-}
-
 function SpellTracker:GetSettings()
     return self.db
 end
 
 function SpellTracker:SetSetting(key, value)
-    if not SPELL_TRACKER_KEYS[key] then
+    if not Settings.IsGlobalKey(key) then
         error("SpellTracker:SetSetting - unknown setting key '"..tostring(key).."'", 2)
     end
     if key == "locked" then
         self:SetLocked(value)
     else
         self.db[key] = value
+    end
+end
+
+function SpellTracker:GetIconSetting(index, key)
+    local icon = self.db and self.db.icons[index]
+    local value = icon and icon[key]
+    if value == nil then
+        return Settings.IconDefault(key)
+    end
+    return value
+end
+
+function SpellTracker:SetIconSetting(index, key, value)
+    local icon = self.db and self.db.icons[index]
+    if not icon then return end
+    if Settings.SetIcon(icon, key, value) then
+        self:LoadSettings()
     end
 end
 
@@ -700,18 +774,13 @@ function SpellTracker:AddTrackedSpell(spellID, unit, auraType)
     local defaultX = (newIndex - 1) * (ICON_SIZE + ICON_SPACING) + CONSTANTS.DEFAULT_POS_X_OFFSET
     local defaultY = CONSTANTS.DEFAULT_POS_Y
 
-    self.db.icons[newIndex] = {
-        enabled = true,
+    self.db.icons[newIndex] = Settings.NewIcon({
         spellID = spellID,
         unit = unit,
         auraType = auraType,
-        size = ICON_SIZE,
         posX = defaultX,
         posY = defaultY,
-        showWhenInactive = false,
-        trackCooldown = false,
-        cooldownTextSize = CONSTANTS.DEFAULT_COOLDOWN_TEXT_SIZE,
-    }
+    })
 
     if self.addon.db1.profile.debugmode then
         self.addon:Print(string.format("[SpellTracker] Added tracked spell %d (%s, %s)", spellID, unit, auraType))
@@ -729,9 +798,46 @@ function SpellTracker:RemoveTrackedSpell(index)
         self.addon:Print(string.format("[SpellTracker] Removed tracked spell at index %d", index))
     end
 
-    self:HideTracker(index)
+    local count = #self.db.icons
     table.remove(self.db.icons, index)
+    self.state:Remove(index, count)
+    for i = index, count do
+        self:ResetFrameDisplay(iconFrames[i])
+    end
     self:LoadSettings()
+    self:ReapplyPredictedAuras(index)
 end
+
+function SpellTracker:ResetFrameDisplay(frame)
+    if not frame then return end
+    frame.timerText:SetText("")
+    frame.lastTimerText = ""
+    frame.cooldown:Clear()
+    frame.auraNumbers:Clear()
+    frame.cooldownNumbers:Clear()
+    frame.cooldownNumbers.sentStart = nil
+    frame.cooldownNumbers.sentDuration = nil
+    frame.cooldownNumbers.secretShown = nil
+    frame.cooldownText:SetText("")
+    frame.cooldownText:SetTextColor(1, 0.82, 0, 1)
+    frame.lastCooldownText = ""
+    frame.lastPosition = nil
+    frame.trackerIndex = nil
+    frame.spellID = nil
+    frame:Hide()
+end
+
+function SpellTracker:ReapplyPredictedAuras(fromIndex)
+    local now = GetTime()
+    for i = fromIndex, #self.db.icons do
+        local config = self.db.icons[i]
+        local decision = config and config.enabled and self.state:Resume(i, now)
+        if decision then
+            self:UpdateTracker(i, config.spellID, decision)
+        end
+    end
+end
+
+SpellTracker.MAX_ICONS = ICON_POOL_SIZE
 
 SoundAlerter.SpellTracker = SpellTracker

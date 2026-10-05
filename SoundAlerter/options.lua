@@ -14,14 +14,6 @@ local voiceAlertSearchQueries = {
 	enemydebuffdown = ""
 }
 
-local spellTrackerAddForm = {
-	spellID = "",
-	unit = "player",
-	auraType = "HELPFUL"
-}
-
-local spellTrackerSelectedIndex = nil
-
 local function initOptions()
 	if SoundAlerter.options.args.general then
 		return
@@ -162,178 +154,10 @@ local function SpellTextureName(sid)
 	return "Unknown Spell ("..sid..")"
 end
 
-local function BuildStatBarRows(tableType, maxRows, baseOrder)
-	local args = {}
-
-	for i = 1, maxRows do
-		args["barLabel" .. i] = {
-			type = 'description',
-			name = function()
-				local Statistics = SoundAlerter:GetModule("Statistics")
-				return Statistics:GetBarRowLabel(tableType, i)
-			end,
-			fontSize = "medium",
-			order = baseOrder + (i * 2) - 1,
-			hidden = function()
-				local Statistics = SoundAlerter:GetModule("Statistics")
-				return i > Statistics:GetBarRowCount(tableType)
-			end,
-		}
-		args["bar" .. i] = {
-			type = 'range',
-			name = "",
-			desc = "",
-			min = 0,
-			max = 100,
-			step = 1,
-			isPercent = true,
-			width = "full",
-			disabled = true,
-			order = baseOrder + (i * 2),
-			get = function()
-				local Statistics = SoundAlerter:GetModule("Statistics")
-				return Statistics:GetBarRowPercent(tableType, i)
-			end,
-			set = function() end,
-			hidden = function()
-				local Statistics = SoundAlerter:GetModule("Statistics")
-				return i > Statistics:GetBarRowCount(tableType)
-			end,
-		}
-	end
-
-	args["emptyMessage"] = {
-		type = 'description',
-		name = function()
-			local Statistics = SoundAlerter:GetModule("Statistics")
-			return Statistics:GetBarRowErrorMessage(tableType) or ""
-		end,
-		fontSize = "medium",
-		order = baseOrder - 1,
-		hidden = function()
-			local Statistics = SoundAlerter:GetModule("Statistics")
-			return Statistics:GetBarRowCount(tableType) > 0
-		end,
-	}
-
-	return args
-end
-
 function SoundAlerter:OnOptionsProfileChanged()
 	sadb = self.db1.profile
 	sadb.custom = sadb.custom or {}
 	sadb.proximityToasts = sadb.proximityToasts or {}
-end
-
-function SoundAlerter:BuildQuickStartOptions()
-	return {
-		type = 'group',
-		name = "Quick Start",
-		icon = "Interface\\Icons\\INV_Misc_Book_09",
-		desc = "Get arena-ready in 60 seconds. Select your PvP zones and essential alerts. Advanced users can customize 450+ spells in Voice Alerts.",
-		order = 0.5,
-		args = {
-			enableZones = {
-				type = 'group',
-				inline = true,
-				name = "1. Enable Zones",
-				desc = "Select where you want SoundAlerter to be active",
-				set = setOption,
-				get = getOption,
-				order = 2,
-				args = {
-					arena = {
-						type = 'toggle',
-						name = "Arena",
-						desc = "Enable voice alerts in Arena matches, including Solo Shuffle (recommended for competitive PvP)",
-						width = "full",
-						order = 1,
-					},
-					battleground = {
-						type = 'toggle',
-						name = "Battleground",
-						desc = "Enable voice alerts in Battlegrounds (recommended for large-scale PvP)",
-						width = "full",
-						order = 2,
-					},
-					field = {
-						type = 'toggle',
-						name = "World PvP",
-						desc = "Enable voice alerts in open world PvP zones",
-						width = "full",
-						order = 3,
-					},
-				},
-			},
-			alertScope = {
-				type = 'group',
-				inline = true,
-				name = "2. Alert Scope",
-				desc = "Choose how many enemies trigger alerts",
-				set = setOption,
-				get = getOption,
-				order = 3,
-				args = {
-					scopeDescription = {
-						type = 'description',
-						name = "|cffFFD700Recommended:|r Target/Focus for Arena, All Enemies for Battlegrounds\n",
-						order = 1,
-					},
-					myself = {
-						type = 'toggle',
-						name = "Target and Focus Only",
-						desc = "Only alert when your current target/focus casts spells, or when enemies cast spells on you (best for Arena)",
-						disabled = function() return sadb.enemyinrange end,
-						width = "full",
-						order = 2,
-					},
-					enemyinrange = {
-						type = 'toggle',
-						name = "All Enemies in Range",
-						desc = "Alert for enemy spells from any player whose nameplate is visible nearby, not just your target/focus (best for Battlegrounds)",
-						disabled = function() return sadb.myself end,
-						width = "full",
-						order = 3,
-					},
-				},
-			},
-			essentialAlerts = {
-				type = 'group',
-				inline = true,
-				name = "3. Essential Alerts (Pre-configured)",
-				desc = "Critical spells that should always be announced",
-				order = 4,
-				args = {
-					essentialDescription = {
-						type = 'description',
-						name = "|cff00FF00Enabled by default|r (edit in Voice Alerts):\n|cffFFFFFFDefensives:|r Divine Shield, Ice Block, Barkskin\n|cffFFFFFFCC:|r Polymorph, Blind, Fear, Hex\n|cffFFFFFFSelf CC alerts:|r Sap, Poly, etc. on you\n",
-						fontSize = "medium",
-						order = 1,
-					},
-				},
-			},
-			nextSteps = {
-				type = 'group',
-				inline = true,
-				name = "Next Steps",
-				order = 6,
-				args = {
-					nextStepsDescription = {
-						type = 'description',
-						name = "|cff00FF00You're all set!|r Type |cffFFD700/sa|r anytime to reopen this menu.\n",
-						fontSize = "medium",
-						order = 1,
-					},
-					authorCredit = {
-						type = 'description',
-						name = "\n|cff00FF00th|r|cff00D4FF3|r|cff00FF00pajay|r\n",
-						fontSize = "medium",
-						order = 2,
-					},
-				},
-			},
-		},
-	}
 end
 
 function SoundAlerter:BuildGeneralOptions()
@@ -1543,6 +1367,7 @@ function SoundAlerter:BuildResourceBarOptions()
 						default = "Default (WoW StatusBar)",
 						solid = "Solid (Clean Fill)",
 						transparent = "Transparent (Semi-Opaque)",
+						waves = "Animated Waves",
 					},
 					get = function() return SoundAlerter.ResourceBar:GetSettings().barTexture end,
 					set = function(info, value)
@@ -2006,8 +1831,7 @@ function SoundAlerter:BuildCastingBarOptions()
 							default = "Default (WoW StatusBar)",
 							solid = "Solid (Clean Fill)",
 							transparent = "Transparent (Semi-Opaque)",
-							banto = "Banto",
-							halcyone = "Halcyone",
+							waves = "Animated Waves",
 						},
 						get = function() return SoundAlerter.CastingBars:GetSettings().barTexture end,
 						set = function(info, value)
@@ -2620,508 +2444,189 @@ function SoundAlerter:BuildCastFeedOptions()
 	}
 end
 
-function SoundAlerter:BuildSpellTrackerOptions()
-	return {
-		type = 'group',
-		name = "Spell Tracker",
-		icon = "Interface\\Icons\\INV_Misc_PocketWatch_02",
-		desc = "Track important buffs and debuffs with cooldown overlays and countdown timers.",
-		order = 2.87,
-		args = {
-			description = {
-				type = 'description',
-				name = "|cffFFD700Spell Tracker|r\n\n" ..
-				       "|cffFF0000Usage:|r Pick '+ Add New Spell' from the dropdown below to track a new spell. Enter the spell ID and configure its settings.\n",
-				fontSize = "medium",
-				order = 1,
-			},
-
-			initErrorWarning = {
-				type = 'description',
-				name = function()
-					return "|cffFF0000Spell Tracker failed to initialize this session:|r\n" ..
-					       tostring(SoundAlerter.moduleInitErrors and SoundAlerter.moduleInitErrors.SpellTracker) ..
-					       "\n\n|cffFFFFFFToggles below will not take effect until this is fixed and you /reload.|r\n"
-				end,
-				fontSize = "medium",
-				order = 1.5,
-				hidden = function() return SoundAlerter.SpellTracker ~= nil end,
-			},
-
-			generalGroup = {
-				type = 'group',
-				inline = true,
-				name = "General Settings",
-				order = 2,
-				args = {
-					lockToggle = {
-						type = 'toggle',
-						name = "Lock Icons",
-						desc = "Lock all spell tracker icons in place. Unlock to drag and reposition individual icons.",
-						get = function() return SoundAlerter.SpellTracker:GetSettings().locked end,
-						set = function(info, value)
-							SoundAlerter.SpellTracker:SetSetting("locked", value)
-						end,
-						width = "full",
-						order = 1,
-					},
-					showTimerText = {
-						type = 'toggle',
-						name = "Show Aura Duration Numbers",
-						desc = "Display aura duration countdown (SS.ss format) at bottom of spell tracker icons. This shows how long the buff/debuff lasts.",
-						get = function() return SoundAlerter.SpellTracker:GetSettings().showTimerText end,
-						set = function(info, value)
-							SoundAlerter.SpellTracker:SetSetting("showTimerText", value)
-						end,
-						width = "full",
-						order = 2,
-					},
-					showCooldownText = {
-						type = 'toggle',
-						name = "Show Spell Cooldown Numbers",
-						desc = "Display spell cooldown countdown (integer seconds, gold) at the top center of spell tracker icons. " ..
-						       "Only affects spells with 'Track Cooldown' enabled.\n\n" ..
-						       "|cffFF7D0ANote:|r This tracks YOUR spell cooldowns (when the ability is ready to use again), " ..
-						       "not enemy cooldowns or aura durations.",
-						get = function() return SoundAlerter.SpellTracker:GetSettings().showCooldownText end,
-						set = function(info, value)
-							SoundAlerter.SpellTracker:SetSetting("showCooldownText", value)
-						end,
-						width = "full",
-						order = 3,
-					},
-				},
-			},
-
-			trackedSpellsHeader = {
-				type = 'header',
-				name = "Tracked Spells",
-				order = 4,
-			},
-		},
-	}
-end
-
 function SoundAlerter:BuildStatisticsOptions()
+	local function statistics()
+		return SoundAlerter:GetModule("Statistics")
+	end
+
+	local function trackingOff()
+		return not sadb.statistics or not sadb.statistics.enabled
+	end
+
+	local function refresh()
+		LibStub("AceConfigRegistry-3.0"):NotifyChange("SoundAlerter")
+	end
+
+	local function sortSelect(tableType, values)
+		return {
+			type = 'select',
+			name = "Sort by",
+			values = values,
+			width = "double",
+			order = 1,
+			get = function() return statistics():GetSortState()[tableType].sortType end,
+			set = function(info, value) statistics():SetSortState(tableType, value) end,
+		}
+	end
+
+	local function textBlock(order, getter)
+		return {
+			type = 'description',
+			name = getter,
+			fontSize = "medium",
+			width = "full",
+			order = order,
+		}
+	end
+
 	return {
 		type = 'group',
 		name = "Statistics",
 		icon = "Interface\\Icons\\Spell_Holy_MindVision",
-		desc = "View alert statistics and performance metrics. Statistics are saved per profile.",
+		desc = "Alert statistics for this profile.",
 		order = 2.9,
+		childGroups = 'tab',
 		args = {
-			showAdvancedStatistics = {
-				type = 'toggle',
-				name = "Show Advanced Options",
-				desc = "Reveal power-user tools (reset session/all-time stats) at the bottom of this tab.",
-				set = function(info, value) sadb.showAdvancedStatistics = value end,
-				get = function(info) return sadb.showAdvancedStatistics end,
-				width = "full",
-				order = 0.5,
-			},
-
 			enableTracking = {
 				type = 'toggle',
 				name = "Enable Statistics Tracking",
 				desc = "Track alert statistics (minimal performance impact: <0.02ms per alert)",
-				width = "full",
+				width = "double",
 				order = 0.5,
 				set = function(info, value)
-					SoundAlerter:GetModule("Statistics"):SetSetting("enabled", value)
+					statistics():SetSetting("enabled", value)
 					if value then
-						local Statistics = SoundAlerter:GetModule("Statistics")
-						if Statistics then
-							Statistics:InitializeStatistics()
-						end
+						statistics():InitializeStatistics()
 						SoundAlerter:Print("Statistics tracking enabled")
 					else
 						SoundAlerter:Print("Statistics tracking disabled (existing data preserved)")
 					end
 				end,
-				get = function() return SoundAlerter:GetModule("Statistics"):GetSettings().enabled end,
+				get = function() return statistics():GetSettings().enabled end,
 			},
 
-			sessionStats = {
-				type = 'group',
-				inline = true,
-				name = "Session Statistics",
-				desc = "Statistics for this play session (resets on logout/reload)",
+			refresh = {
+				type = 'execute',
+				name = "Refresh",
+				desc = "Redraw the statistics with the latest numbers",
+				width = "half",
+				order = 0.6,
+				hidden = trackingOff,
+				func = refresh,
+			},
+
+			summary = {
+				type = 'description',
+				name = function() return statistics():GetKpiText() end,
+				fontSize = "medium",
+				width = "full",
 				order = 1,
-				hidden = function() return not sadb.statistics or not sadb.statistics.enabled end,
-				args = {
-					sessionDisplay = {
-						type = 'description',
-						name = function()
-							if not sadb.statistics or not sadb.statistics.session then
-								return "|cffFF0000No session data available|r"
-							end
-
-							local session = sadb.statistics.session
-							local elapsed = GetTime() - (session.startTime or 0)
-							local minutes = math.floor(elapsed / 60)
-							local hours = math.floor(minutes / 60)
-							local remainingMinutes = minutes % 60
-
-							local timeStr
-							if hours > 0 then
-								timeStr = string.format("%dh %dm", hours, remainingMinutes)
-							else
-								timeStr = string.format("%d min", minutes)
-							end
-
-							local alertsPerMin = minutes > 0 and (session.totalAlerts / minutes) or 0
-
-							local byCategory = session.byCategory or {}
-							return string.format(
-								"|cff00FF00 Session Active:|r %s\n" ..
-								"|cff00FF00 Total Alerts:|r %d\n" ..
-								"|cff00FF00 Alerts/Minute:|r %.1f\n\n" ..
-								"|cff00FF00Category Breakdown:|r\n" ..
-								"  Spell Alerts: %d\n" ..
-								"  Proximity Alerts: %d\n" ..
-								"  Trinket Alerts: %d\n" ..
-								"  Flag Alerts: %d",
-								timeStr,
-								session.totalAlerts or 0,
-								alertsPerMin,
-								byCategory.spellAlerts or 0,
-								byCategory.proximityAlerts or 0,
-								byCategory.trinketAlerts or 0,
-								byCategory.flagAlerts or 0
-							)
-						end,
-						fontSize = "medium",
-						order = 1,
-					},
-				},
+				hidden = trackingOff,
 			},
 
-			allTimeStats = {
+			overview = {
 				type = 'group',
-				inline = true,
-				name = "All-Time Statistics",
-				desc = "Lifetime statistics for this profile",
+				name = "Overview",
 				order = 2,
-				hidden = function() return not sadb.statistics or not sadb.statistics.enabled end,
+				hidden = trackingOff,
 				args = {
-					allTimeDisplay = {
-						type = 'description',
-						name = function()
-							if not sadb.statistics or not sadb.statistics.allTime then
-								return "|cffFF0000No all-time data available|r"
-							end
-
-							local allTime = sadb.statistics.allTime
-							local avgPerSession = (allTime.totalSessions or 0) > 0 and
-								((allTime.totalAlerts or 0) / allTime.totalSessions) or 0
-
-							local byCategory = allTime.byCategory or {}
-							local byZone = allTime.byZone or {}
-
-							return string.format(
-								"|cffFFD700 Total Alerts:|r %d\n" ..
-								"|cffFFD700 Total Sessions:|r %d\n" ..
-								"|cffFFD700 Avg/Session:|r %.1f\n\n" ..
-								"|cffFFD700Category Totals:|r\n" ..
-								"  Spell Alerts: %d\n" ..
-								"  Proximity Alerts: %d\n" ..
-								"  Trinket Alerts: %d\n" ..
-								"  Flag Alerts: %d\n\n" ..
-								"|cffFFD700Zone Distribution:|r\n" ..
-								"  Arena: %d\n" ..
-								"  Battleground: %d\n" ..
-								"  World PvP: %d",
-								allTime.totalAlerts or 0,
-								allTime.totalSessions or 0,
-								avgPerSession,
-								byCategory.spellAlerts or 0,
-								byCategory.proximityAlerts or 0,
-								byCategory.trinketAlerts or 0,
-								byCategory.flagAlerts or 0,
-								byZone.arena or 0,
-								byZone.battleground or 0,
-								byZone.worldPvP or 0
-							)
-						end,
-						fontSize = "medium",
-						order = 1,
-					},
+					mix = textBlock(1, function() return statistics():GetOverviewText() end),
 				},
 			},
 
-			topSpellsTable = {
+			spells = {
 				type = 'group',
-				inline = true,
-				name = "Top 20 Alerted Spells",
-				desc = "Most frequently alerted spells with detailed analytics",
+				name = "Spells",
 				order = 3,
-				hidden = function() return not sadb.statistics or not sadb.statistics.enabled end,
-				args = (function()
-					local args = {
-						sortDropdown = {
-							type = 'select',
-							name = "Sort By",
-							desc = "Choose how to sort the spell list",
-							values = {
-								count_desc = "Most Alerts (High to Low)",
-								count_asc = "Fewest Alerts (Low to High)",
-								name_asc = "Spell Name (A-Z)",
-								name_desc = "Spell Name (Z-A)",
-								trend = "Trend (Increasing First)",
-								class = "Top Class",
-								zone = "Top Zone",
-								time = "Most Recent"
-							},
-							width = "full",
-							order = 1,
-							set = function(info, value)
-								local Statistics = SoundAlerter:GetModule("Statistics")
-								Statistics:SetSortState("topSpells", value)
-							end,
-							get = function()
-								local Statistics = SoundAlerter:GetModule("Statistics")
-								local sortState = Statistics:GetSortState()
-								return sortState.topSpells.sortType or "count_desc"
-							end
-						},
-
-						refreshButton = {
-							type = 'execute',
-							name = "Refresh",
-							desc = "Refresh the statistics display",
-							width = "normal",
-							func = function()
-								local Statistics = SoundAlerter:GetModule("Statistics")
-								Statistics:InvalidateBarRowCache()
-								LibStub("AceConfigRegistry-3.0"):NotifyChange("SoundAlerter")
-							end,
-							order = 2
-						},
-					}
-
-					for k, v in pairs(BuildStatBarRows("topSpells", 20, 10)) do
-						args[k] = v
-					end
-
-					return args
-				end)(),
+				hidden = trackingOff,
+				args = {
+					sort = sortSelect("topSpells", {
+						count_desc = "Most alerts",
+						trend = "Trend (rising first)",
+						name_asc = "Name (A-Z)",
+						time = "Most recent",
+					}),
+					list = textBlock(2, function() return statistics():GetListText("topSpells") end),
+				},
 			},
 
-			enemiesTable = {
+			enemies = {
 				type = 'group',
-				inline = true,
-				name = "Top 20 Encountered Enemies",
-				desc = "Players who trigger the most alerts",
+				name = "Enemies",
 				order = 4,
-				hidden = function() return not sadb.statistics or not sadb.statistics.enabled end,
+				hidden = trackingOff,
 				args = {
-					sortDropdown = {
-						type = 'select',
-						name = "Sort By",
-						values = {
-							alerts_desc = "Most Alerts (High to Low)",
-							alerts_asc = "Fewest Alerts (Low to High)",
-							name_asc = "Name (A-Z)",
-							name_desc = "Name (Z-A)",
-							danger = "Danger Rating (High to Low)",
-							class = "Class",
-							zone = "Top Zone",
-							time = "Most Recent"
-						},
-						width = "full",
-						order = 1,
-						set = function(info, value)
-							local Statistics = SoundAlerter:GetModule("Statistics")
-							Statistics:SetSortState("enemies", value)
-						end,
-						get = function()
-							local Statistics = SoundAlerter:GetModule("Statistics")
-							local sortState = Statistics:GetSortState()
-							return sortState.enemies.sortType or "alerts_desc"
-						end
-					},
-
-					tableDisplay = {
-						type = 'description',
-						name = function()
-							local Statistics = SoundAlerter:GetModule("Statistics")
-							return Statistics:GetEnemiesTable()
-						end,
-						fontSize = "medium",
-						order = 2
-					}
-				}
+					sort = sortSelect("enemies", {
+						alerts_desc = "Most alerts",
+						danger = "Danger",
+						name_asc = "Name (A-Z)",
+						time = "Most recent",
+					}),
+					list = textBlock(2, function() return statistics():GetListText("enemies") end),
+				},
 			},
 
-			classDistributionTable = {
+			classes = {
 				type = 'group',
-				inline = true,
-				name = "Class Distribution Analysis",
-				desc = "Alert breakdown by enemy class",
+				name = "Classes",
 				order = 5,
-				hidden = function() return not sadb.statistics or not sadb.statistics.enabled end,
-				args = (function()
-					local args = {
-						sortDropdown = {
-							type = 'select',
-							name = "Sort By",
-							values = {
-								alerts_desc = "Most Alerts (High to Low)",
-								alerts_asc = "Fewest Alerts (Low to High)",
-								class_asc = "Class Name (A-Z)",
-								players = "Most Players",
-								avg = "Highest Avg/Player"
-							},
-							width = "full",
-							order = 1,
-							set = function(info, value)
-								local Statistics = SoundAlerter:GetModule("Statistics")
-								Statistics:SetSortState("classes", value)
-							end,
-							get = function()
-								local Statistics = SoundAlerter:GetModule("Statistics")
-								local sortState = Statistics:GetSortState()
-								return sortState.classes.sortType or "alerts_desc"
-							end
-						},
-					}
-
-					for k, v in pairs(BuildStatBarRows("classes", 13, 10)) do
-						args[k] = v
-					end
-
-					return args
-				end)(),
+				hidden = trackingOff,
+				args = {
+					sort = sortSelect("classes", {
+						alerts_desc = "Most alerts",
+						players = "Most players",
+						avg = "Alerts per player",
+						class_asc = "Class (A-Z)",
+					}),
+					list = textBlock(2, function() return statistics():GetListText("classes") end),
+				},
 			},
 
-			management = {
+			data = {
 				type = 'group',
-				inline = true,
-				name = "Management",
-				desc = "Reset statistics or export data",
-				order = 99,
-				hidden = function() return not sadb.showAdvancedStatistics or not sadb.statistics or not sadb.statistics.enabled end,
+				name = "Data",
+				order = 6,
+				hidden = trackingOff,
 				args = {
-					resetSession = {
-						type = 'execute',
-						name = "Reset Session Stats",
-						desc = "Reset statistics for this session only (all-time stats preserved)",
-						width = "normal",
-						func = function()
-							if sadb.statistics then
-								sadb.statistics.session = {
-									totalAlerts = 0,
-									startTime = GetTime(),
-									byCategory = {
-										spellAlerts = 0,
-										proximityAlerts = 0,
-										trinketAlerts = 0,
-										flagAlerts = 0,
-									},
-								}
-								SoundAlerter:Print("Session statistics reset")
-							end
-						end,
-						order = 1,
-					},
-
-					resetAllTime = {
-						type = 'execute',
-						name = "Reset All-Time Stats",
-						desc = "Reset all statistics including session and all-time data",
-						width = "normal",
-						confirm = function()
-							if not sadb.statistics or not sadb.statistics.allTime then
-								return false
-							end
-
-							return string.format(
-								"Delete all statistics?\n\n" ..
-								"Total alerts: %d\n" ..
-								"Total sessions: %d\n" ..
-								"Top spells tracked: %d\n\n" ..
-								"|cffFF0000This cannot be undone!|r",
-								sadb.statistics.allTime.totalAlerts or 0,
-								sadb.statistics.allTime.totalSessions or 0,
-								sadb.statistics.allTime.topSpells and
-									(function()
-										local count = 0
-										for _ in pairs(sadb.statistics.allTime.topSpells) do count = count + 1 end
-										return count
-									end)() or 0
-							)
-						end,
-						func = function()
-							if sadb.statistics then
-								sadb.statistics.session = {
-									totalAlerts = 0,
-									startTime = GetTime(),
-									byCategory = {
-										spellAlerts = 0,
-										proximityAlerts = 0,
-										trinketAlerts = 0,
-										flagAlerts = 0,
-									},
-								}
-
-								sadb.statistics.allTime = {
-									totalAlerts = 0,
-									totalSessions = 1,
-									topSpells = {},
-									byCategory = {
-										spellAlerts = 0,
-										proximityAlerts = 0,
-										trinketAlerts = 0,
-										flagAlerts = 0,
-									},
-									byZone = {
-										arena = 0,
-										battleground = 0,
-										worldPvP = 0,
-									},
-								}
-
-								sadb.statistics.trackingStartTime = time()
-
-								SoundAlerter:Print("|cffFF0000All statistics reset|r")
-							end
-						end,
-						order = 2,
-					},
-
-					spacer = {
-						type = 'description',
-						name = " ",
-						order = 3,
-					},
-
-					exportStats = {
-						type = 'execute',
-						name = "Export Statistics",
-						desc = "Builds a plain-text summary of your session/all-time stats below, for copying out",
-						width = "normal",
-						order = 4,
-						func = function()
-							local Statistics = SoundAlerter:GetModule("Statistics")
-							sadb.statsExportbox = Statistics:BuildExportString()
-						end,
-					},
-
-					statsExportbox = {
+					export = {
 						type = 'input',
-						name = "Exported Statistics (select all, copy)",
+						name = "Export (select all, copy)",
 						multiline = 12,
 						width = "full",
-						order = 5,
-						get = function() return sadb.statsExportbox or "" end,
-						set = function(info, value) sadb.statsExportbox = value end,
+						order = 1,
+						get = function() return statistics():GetExportText() end,
+						set = function() end,
 					},
-
-					info = {
-						type = 'description',
-						name = "|cffAAAAAA Statistics are saved per profile. Each character/spec can have separate tracking.|r",
-						fontSize = "small",
-						order = 6,
+					resetSession = {
+						type = 'execute',
+						name = "Reset session",
+						desc = "Reset this session's numbers. All-time statistics are kept.",
+						width = "normal",
+						order = 2,
+						confirm = true,
+						confirmText = "Reset this session's statistics?",
+						func = function()
+							statistics():ResetSession()
+							SoundAlerter:Print("Session statistics reset")
+							refresh()
+						end,
+					},
+					resetAllTime = {
+						type = 'execute',
+						name = "Reset all-time",
+						desc = "Delete all statistics for this profile, session and all-time.",
+						width = "normal",
+						order = 3,
+						confirm = function()
+							local allTime = sadb.statistics and sadb.statistics.allTime
+							return string.format("Delete all statistics?\n\nTotal alerts: %d\nTotal sessions: %d\n\n|cffFF0000This cannot be undone!|r",
+								allTime and allTime.totalAlerts or 0, allTime and allTime.totalSessions or 0)
+						end,
+						func = function()
+							statistics():ResetAllTime()
+							SoundAlerter:Print("|cffFF0000All statistics reset|r")
+							refresh()
+						end,
 					},
 				},
 			},
@@ -4017,60 +3522,52 @@ function SoundAlerter:BuildVoiceAlertOptions()
 	}
 end
 
-local function FormatThousands(n)
-	local s = string.format("%d", n or 0):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
-	return s
-end
-
-local function Plural(n, unit)
-	return n .. " " .. unit .. (n == 1 and "" or "s")
-end
-
-local function FormatAge(seconds)
-	if seconds < 60 then
-		return "|cff00FF00", "just now"
-	elseif seconds < 3600 then
-		return "|cff88FF88", Plural(math.floor(seconds / 60), "minute") .. " ago"
-	elseif seconds < 86400 then
-		return "|cffFFD700", Plural(math.floor(seconds / 3600), "hour") .. " ago"
-	end
-	return "|cffFFAA00", Plural(math.floor(seconds / 86400), "day") .. " ago"
-end
-
-local function StatLine(label, value)
-	return "|cffFFFFFF" .. label .. ":|r " .. value .. "\n"
-end
-
 local function IsDatabaseBuilding()
 	return SoundAlerter.spellDatabase.isBuilding
 end
 
 function SoundAlerter:BuildSpellFinderOptions()
+	local function devtools()
+		return SoundAlerter.DevTools
+	end
+
+	local function refresh()
+		devtools():Invalidate()
+		LibStub("AceConfigRegistry-3.0"):NotifyChange("SoundAlerter")
+	end
+
+	local function findSpellSettings()
+		SoundAlerter.db1.profile.findSpell = SoundAlerter.db1.profile.findSpell or {}
+		return SoundAlerter.db1.profile.findSpell
+	end
+
 	return {
 		type = 'group',
 		name = "Developer Tools",
 		icon = "Interface\\Icons\\INV_Misc_Spyglass_02",
-		desc = "Advanced tools for addon developers and power users. Find spell IDs, rebuild database, and access debug features.",
+		desc = "Spell Finder, spell database and debug tools.",
 		order = 5,
+		childGroups = 'tab',
 		args = {
-			finderSection = {
-				type = 'group',
-				inline = true,
-				name = "|TInterface\\Icons\\INV_Misc_Spyglass_02:20|t  Spell Database Search",
+			status = {
+				type = 'description',
+				name = function() return devtools():GetStatusText() end,
+				fontSize = "medium",
+				width = "full",
 				order = 1,
+			},
+
+			finder = {
+				type = 'group',
+				name = "Finder",
+				order = 2,
 				args = {
-					finderDescription = {
-						type = 'description',
-						name = "|cffFFFFFFSearch the spell database.|r\n",
-						fontSize = "medium",
-						order = 1,
-					},
 					openFinder = {
 						type = 'execute',
 						name = "|cff00D4FF[OPEN SPELL FINDER PANEL]|r",
-						desc = "Open the spell search panel, docked beside this options window",
+						desc = "Open the spell search panel, docked beside this options window. Press Enter to search, hover results for tooltips.",
 						width = "full",
-						order = 2,
+						order = 1,
 						func = function()
 							if not SoundAlerter.findSpellFrame then
 								SoundAlerter.findSpellFrame = SoundAlerter:CreateFindSpellFrame()
@@ -4097,12 +3594,6 @@ function SoundAlerter:BuildSpellFinderOptions()
 							end
 						end,
 					},
-					quickTip = {
-						type = 'description',
-						name = "\n|cffFFD700Quick Tip:|r Press |cffFFFFFFEnter|r to search, hover results for tooltips\n",
-						fontSize = "small",
-						order = 3,
-					},
 					searchScope = {
 						type = 'select',
 						name = "Search In",
@@ -4114,32 +3605,11 @@ function SoundAlerter:BuildSpellFinderOptions()
 						},
 						sorting = {"names", "both", "descriptions"},
 						width = "double",
-						order = 4.2,
-						get = function(info)
-							return SoundAlerter:GetSearchScope()
-						end,
+						order = 2,
+						get = function() return SoundAlerter:GetSearchScope() end,
 						set = function(info, value)
 							SoundAlerter:SetSearchScope(value)
 							SoundAlerter:Print("Spell Finder search scope: " .. value)
-						end,
-					},
-					descriptionStatus = {
-						type = 'description',
-						name = function()
-							return SoundAlerter:GetDescriptionStatus()
-						end,
-						fontSize = "medium",
-						width = "full",
-						order = 4.3,
-					},
-					clearDescriptions = {
-						type = 'execute',
-						name = "Clear Description Index",
-						desc = "Stops indexing and deletes the saved description index (frees the SavedVariables space).",
-						order = 4.4,
-						func = function()
-							SoundAlerter:ClearDescriptionIndex()
-							SoundAlerter:Print("Spell description index cleared")
 						end,
 					},
 					fuzzy = {
@@ -4147,15 +3617,10 @@ function SoundAlerter:BuildSpellFinderOptions()
 						name = "Fuzzy Name Search",
 						desc = "Typo-tolerant matching: substring anywhere in the name, then in-order letters (abbreviations like 'frstblt'), then one or two typos (e.g. 'forstbolt'; the first letter must be right). Results rank by closeness (sort by Relevance). Typo-heavy queries cost more than plain ones.",
 						width = "full",
-						order = 4.5,
-						get = function(info)
-							return SoundAlerter.db1.profile.findSpell and SoundAlerter.db1.profile.findSpell.fuzzy or false
-						end,
+						order = 3,
+						get = function() return findSpellSettings().fuzzy or false end,
 						set = function(info, value)
-							if not SoundAlerter.db1.profile.findSpell then
-								SoundAlerter.db1.profile.findSpell = {}
-							end
-							SoundAlerter.db1.profile.findSpell.fuzzy = value
+							findSpellSettings().fuzzy = value
 							SoundAlerter:ClearSearchCache()
 							SoundAlerter:Print(value and "|cFF00FF00Fuzzy search enabled|r" or "|cFFFF0000Fuzzy search disabled|r")
 						end,
@@ -4165,201 +3630,105 @@ function SoundAlerter:BuildSpellFinderOptions()
 						name = "Autocomplete Spell Names",
 						desc = "Show up to 8 spell-name suggestions under the search box while typing (minimum 2 characters, prefix match). Tab accepts the first or highlighted suggestion, Up/Down moves the highlight, click searches it.",
 						width = "full",
-						order = 5,
-						get = function(info)
-							return SoundAlerter.db1.profile.findSpell and SoundAlerter.db1.profile.findSpell.autocomplete or false
-						end,
+						order = 4,
+						get = function() return findSpellSettings().autocomplete or false end,
 						set = function(info, value)
-							if not SoundAlerter.db1.profile.findSpell then
-								SoundAlerter.db1.profile.findSpell = {}
-							end
-							SoundAlerter.db1.profile.findSpell.autocomplete = value
+							findSpellSettings().autocomplete = value
 							SoundAlerter:Print(value and "|cFF00FF00Autocomplete enabled|r" or "|cFFFF0000Autocomplete disabled|r")
+						end,
+					},
+					descriptionStatus = {
+						type = 'description',
+						name = function() return SoundAlerter:GetDescriptionStatus() end,
+						fontSize = "medium",
+						width = "full",
+						order = 5,
+					},
+					clearDescriptions = {
+						type = 'execute',
+						name = "Clear Description Index",
+						desc = "Stops indexing and deletes the saved description index (frees the SavedVariables space).",
+						order = 6,
+						func = function()
+							SoundAlerter:ClearDescriptionIndex()
+							SoundAlerter:Print("Spell description index cleared")
 						end,
 					},
 				},
 			},
 
-			databaseSection = {
+			database = {
 				type = 'group',
-				inline = true,
-				name = "|TInterface\\Icons\\INV_Misc_Book_09:20|t  Spell Database",
-				order = 2,
+				name = "Database",
+				order = 3,
 				args = {
-					status = {
+					info = {
 						type = 'description',
-						name = function()
-							local stats = SoundAlerter:GetDatabaseStats()
-							if not stats.isBuilding then
-								return StatLine("Status", "|cFF00FF00READY|r |cff00FF00✓|r")
-									.. StatLine("Spells Indexed", "|cffFFD700" .. FormatThousands(stats.totalSpells) .. "|r spells")
-							end
-
-							local filledBlocks = math.floor(stats.progress / 5)
-							local bar = {}
-							for i = 1, 20 do
-								bar[i] = i <= filledBlocks and "|cffFFAA00█|r" or "|cff444444█|r"
-							end
-
-							return StatLine("Status", "|cFFFFAA00BUILDING DATABASE|r")
-								.. StatLine("Progress", string.format("%.1f%% complete", stats.progress))
-								.. StatLine("Visual", table.concat(bar))
-								.. StatLine("Scanned", FormatThousands(stats.totalScanned) .. " / " .. FormatThousands(stats.maxSpellID) .. " spell IDs")
-						end,
+						name = function() return devtools():GetDatabaseText() end,
 						fontSize = "medium",
+						width = "full",
 						order = 1,
-					},
-					contentsHeader = {
-						type = 'header',
-						name = "Contents",
-						order = 2,
-						hidden = IsDatabaseBuilding,
-					},
-					contents = {
-						type = 'description',
-						name = function()
-							local stats = SoundAlerter:GetDatabaseStats()
-							local density = stats.maxSpellID > 0 and (stats.totalSpells / stats.maxSpellID) * 100 or 0
-							local ranked = stats.totalSpells > 0 and (stats.rankedSpells / stats.totalSpells) * 100 or 0
-							return StatLine("Unique Names", FormatThousands(stats.uniqueNames))
-								.. StatLine("Ranked Spells", string.format("%s |cff888888(%.1f%%)|r", FormatThousands(stats.rankedSpells), ranked))
-								.. StatLine("Scan Range", string.format("1 – %s |cff888888(%.1f%% of IDs are spells)|r", FormatThousands(stats.maxSpellID), density))
-						end,
-						fontSize = "medium",
-						order = 3,
-						hidden = IsDatabaseBuilding,
-					},
-					freshnessHeader = {
-						type = 'header',
-						name = "Freshness",
-						order = 4,
-						hidden = IsDatabaseBuilding,
-					},
-					freshness = {
-						type = 'description',
-						name = function()
-							local stats = SoundAlerter:GetDatabaseStats()
-							local text = ""
-
-							if stats.lastUpdate > 0 then
-								local age = time() - stats.lastUpdate
-								local ageColor, ageText = FormatAge(age)
-								text = text .. StatLine("Last Updated", ageColor .. ageText .. "|r")
-								local daysLeft = math.max(0, math.ceil((stats.maxAge - age) / 86400))
-								text = text .. StatLine("Auto-Rebuild", "in " .. Plural(daysLeft, "day") .. " |cff888888(or on game patch)|r")
-							end
-
-							if stats.source == "built" then
-								text = text .. StatLine("Source", string.format("Built this session in %.1fs", stats.buildSeconds or 0))
-							elseif stats.source == "loaded" then
-								text = text .. StatLine("Source", "Loaded from saved cache")
-							end
-
-							if stats.builtOnVersion then
-								if stats.builtOnVersion == stats.currentVersion then
-									text = text .. StatLine("Game Build", stats.builtOnVersion .. " |cff00FF00(current)|r")
-								else
-									text = text .. StatLine("Game Build", stats.builtOnVersion .. " |cffFF5555(current: " .. stats.currentVersion .. ")|r")
-								end
-							end
-
-							return text
-						end,
-						fontSize = "medium",
-						order = 5,
-						hidden = IsDatabaseBuilding,
-					},
-					performanceHeader = {
-						type = 'header',
-						name = "Performance",
-						order = 6,
-						hidden = IsDatabaseBuilding,
-					},
-					performance = {
-						type = 'description',
-						name = function()
-							local stats = SoundAlerter:GetDatabaseStats()
-							local text
-
-							text = ""
-							local timingModes = {
-								{"search", "Search Timing"},
-								{"fuzzy", "Fuzzy Timing"},
-								{"description", "Description Timing"},
-								{"perform", "Search + Render"},
-								{"autocomplete", "Autocomplete"},
-							}
-							for _, entry in ipairs(timingModes) do
-								local sp50, sp95, sp99, spMax, spCount = SoundAlerter:GetSearchPercentiles(entry[1])
-								if sp50 then
-									text = text .. StatLine(entry[2], string.format("p50 %.3fms  p95 %.3fms  p99 %.3fms  max %.3fms |cff888888(last %d)|r",
-										sp50, sp95, sp99, spMax, spCount))
-								else
-									text = text .. StatLine(entry[2], "|cff888888no samples yet this session|r")
-								end
-							end
-
-							text = text .. StatLine("Result Cache", stats.cacheEntries .. " / " .. stats.cacheMax .. " entries")
-							text = text .. StatLine("Prefix Index", FormatThousands(stats.prefixBuckets) .. " buckets")
-
-							UpdateAddOnMemoryUsage()
-							local memKB = GetAddOnMemoryUsage("SoundAlerter")
-							local memColor = memKB > 10240 and "|cffFFAA00" or "|cff00FF00"
-							text = text .. StatLine("Addon Memory", string.format("%s%.1f MB|r |cff888888(total)|r", memColor, memKB / 1024))
-
-							return text
-						end,
-						fontSize = "medium",
-						order = 7,
-						hidden = IsDatabaseBuilding,
-					},
-					rebuildNote = {
-						type = 'description',
-						name = "\n|cff888888Rebuilding is only needed if the database is corrupted or after a major game patch.|r\n",
-						fontSize = "medium",
-						order = 8,
 					},
 					rebuild = {
 						type = 'execute',
 						name = "|cffFFAA00[REBUILD DATABASE]|r",
-						desc = "Perform a full database rebuild. This will scan all spell IDs and may cause a brief frame stutter.",
+						desc = "Full rebuild of the spell database. Only needed if the database is corrupted or after a major game patch. Scans all spell IDs and may cause a brief frame stutter.",
 						width = "full",
-						order = 9,
+						order = 2,
 						disabled = IsDatabaseBuilding,
 						confirm = true,
 						confirmText = "This will rebuild the spell database and take 3-4 seconds. Continue?",
 						func = function()
+							devtools():Invalidate()
 							SoundAlerter:RebuildSpellDatabase()
 						end,
 					},
 				},
 			},
 
-			debugSection = {
+			performance = {
 				type = 'group',
-				inline = true,
-				name = "|TInterface\\Icons\\INV_Misc_Spyglass_03:20|t  Debug Mode",
-				order = 5,
+				name = "Performance",
+				order = 4,
 				args = {
-					debugDescription = {
+					timings = {
 						type = 'description',
-						name = "|cffFFFFFFEnable debug logging across all addon modules.|r\n\n" ..
-							   "|cffFFAA00Warning:|r Prints combat log events, search timings, and module state changes to chat. Chatty by design.\n",
+						name = function() return devtools():GetPerformanceText() end,
 						fontSize = "medium",
+						width = "full",
 						order = 1,
 					},
-					debugmode = {
-						type = 'toggle',
-						name = "Debug Mode",
-						desc = "Enable debug logging",
-						width = "full",
+					refresh = {
+						type = 'execute',
+						name = "Refresh",
+						desc = "Re-read the timings and memory now",
+						width = "half",
 						order = 2,
-						get = function() return sadb.debugmode end,
-						set = function(info, value) sadb.debugmode = value end,
+						func = refresh,
 					},
 				},
 			},
-		}
+
+			debug = {
+				type = 'group',
+				name = "Debug",
+				order = 5,
+				args = {
+					debugmode = {
+						type = 'toggle',
+						name = "Debug Mode",
+						desc = "Enable debug logging across all addon modules. Prints combat log events, search timings and module state changes to chat. Chatty by design.",
+						width = "full",
+						order = 1,
+						get = function() return sadb.debugmode end,
+						set = function(info, value)
+							sadb.debugmode = value
+							devtools():Invalidate()
+						end,
+					},
+				},
+			},
+		},
 	}
 end
 
@@ -4432,354 +3801,7 @@ function SoundAlerter:OnOptionsCreate()
 
 	self:AddOption('CastFeed', self:BuildCastFeedOptions())
 
-	local RebuildSpellTrackerOptions
-
-	local function BuildAddSpellPanel()
-		local function TryAddTrackedSpell()
-			local spellID = tonumber(spellTrackerAddForm.spellID)
-			if not spellID or spellID <= 0 then
-				SoundAlerter:Print("|cffff0000Invalid spell ID.|r")
-				return
-			end
-
-			if SoundAlerter.SpellTracker then
-				local success = SoundAlerter.SpellTracker:AddTrackedSpell(
-					spellID, spellTrackerAddForm.unit, spellTrackerAddForm.auraType)
-				if success then
-					SoundAlerter:Print("|cff00ff00Added spell " .. spellID .. " to tracker.|r")
-					spellTrackerAddForm.spellID = ""
-					RebuildSpellTrackerOptions()
-					LibStub("AceConfigRegistry-3.0"):NotifyChange("SoundAlerter")
-				end
-			end
-		end
-
-		return {
-			addDescription = {
-				type = 'description',
-				name = "Add a new spell to track. Enter the spell ID and press Enter, or type it and click Add Spell.",
-				fontSize = "medium",
-				order = 1,
-			},
-			addSpellID = {
-				type = 'input',
-				name = "Spell ID",
-				desc = "Enter numeric spell ID and press Enter",
-				get = function() return spellTrackerAddForm.spellID end,
-				set = function(info, value)
-					spellTrackerAddForm.spellID = value
-					TryAddTrackedSpell()
-				end,
-				width = "half",
-				order = 2,
-			},
-			addUnit = {
-				type = 'select',
-				name = "Track On",
-				desc = "Which unit to track this aura on",
-				values = { player = "Player (Self)", target = "Target" },
-				get = function() return spellTrackerAddForm.unit end,
-				set = function(info, value) spellTrackerAddForm.unit = value end,
-				width = "half",
-				order = 3,
-			},
-			addAuraType = {
-				type = 'select',
-				name = "Aura Type",
-				desc = "Type of aura to track",
-				values = { HELPFUL = "Buff (Helpful)", HARMFUL = "Debuff (Harmful)" },
-				get = function() return spellTrackerAddForm.auraType end,
-				set = function(info, value) spellTrackerAddForm.auraType = value end,
-				width = "half",
-				order = 4,
-			},
-			addButton = {
-				type = 'execute',
-				name = "Add Spell",
-				desc = "Add this spell to the tracker",
-				func = TryAddTrackedSpell,
-				width = "full",
-				order = 5,
-			},
-		}
-	end
-
-	local function BuildConfigPanel()
-		if not spellTrackerSelectedIndex then
-			return {
-				type = 'group',
-				inline = true,
-				name = "Add New Spell",
-				order = 6,
-				args = BuildAddSpellPanel(),
-			}
-		end
-
-		local i = spellTrackerSelectedIndex
-		local config = SoundAlerter.db1.profile.spellTracker.icons[i]
-		if not config then
-			return {
-				type = 'group',
-				inline = true,
-				name = "Error",
-				order = 6,
-				args = {
-					errorMsg = {
-						type = 'description',
-						name = "|cffff0000Selected spell not found.|r",
-						order = 1,
-					}
-				}
-			}
-		end
-
-		local spellName = GetSpellInfo(config.spellID) or "Unknown"
-		local _, _, icon = GetSpellInfo(config.spellID)
-
-		return {
-			type = 'group',
-			inline = true,
-			name = "Configure: " .. spellName,
-			order = 6,
-			args = {
-				spellHeader = {
-					type = 'description',
-					name = string.format("|T%s:24|t |cffFFD700%s|r\nSpell ID: %d",
-						icon or "Interface\\Icons\\INV_Misc_QuestionMark",
-						spellName,
-						config.spellID),
-					fontSize = "large",
-					order = 1,
-				},
-				enabled = {
-					type = 'toggle',
-					name = "Enabled",
-					desc = "Enable tracking for this spell",
-					get = function()
-						local iconConfig = SoundAlerter.db1.profile.spellTracker.icons[i]
-						return iconConfig and iconConfig.enabled
-					end,
-					set = function(info, value)
-						local iconConfig = SoundAlerter.db1.profile.spellTracker.icons[i]
-						if iconConfig then
-							iconConfig.enabled = value
-							if SoundAlerter.SpellTracker then
-								SoundAlerter.SpellTracker:LoadSettings()
-							end
-						end
-					end,
-					width = "half",
-					order = 2,
-				},
-				unit = {
-					type = 'select',
-					name = "Track On",
-					desc = "Which unit to track this aura on",
-					values = { player = "Player (Self)", target = "Target" },
-					get = function()
-						local iconConfig = SoundAlerter.db1.profile.spellTracker.icons[i]
-						return iconConfig and iconConfig.unit or "player"
-					end,
-					set = function(info, value)
-						local iconConfig = SoundAlerter.db1.profile.spellTracker.icons[i]
-						if iconConfig then
-							iconConfig.unit = value
-							if SoundAlerter.SpellTracker then
-								SoundAlerter.SpellTracker:LoadSettings()
-							end
-						end
-					end,
-					width = "half",
-					order = 3,
-				},
-				auraType = {
-					type = 'select',
-					name = "Aura Type",
-					desc = "Type of aura to track",
-					values = { HELPFUL = "Buff (Helpful)", HARMFUL = "Debuff (Harmful)" },
-					get = function()
-						local iconConfig = SoundAlerter.db1.profile.spellTracker.icons[i]
-						return iconConfig and iconConfig.auraType or "HELPFUL"
-					end,
-					set = function(info, value)
-						local iconConfig = SoundAlerter.db1.profile.spellTracker.icons[i]
-						if iconConfig then
-							iconConfig.auraType = value
-							if SoundAlerter.SpellTracker then
-								SoundAlerter.SpellTracker:LoadSettings()
-							end
-						end
-					end,
-					width = "half",
-					order = 4,
-				},
-				size = {
-					type = 'range',
-					name = "Icon Size",
-					desc = "Size of the spell tracker icon in pixels",
-					min = 24,
-					max = 80,
-					step = 4,
-					get = function()
-						local iconConfig = SoundAlerter.db1.profile.spellTracker.icons[i]
-						return iconConfig and iconConfig.size or 48
-					end,
-					set = function(info, value)
-						local iconConfig = SoundAlerter.db1.profile.spellTracker.icons[i]
-						if iconConfig then
-							iconConfig.size = value
-							if SoundAlerter.SpellTracker then
-								SoundAlerter.SpellTracker:LoadSettings()
-							end
-						end
-					end,
-					width = "half",
-					order = 5,
-				},
-				showWhenInactive = {
-					type = 'toggle',
-					name = "Show When Inactive",
-					desc = "Display icon (faded) even when aura is not active",
-					get = function()
-						local iconConfig = SoundAlerter.db1.profile.spellTracker.icons[i]
-						return iconConfig and iconConfig.showWhenInactive
-					end,
-					set = function(info, value)
-						local iconConfig = SoundAlerter.db1.profile.spellTracker.icons[i]
-						if iconConfig then
-							iconConfig.showWhenInactive = value
-							if SoundAlerter.SpellTracker then
-								SoundAlerter.SpellTracker:LoadSettings()
-							end
-						end
-					end,
-					width = "half",
-					order = 5.5,
-				},
-				trackCooldown = {
-					type = 'toggle',
-					name = "Track Cooldown",
-					desc = "Display spell cooldown timer (integer seconds) at icon center.\n\n" ..
-						   "|cffFF0000Limitation:|r Only tracks YOUR cooldowns (spells on your action bars). " ..
-						   "Does NOT track enemy cooldowns.\n\n" ..
-						   "Shows when the spell is ready to cast again (independent from aura duration).",
-					get = function()
-						local iconConfig = SoundAlerter.db1.profile.spellTracker.icons[i]
-						return iconConfig and iconConfig.trackCooldown or false
-					end,
-					set = function(info, value)
-						local iconConfig = SoundAlerter.db1.profile.spellTracker.icons[i]
-						if iconConfig then
-							iconConfig.trackCooldown = value
-							if SoundAlerter.SpellTracker then
-								SoundAlerter.SpellTracker:LoadSettings()
-							end
-						end
-					end,
-					width = "half",
-					order = 6,
-				},
-				cooldownTextSize = {
-					type = 'range',
-					name = "Cooldown Text Size",
-					desc = "Font size for the cooldown countdown text (in points). Only visible when 'Track Cooldown' is enabled.",
-					min = 8,
-					max = 32,
-					step = 1,
-					get = function()
-						local iconConfig = SoundAlerter.db1.profile.spellTracker.icons[i]
-						return iconConfig and iconConfig.cooldownTextSize or 14
-					end,
-					set = function(info, value)
-						local iconConfig = SoundAlerter.db1.profile.spellTracker.icons[i]
-						if iconConfig then
-							iconConfig.cooldownTextSize = value
-							if SoundAlerter.SpellTracker then
-								SoundAlerter.SpellTracker:LoadSettings()
-							end
-						end
-					end,
-					width = "full",
-					order = 6.5,
-				},
-				deleteButton = {
-					type = 'execute',
-					name = "Delete Spell",
-					desc = "Remove this spell from the tracker",
-					func = function()
-						local iconConfig = SoundAlerter.db1.profile.spellTracker.icons[i]
-						if SoundAlerter.SpellTracker and iconConfig then
-							local spellName = GetSpellInfo(iconConfig.spellID) or "Unknown"
-							SoundAlerter.SpellTracker:RemoveTrackedSpell(i)
-							SoundAlerter:Print("|cffff0000Removed " .. spellName .. " from tracker.|r")
-							spellTrackerSelectedIndex = nil
-							RebuildSpellTrackerOptions()
-							LibStub("AceConfigRegistry-3.0"):NotifyChange("SoundAlerter")
-						end
-					end,
-					confirm = true,
-					confirmText = "Are you sure you want to delete this tracked spell?",
-					width = "full",
-					order = 10,
-				},
-			}
-		}
-	end
-
-	RebuildSpellTrackerOptions = function()
-		local spellTrackerTab = SoundAlerter.options.args['SpellTracker']
-		if not spellTrackerTab then return end
-
-		for key in pairs(spellTrackerTab.args) do
-			if key:match("^spell_%d+$") or key == "spellListGroup" or key == "configPanelGroup" then
-				spellTrackerTab.args[key] = nil
-			end
-		end
-
-		spellTrackerTab.args.spellListGroup = {
-			type = 'group',
-			inline = true,
-			name = "Tracked Spells",
-			order = 5,
-			args = {
-				spellSelect = {
-					type = 'select',
-					name = "Select Spell",
-					desc = "Choose a tracked spell to configure, or add a new one.",
-					values = function()
-						local vals = { ["__new__"] = "+ Add New Spell" }
-						if SoundAlerter.db1.profile.spellTracker.icons then
-							for i, config in ipairs(SoundAlerter.db1.profile.spellTracker.icons) do
-								local spellName = GetSpellInfo(config.spellID) or "Unknown"
-								local statusText = config.enabled and "[ON]" or "[OFF]"
-								local unitText = config.unit == "player" and "P" or "T"
-								local typeText = config.auraType == "HELPFUL" and "Buff" or "Debuff"
-								vals[tostring(i)] = string.format("%s %s (%d) - %s/%s",
-									statusText, spellName, config.spellID, unitText, typeText)
-							end
-						end
-						return vals
-					end,
-					get = function()
-						return spellTrackerSelectedIndex and tostring(spellTrackerSelectedIndex) or "__new__"
-					end,
-					set = function(info, value)
-						spellTrackerSelectedIndex = (value ~= "__new__") and tonumber(value) or nil
-						RebuildSpellTrackerOptions()
-						LibStub("AceConfigRegistry-3.0"):NotifyChange("SoundAlerter")
-					end,
-					width = "full",
-					order = 1,
-				},
-			},
-		}
-
-		spellTrackerTab.args.configPanelGroup = BuildConfigPanel()
-	end
-
 	self:AddOption('SpellTracker', self:BuildSpellTrackerOptions())
-
-	RebuildSpellTrackerOptions()
 
 	self:AddOption('Statistics', self:BuildStatisticsOptions())
 

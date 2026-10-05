@@ -132,33 +132,7 @@ function SoundAlerter:OnProfileCopied(event, db, sourceProfileKey)
 	self:ChangeProfile()
 
 	if sadb.statistics then
-		sadb.statistics.session = {
-			totalAlerts = 0,
-			startTime = GetTime(),
-			byCategory = {
-				spellAlerts = 0,
-				proximityAlerts = 0,
-				trinketAlerts = 0,
-				flagAlerts = 0,
-			},
-		}
-		sadb.statistics.allTime = {
-			totalAlerts = 0,
-			totalSessions = 0,
-			topSpells = {},
-			byCategory = {
-				spellAlerts = 0,
-				proximityAlerts = 0,
-				trinketAlerts = 0,
-				flagAlerts = 0,
-			},
-			byZone = {
-				arena = 0,
-				battleground = 0,
-				worldPvP = 0,
-			},
-		}
-		sadb.statistics.trackingStartTime = time()
+		self:GetModule("Statistics"):ResetAllTime()
 
 		self:Print("Statistics reset for copied profile (settings copied, but stats start fresh)")
 	end
