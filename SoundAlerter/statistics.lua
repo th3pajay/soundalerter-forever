@@ -250,7 +250,7 @@ local function PrepareClassDistributionData()
 	local totalAlerts = 0
 
 	local playerCountByClass = {}
-	for name, enemyData in pairs(sadb.statistics.allTime.playerTracking.enemies) do
+	for _, enemyData in pairs(sadb.statistics.allTime.playerTracking.enemies) do
 		local class = enemyData.class
 		if class then
 			playerCountByClass[class] = (playerCountByClass[class] or 0) + 1
@@ -686,7 +686,7 @@ function Statistics:SaveSessionHistory()
 
 	dataVersion = dataVersion + 1
 
-	for spellID, data in pairs(topSpells) do
+	for _, data in pairs(topSpells) do
 		if not data.trend then
 			data.trend = {
 				lastSessionCount = 0,

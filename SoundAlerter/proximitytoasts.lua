@@ -80,11 +80,7 @@ function ProximityToasts:SetSetting(key, value)
     end
 end
 
-local function SafeUnitName(unit)
-    local name = UnitName(unit)
-    if issecretvalue(name) then return nil end
-    return name
-end
+local SafeUnitName = SA_COMPAT.SafeUnitName
 
 local function SanitizeMacroText(text)
     if not text then return "" end
@@ -215,6 +211,10 @@ local function UpdateCountdownSegments(toast, displayElapsed)
         if toast.countdownBar.segments[i] then
             toast.countdownBar.segments[i]:SetAlpha(0)
         end
+    end
+    toast.cachedSegmentData.lastHiddenSegment = secondsElapsed
+end
+
 local function IsLocked(toast)
     return toast.isSecure and InCombatLockdown()
 end
@@ -237,10 +237,6 @@ local function FlushDeferredHides()
             toast:Hide()
         end
     end
-end
-
-    end
-    toast.cachedSegmentData.lastHiddenSegment = secondsElapsed
 end
 
 local function CreateToastFrame(index, isSecure)
@@ -517,11 +513,11 @@ function ProximityToasts:Initialize()
     combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     combatFrame:SetScript("OnEvent", function(self, event)
-            FlushDeferredHides()
         if event == "PLAYER_REGEN_DISABLED" then
             ProximityToasts.inCombat = true
         elseif event == "PLAYER_REGEN_ENABLED" then
             ProximityToasts.inCombat = false
+            FlushDeferredHides()
             if ProximityToasts.secureCreationPending then
                 local ok, err = pcall(ProximityToasts.CreateSecurePool, ProximityToasts)
                 if not ok then

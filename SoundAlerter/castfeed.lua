@@ -3,10 +3,10 @@ local CastFeed = {}
 local Row = {}
 Row.__index = Row
 
-local GetSpellInfo = SA_COMPAT.GetSpellInfo
+local GetSpellInfo, Plain = SA_COMPAT.GetSpellInfo, SA_COMPAT.Plain
 local UnitCastingInfo, UnitChannelInfo = SA_COMPAT.UnitCastingInfo, SA_COMPAT.UnitChannelInfo
 local GetTime = GetTime
-local select, setmetatable = select, setmetatable
+local setmetatable = setmetatable
 local math_floor, math_max, math_min, math_ceil = math.floor, math.max, math.min, math.ceil
 local table_remove = table.remove
 local string_format = string.format
@@ -134,14 +134,11 @@ local function ResolveKey(unit, castGUID, spellID)
 		return "hidden:" .. unit, true
 	end
 
-	if castGUID ~= nil and not issecretvalue(castGUID) then
+	if Plain(castGUID) ~= nil then
 		return castGUID, false
 	end
 
-	local guid = UnitGUID(unit)
-	if guid == nil or issecretvalue(guid) then
-		guid = unit
-	end
+	local guid = Plain(UnitGUID(unit)) or unit
 	return guid .. ":" .. spellID, true
 end
 

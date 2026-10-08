@@ -299,11 +299,12 @@ local EVENT_HANDLERS = {
 		self:BeginCast(unit, false)
 	end,
 	UNIT_SPELLCAST_STOP = function(self, unit)
+		if self.bars[unit].channeling then return end
 		self:OnStopEvent(unit, false)
 	end,
 	UNIT_SPELLCAST_FAILED = function(self, unit)
 		local b = self.bars[unit]
-		if b.casting or b.channeling then
+		if b.casting and not b.channeling then
 			self:OnCastStop(unit)
 		end
 	end,
@@ -677,9 +678,7 @@ function CastingBars:LoadSettings()
 	local BarUtils = self.addon.BarUtils
 	local locked = self.db.locked
 
-	if not BarUtils.TEXTURE_SETTINGS[self.db.barTexture] then
-		self.db.barTexture = "default"
-	end
+	self.db.barTexture = self.addon.BarTexture:Normalize(self.db.barTexture)
 
 	for _, b in ipairs(self.barList) do
 		local unitDB = self.db[b.unit]
@@ -718,10 +717,10 @@ end
 function CastingBars:ApplyBarTexture()
 	if not self.db then return end
 
-	local texture = self.db.barTexture or "default"
+	local texture = self.addon.BarTexture:Normalize(self.db.barTexture)
 
 	for _, b in ipairs(self.barList) do
-		self.addon.BarUtils:ApplyBarTexture(b.bar, texture)
+		self.addon.BarTexture:Apply(b.bar, texture)
 	end
 end
 

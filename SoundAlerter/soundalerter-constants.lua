@@ -5,6 +5,20 @@ SA_LOCALEPATH = {
 
 SA_COMPAT = {}
 
+SA_COMPAT.Plain = function(value)
+    if issecretvalue(value) then return nil end
+    return value
+end
+
+SA_COMPAT.SafeUnitName = function(unit)
+    return SA_COMPAT.Plain(UnitName(unit))
+end
+
+SA_COMPAT.SafeUnitClass = function(unit)
+    local _, class = UnitClass(unit)
+    return SA_COMPAT.Plain(class)
+end
+
 SA_COMPAT.GetSpellInfo = function(spellID)
     local info = C_Spell.GetSpellInfo(spellID)
     if not info then return nil end

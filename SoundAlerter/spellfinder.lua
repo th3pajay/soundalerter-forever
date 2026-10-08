@@ -479,11 +479,11 @@ function SoundAlerter:IsFinderOpen()
 end
 
 function SoundAlerter:PrepareSearchExtras()
-    local findSpell = self.db1.profile.findSpell
-    if findSpell and findSpell.fuzzy then
+    local findSpell = self:GetFinderSettings()
+    if findSpell.fuzzy then
         self:EnsureFuzzyIndex()
     end
-    if findSpell and findSpell.autocomplete then
+    if findSpell.autocomplete then
         self:EnsureAutocompleteIndex()
     end
     self:ResumeDescriptionIndex()
@@ -715,10 +715,10 @@ function SoundAlerter:SearchSpells(searchTerm, rankFilter)
         return {}
     end
 
-    local findSpell = self.db1.profile.findSpell
+    local findSpell = self:GetFinderSettings()
     local scope = self:GetSearchScope()
     local descriptionsOnly = scope == "descriptions"
-    local fuzzy = findSpell and findSpell.fuzzy and not descriptionsOnly and #searchTerm >= 2
+    local fuzzy = findSpell.fuzzy and not descriptionsOnly and #searchTerm >= 2
     local descSearch = scope ~= "names" and db.descriptions and #searchTerm >= 3
 
     local cacheKey = searchTerm .. "\0" .. (rankFilter or "") .. "\0" ..
@@ -1035,21 +1035,37 @@ function SoundAlerter:ProcessDescriptionBatch()
     end
 end
 
-function SoundAlerter:GetSearchScope()
-    local findSpell = self.db1.profile.findSpell
-    if not findSpell then
-        return "names"
+local FINDER_KEYS = {
+    fuzzy = true,
+    autocomplete = true,
+    searchScope = true,
+    searchDescriptions = true,
+    rankFilter = true,
+    sortMode = true,
+    sortDesc = true,
+}
+
+function SoundAlerter:GetFinderSettings()
+    local profile = self.db1.profile
+    profile.findSpell = profile.findSpell or {}
+    return profile.findSpell
+end
+
+function SoundAlerter:SetFinderSetting(key, value)
+    if not FINDER_KEYS[key] then
+        error("SpellFinder:SetFinderSetting - unknown setting key '"..tostring(key).."'", 2)
     end
+    self:GetFinderSettings()[key] = value
+end
+
+function SoundAlerter:GetSearchScope()
+    local findSpell = self:GetFinderSettings()
     return findSpell.searchScope or (findSpell.searchDescriptions and "both") or "names"
 end
 
 function SoundAlerter:SetSearchScope(scope)
-    local profile = self.db1.profile
-    if not profile.findSpell then
-        profile.findSpell = {}
-    end
-    profile.findSpell.searchScope = scope
-    profile.findSpell.searchDescriptions = nil
+    self:SetFinderSetting("searchScope", scope)
+    self:SetFinderSetting("searchDescriptions", nil)
 
     if scope == "names" then
         self:StopDescriptionIndex()
@@ -1247,7 +1263,7 @@ function SoundAlerter:ShowFinderEmpty(frame, term)
         building = self.spellDatabase.isBuilding,
         term = term,
         scope = self:GetSearchScope(),
-        fuzzy = self.db1.profile.findSpell and self.db1.profile.findSpell.fuzzy,
+        fuzzy = self:GetFinderSettings().fuzzy,
     }))
     label:SetFullWidth(true)
     frame.scrollFrame:AddChild(label)
@@ -1382,7 +1398,7 @@ function SoundAlerter:RunSearch(frame, searchTerm)
 
     local queryTerm, rankFilter = ExtractRankToken(searchTerm)
     if not rankFilter then
-        local dropdownRank = self.db1.profile.findSpell and self.db1.profile.findSpell.rankFilter
+        local dropdownRank = self:GetFinderSettings().rankFilter
         if dropdownRank == "none" then
             rankFilter = "0"
         elseif dropdownRank and dropdownRank ~= "all" then
@@ -1399,7 +1415,7 @@ function SoundAlerter:RunSearch(frame, searchTerm)
         results[i] = nil
     end
 
-    local findSpell = self.db1.profile.findSpell or {}
+    local findSpell = self:GetFinderSettings()
     local mode = SORT_COMPARATORS[findSpell.sortMode] and findSpell.sortMode or "name"
     table_sort(results, (findSpell.sortDesc and REVERSED_COMPARATORS or SORT_COMPARATORS)[mode])
 
@@ -1486,8 +1502,7 @@ function SoundAlerter:RenderSearchPane(container, frame)
     frame.clearSuggestions = ClearSuggestions
 
     local function UpdateSuggestions(text)
-        local findSpell = self.db1.profile.findSpell
-        if not (findSpell and findSpell.autocomplete) or self:GetSearchScope() == "descriptions"
+        if not self:GetFinderSettings().autocomplete or self:GetSearchScope() == "descriptions"
             or not text or #text < 2 then
             ClearSuggestions()
             return
@@ -1575,7 +1590,7 @@ function SoundAlerter:RenderSearchPane(container, frame)
     rankDropdown:SetLabel("Rank:")
     rankDropdown:SetRelativeWidth(0.18)
     rankDropdown:SetList(rankList, rankOrder)
-    local savedRank = (self.db1.profile.findSpell and self.db1.profile.findSpell.rankFilter) or "all"
+    local savedRank = self:GetFinderSettings().rankFilter or "all"
     rankDropdown:SetValue(rankList[savedRank] and savedRank or "all")
     toolbar:AddChild(rankDropdown)
 
@@ -1584,7 +1599,7 @@ function SoundAlerter:RenderSearchPane(container, frame)
     sortDropdown:SetRelativeWidth(0.24)
     sortDropdown:SetList({name = "Name", spellid = "Spell ID", rank = "Rank", relevance = "Relevance"},
         {"name", "spellid", "rank", "relevance"})
-    local savedSort = self.db1.profile.findSpell and self.db1.profile.findSpell.sortMode
+    local savedSort = self:GetFinderSettings().sortMode
     sortDropdown:SetValue(SORT_COMPARATORS[savedSort] and savedSort or "name")
     toolbar:AddChild(sortDropdown)
 
@@ -1593,19 +1608,19 @@ function SoundAlerter:RenderSearchPane(container, frame)
     local descendingBox = AceGUI:Create("CheckBox")
     descendingBox:SetLabel("Descending")
     descendingBox:SetRelativeWidth(0.22)
-    descendingBox:SetValue((self.db1.profile.findSpell and self.db1.profile.findSpell.sortDesc) or false)
+    descendingBox:SetValue(self:GetFinderSettings().sortDesc or false)
     toolbar:AddChild(descendingBox)
 
     local fuzzyBox = AceGUI:Create("CheckBox")
     fuzzyBox:SetLabel("Fuzzy")
     fuzzyBox:SetRelativeWidth(0.18)
-    fuzzyBox:SetValue((self.db1.profile.findSpell and self.db1.profile.findSpell.fuzzy) or false)
+    fuzzyBox:SetValue(self:GetFinderSettings().fuzzy or false)
     toolbar:AddChild(fuzzyBox)
 
     local autocompleteBox = AceGUI:Create("CheckBox")
     autocompleteBox:SetLabel("Autocomplete")
     autocompleteBox:SetRelativeWidth(0.28)
-    autocompleteBox:SetValue((self.db1.profile.findSpell and self.db1.profile.findSpell.autocomplete) or false)
+    autocompleteBox:SetValue(self:GetFinderSettings().autocomplete or false)
     toolbar:AddChild(autocompleteBox)
 
     local statusLabel = AceGUI:Create("Label")
@@ -1621,10 +1636,7 @@ function SoundAlerter:RenderSearchPane(container, frame)
     end
 
     local function SetFindSpellOption(key, value)
-        if not self.db1.profile.findSpell then
-            self.db1.profile.findSpell = {}
-        end
-        self.db1.profile.findSpell[key] = value
+        self:SetFinderSetting(key, value)
         RefreshResults()
     end
 
@@ -1659,22 +1671,16 @@ function SoundAlerter:RenderSearchPane(container, frame)
     end)
 
     fuzzyBox:SetCallback("OnValueChanged", function(widget, event, value)
-        if not self.db1.profile.findSpell then
-            self.db1.profile.findSpell = {}
-        end
-        self.db1.profile.findSpell.fuzzy = value and true or false
+        self:SetFinderSetting("fuzzy", value and true or false)
         if value then
-            self.db1.profile.findSpell.sortMode = "relevance"
+            self:SetFinderSetting("sortMode", "relevance")
             sortDropdown:SetValue("relevance")
         end
         RefreshResults()
     end)
 
     autocompleteBox:SetCallback("OnValueChanged", function(widget, event, value)
-        if not self.db1.profile.findSpell then
-            self.db1.profile.findSpell = {}
-        end
-        self.db1.profile.findSpell.autocomplete = value and true or false
+        self:SetFinderSetting("autocomplete", value and true or false)
         UpdateSuggestions(frame.searchBox:GetText())
     end)
 

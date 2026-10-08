@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="292" viewBox="0 0 880 292" role="img" aria-label="Illustration of the Transparent bar texture" font-family="Segoe UI, Helvetica Neue, Helvetica, Arial, sans-serif">
+<title>Illustration of the Transparent bar texture</title>
+<defs>
+<linearGradient id="g0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5aa8ff"/><stop offset="1" stop-color="#1c63c7"/></linearGradient>
+<linearGradient id="h" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.35"/><stop offset="0.5" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<clipPath id="c0"><rect x="120" y="62" width="396.8" height="38"/></clipPath>
+<linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff08a"/><stop offset="1" stop-color="#c9a60f"/></linearGradient>
+<clipPath id="c1"><rect x="120" y="124" width="288.0" height="38"/></clipPath>
+<linearGradient id="g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f0645a"/><stop offset="1" stop-color="#9c1d14"/></linearGradient>
+<clipPath id="c2"><rect x="120" y="186" width="499.2" height="38"/></clipPath>
+</defs>
+<rect width="880" height="292" rx="14" fill="#0e1117"/>
+<text x="30" y="36" font-size="18" font-weight="700" fill="#ffd100">Transparent</text><text x="160" y="36" font-size="13" fill="#98a0b3">optional bar texture for resource and casting bars (illustration, not a screenshot)</text>
+<text x="30" y="87" font-size="15" fill="#e8eaf0">Mana</text>
+<rect x="120" y="62" width="640" height="38" fill="#05070b" stroke="#2b3347"/>
+<g clip-path="url(#c0)">
+<rect x="120" y="62" width="640" height="38" fill="url(#g0)" fill-opacity="0.7"/>
+</g>
+<text x="774" y="87" font-size="14" fill="#98a0b3">62%</text>
+<text x="30" y="149" font-size="15" fill="#e8eaf0">Energy</text>
+<rect x="120" y="124" width="640" height="38" fill="#05070b" stroke="#2b3347"/>
+<g clip-path="url(#c1)">
+<rect x="120" y="124" width="640" height="38" fill="url(#g1)" fill-opacity="0.7"/>
+</g>
+<text x="774" y="149" font-size="14" fill="#98a0b3">45%</text>
+<text x="30" y="211" font-size="15" fill="#e8eaf0">Rage</text>
+<rect x="120" y="186" width="640" height="38" fill="#05070b" stroke="#2b3347"/>
+<g clip-path="url(#c2)">
+<rect x="120" y="186" width="640" height="38" fill="url(#g2)" fill-opacity="0.7"/>
+</g>
+<text x="774" y="211" font-size="14" fill="#98a0b3">78%</text>
+<text x="30" y="270" font-size="12.5" fill="#98a0b3">A flat fill at 70% opacity, so the bar background shows through.</text>
+</svg>

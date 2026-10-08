@@ -19,7 +19,7 @@ local function initOptions()
 		return
 	end
 	SoundAlerter:OnOptionsCreate()
-	for k, v in SoundAlerter:IterateModules() do
+	for _, v in SoundAlerter:IterateModules() do
 		if type(v.OnOptionsCreate) == "function" then
 			v:OnOptionsCreate()
 		end
@@ -328,7 +328,7 @@ function SoundAlerter:BuildGeneralOptions()
 									local CUSTOM_EVENT_ORDER = {"SPELL_CAST_SUCCESS","SPELL_CAST_START","SPELL_AURA_APPLIED","SPELL_AURA_REMOVED","SPELL_INTERRUPT","SPELL_SUMMON"}
 									local FS, ES = "\031", "\030"
 									local entries = {}
-									for k, css in pairs(sadb.custom) do
+									for _, css in pairs(sadb.custom) do
 										local bits = ""
 										for _, ev in ipairs(CUSTOM_EVENT_ORDER) do
 											bits = bits..(css.eventtype[ev] and "1" or "0")
@@ -1363,12 +1363,7 @@ function SoundAlerter:BuildResourceBarOptions()
 					type = 'select',
 					name = "Bar Texture",
 					desc = "Choose the visual texture for all resource bars (Health, Mana, Energy, Rage). This provides a unified look across all bars.",
-					values = {
-						default = "Default (WoW StatusBar)",
-						solid = "Solid (Clean Fill)",
-						transparent = "Transparent (Semi-Opaque)",
-						waves = "Animated Waves",
-					},
+					values = SoundAlerter.BarTexture:Values(),
 					get = function() return SoundAlerter.ResourceBar:GetSettings().barTexture end,
 					set = function(info, value)
 						SoundAlerter.ResourceBar:SetSetting("barTexture", value)
@@ -1416,7 +1411,7 @@ function SoundAlerter:BuildResourceBarOptions()
 								SoundAlerter.ResourceBar.energyFrame:SetScale(value)
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.resourceBar.energyEnabled end,
+						disabled = function() return not SoundAlerter.ResourceBar:GetSettings().energyEnabled end,
 						width = "full",
 						order = 2,
 					},
@@ -1435,7 +1430,7 @@ function SoundAlerter:BuildResourceBarOptions()
 								SoundAlerter.ResourceBar:UpdateEnergyBar()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.resourceBar.energyEnabled end,
+						disabled = function() return not SoundAlerter.ResourceBar:GetSettings().energyEnabled end,
 						order = 3,
 					},
 				},
@@ -1475,7 +1470,7 @@ function SoundAlerter:BuildResourceBarOptions()
 								SoundAlerter.ResourceBar.rageFrame:SetScale(value)
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.resourceBar.rageEnabled end,
+						disabled = function() return not SoundAlerter.ResourceBar:GetSettings().rageEnabled end,
 						width = "full",
 						order = 2,
 					},
@@ -1494,7 +1489,7 @@ function SoundAlerter:BuildResourceBarOptions()
 								SoundAlerter.ResourceBar:UpdateRageBar()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.resourceBar.rageEnabled end,
+						disabled = function() return not SoundAlerter.ResourceBar:GetSettings().rageEnabled end,
 						order = 3,
 					},
 				},
@@ -1534,7 +1529,7 @@ function SoundAlerter:BuildResourceBarOptions()
 								SoundAlerter.ResourceBar.healthFrame:SetScale(value)
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.resourceBar.healthEnabled end,
+						disabled = function() return not SoundAlerter.ResourceBar:GetSettings().healthEnabled end,
 						width = "full",
 						order = 2,
 					},
@@ -1552,7 +1547,7 @@ function SoundAlerter:BuildResourceBarOptions()
 								SoundAlerter.ResourceBar:LoadSettings()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.resourceBar.healthEnabled end,
+						disabled = function() return not SoundAlerter.ResourceBar:GetSettings().healthEnabled end,
 						width = "full",
 						order = 3,
 					},
@@ -1571,7 +1566,7 @@ function SoundAlerter:BuildResourceBarOptions()
 								SoundAlerter.ResourceBar:UpdateHealthBar()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.resourceBar.healthEnabled end,
+						disabled = function() return not SoundAlerter.ResourceBar:GetSettings().healthEnabled end,
 						order = 4,
 					},
 				},
@@ -1611,7 +1606,7 @@ function SoundAlerter:BuildResourceBarOptions()
 								SoundAlerter.ResourceBar.manaFrame:SetScale(value)
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.resourceBar.manaEnabled end,
+						disabled = function() return not SoundAlerter.ResourceBar:GetSettings().manaEnabled end,
 						width = "full",
 						order = 2,
 					},
@@ -1630,7 +1625,7 @@ function SoundAlerter:BuildResourceBarOptions()
 								SoundAlerter.ResourceBar:UpdateManaBar()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.resourceBar.manaEnabled end,
+						disabled = function() return not SoundAlerter.ResourceBar:GetSettings().manaEnabled end,
 						order = 3,
 					},
 				},
@@ -1670,7 +1665,7 @@ function SoundAlerter:BuildResourceBarOptions()
 								SoundAlerter.ResourceBar.comboFrame:SetScale(value)
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.resourceBar.comboEnabled end,
+						disabled = function() return not SoundAlerter.ResourceBar:GetSettings().comboEnabled end,
 						width = "full",
 						order = 2,
 					},
@@ -1689,7 +1684,7 @@ function SoundAlerter:BuildResourceBarOptions()
 							SoundAlerter.ResourceBar:ApplyCPStyle()
 						end
 					end,
-					disabled = function() return not SoundAlerter.db1.profile.resourceBar.comboEnabled end,
+					disabled = function() return not SoundAlerter.ResourceBar:GetSettings().comboEnabled end,
 					width = "full",
 					order = 2.5,
 				},
@@ -1704,7 +1699,7 @@ function SoundAlerter:BuildResourceBarOptions()
 								SoundAlerter.ResourceBar:UpdateVisibility()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.resourceBar.comboEnabled end,
+						disabled = function() return not SoundAlerter.ResourceBar:GetSettings().comboEnabled end,
 						width = "full",
 						order = 3,
 					},
@@ -1723,7 +1718,7 @@ function SoundAlerter:BuildResourceBarOptions()
 								SoundAlerter.ResourceBar:RefreshComboColors()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.resourceBar.comboEnabled end,
+						disabled = function() return not SoundAlerter.ResourceBar:GetSettings().comboEnabled end,
 						order = 4,
 					},
 					comboMaxColor = {
@@ -1741,7 +1736,7 @@ function SoundAlerter:BuildResourceBarOptions()
 								SoundAlerter.ResourceBar:RefreshComboColors()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.resourceBar.comboEnabled end,
+						disabled = function() return not SoundAlerter.ResourceBar:GetSettings().comboEnabled end,
 						order = 5,
 					},
 				fullCPSound = {
@@ -1752,7 +1747,7 @@ function SoundAlerter:BuildResourceBarOptions()
 					set = function(info, value)
 						SoundAlerter.ResourceBar:SetSetting("fullCPSound", value)
 					end,
-					disabled = function() return not SoundAlerter.db1.profile.resourceBar.comboEnabled end,
+					disabled = function() return not SoundAlerter.ResourceBar:GetSettings().comboEnabled end,
 					width = "full",
 					order = 6,
 				},
@@ -1827,12 +1822,7 @@ function SoundAlerter:BuildCastingBarOptions()
 						type = 'select',
 						name = "Bar Texture",
 						desc = "Choose the visual texture for all casting bars. Matches resource bar texture options for consistency.",
-						values = {
-							default = "Default (WoW StatusBar)",
-							solid = "Solid (Clean Fill)",
-							transparent = "Transparent (Semi-Opaque)",
-							waves = "Animated Waves",
-						},
+						values = SoundAlerter.BarTexture:Values(),
 						get = function() return SoundAlerter.CastingBars:GetSettings().barTexture end,
 						set = function(info, value)
 							SoundAlerter.CastingBars:SetSetting("barTexture", value)
@@ -1917,7 +1907,7 @@ function SoundAlerter:BuildCastingBarOptions()
 								SoundAlerter.CastingBars:LoadSettings()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.castingBars.player.enabled end,
+						disabled = function() return not SoundAlerter.CastingBars:GetSettings().player.enabled end,
 						width = "full",
 						order = 2,
 					},
@@ -1935,7 +1925,7 @@ function SoundAlerter:BuildCastingBarOptions()
 								SoundAlerter.CastingBars:LoadSettings()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.castingBars.player.enabled end,
+						disabled = function() return not SoundAlerter.CastingBars:GetSettings().player.enabled end,
 						width = "full",
 						order = 3,
 					},
@@ -1957,7 +1947,7 @@ function SoundAlerter:BuildCastingBarOptions()
 								SoundAlerter.CastingBars:LoadSettings()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.castingBars.player.enabled end,
+						disabled = function() return not SoundAlerter.CastingBars:GetSettings().player.enabled end,
 						width = "full",
 						order = 4,
 					},
@@ -1966,7 +1956,7 @@ function SoundAlerter:BuildCastingBarOptions()
 						name = "Fill Direction",
 						desc = "Direction the bar fills as the cast progresses.",
 						values = function()
-							if SoundAlerter.db1.profile.castingBars.player.orientation == "vertical" then
+							if SoundAlerter.CastingBars:GetSettings().player.orientation == "vertical" then
 								return { up = "Up", down = "Down" }
 							else
 								return { right = "Right", left = "Left" }
@@ -1979,7 +1969,7 @@ function SoundAlerter:BuildCastingBarOptions()
 								SoundAlerter.CastingBars:LoadSettings()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.castingBars.player.enabled end,
+						disabled = function() return not SoundAlerter.CastingBars:GetSettings().player.enabled end,
 						width = "full",
 						order = 5,
 					},
@@ -2020,7 +2010,7 @@ function SoundAlerter:BuildCastingBarOptions()
 								SoundAlerter.CastingBars:LoadSettings()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.castingBars.target.enabled end,
+						disabled = function() return not SoundAlerter.CastingBars:GetSettings().target.enabled end,
 						width = "full",
 						order = 2,
 					},
@@ -2038,7 +2028,7 @@ function SoundAlerter:BuildCastingBarOptions()
 								SoundAlerter.CastingBars:LoadSettings()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.castingBars.target.enabled end,
+						disabled = function() return not SoundAlerter.CastingBars:GetSettings().target.enabled end,
 						width = "full",
 						order = 3,
 					},
@@ -2060,7 +2050,7 @@ function SoundAlerter:BuildCastingBarOptions()
 								SoundAlerter.CastingBars:LoadSettings()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.castingBars.target.enabled end,
+						disabled = function() return not SoundAlerter.CastingBars:GetSettings().target.enabled end,
 						width = "full",
 						order = 4,
 					},
@@ -2069,7 +2059,7 @@ function SoundAlerter:BuildCastingBarOptions()
 						name = "Fill Direction",
 						desc = "Direction the bar fills as the cast progresses.",
 						values = function()
-							if SoundAlerter.db1.profile.castingBars.target.orientation == "vertical" then
+							if SoundAlerter.CastingBars:GetSettings().target.orientation == "vertical" then
 								return { up = "Up", down = "Down" }
 							else
 								return { right = "Right", left = "Left" }
@@ -2082,7 +2072,7 @@ function SoundAlerter:BuildCastingBarOptions()
 								SoundAlerter.CastingBars:LoadSettings()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.castingBars.target.enabled end,
+						disabled = function() return not SoundAlerter.CastingBars:GetSettings().target.enabled end,
 						width = "full",
 						order = 5,
 					},
@@ -2123,7 +2113,7 @@ function SoundAlerter:BuildCastingBarOptions()
 								SoundAlerter.CastingBars:LoadSettings()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.castingBars.focus.enabled end,
+						disabled = function() return not SoundAlerter.CastingBars:GetSettings().focus.enabled end,
 						width = "full",
 						order = 2,
 					},
@@ -2141,7 +2131,7 @@ function SoundAlerter:BuildCastingBarOptions()
 								SoundAlerter.CastingBars:LoadSettings()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.castingBars.focus.enabled end,
+						disabled = function() return not SoundAlerter.CastingBars:GetSettings().focus.enabled end,
 						width = "full",
 						order = 3,
 					},
@@ -2163,7 +2153,7 @@ function SoundAlerter:BuildCastingBarOptions()
 								SoundAlerter.CastingBars:LoadSettings()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.castingBars.focus.enabled end,
+						disabled = function() return not SoundAlerter.CastingBars:GetSettings().focus.enabled end,
 						width = "full",
 						order = 4,
 					},
@@ -2172,7 +2162,7 @@ function SoundAlerter:BuildCastingBarOptions()
 						name = "Fill Direction",
 						desc = "Direction the bar fills as the cast progresses.",
 						values = function()
-							if SoundAlerter.db1.profile.castingBars.focus.orientation == "vertical" then
+							if SoundAlerter.CastingBars:GetSettings().focus.orientation == "vertical" then
 								return { up = "Up", down = "Down" }
 							else
 								return { right = "Right", left = "Left" }
@@ -2185,7 +2175,7 @@ function SoundAlerter:BuildCastingBarOptions()
 								SoundAlerter.CastingBars:LoadSettings()
 							end
 						end,
-						disabled = function() return not SoundAlerter.db1.profile.castingBars.focus.enabled end,
+						disabled = function() return not SoundAlerter.CastingBars:GetSettings().focus.enabled end,
 						width = "full",
 						order = 5,
 					},
@@ -3536,11 +3526,6 @@ function SoundAlerter:BuildSpellFinderOptions()
 		LibStub("AceConfigRegistry-3.0"):NotifyChange("SoundAlerter")
 	end
 
-	local function findSpellSettings()
-		SoundAlerter.db1.profile.findSpell = SoundAlerter.db1.profile.findSpell or {}
-		return SoundAlerter.db1.profile.findSpell
-	end
-
 	return {
 		type = 'group',
 		name = "Developer Tools",
@@ -3618,9 +3603,9 @@ function SoundAlerter:BuildSpellFinderOptions()
 						desc = "Typo-tolerant matching: substring anywhere in the name, then in-order letters (abbreviations like 'frstblt'), then one or two typos (e.g. 'forstbolt'; the first letter must be right). Results rank by closeness (sort by Relevance). Typo-heavy queries cost more than plain ones.",
 						width = "full",
 						order = 3,
-						get = function() return findSpellSettings().fuzzy or false end,
+						get = function() return SoundAlerter:GetFinderSettings().fuzzy or false end,
 						set = function(info, value)
-							findSpellSettings().fuzzy = value
+							SoundAlerter:SetFinderSetting("fuzzy", value)
 							SoundAlerter:ClearSearchCache()
 							SoundAlerter:Print(value and "|cFF00FF00Fuzzy search enabled|r" or "|cFFFF0000Fuzzy search disabled|r")
 						end,
@@ -3631,9 +3616,9 @@ function SoundAlerter:BuildSpellFinderOptions()
 						desc = "Show up to 8 spell-name suggestions under the search box while typing (minimum 2 characters, prefix match). Tab accepts the first or highlighted suggestion, Up/Down moves the highlight, click searches it.",
 						width = "full",
 						order = 4,
-						get = function() return findSpellSettings().autocomplete or false end,
+						get = function() return SoundAlerter:GetFinderSettings().autocomplete or false end,
 						set = function(info, value)
-							findSpellSettings().autocomplete = value
+							SoundAlerter:SetFinderSetting("autocomplete", value)
 							SoundAlerter:Print(value and "|cFF00FF00Autocomplete enabled|r" or "|cFFFF0000Autocomplete disabled|r")
 						end,
 					},
@@ -3953,7 +3938,7 @@ function SoundAlerter:OnOptionsCreate()
 			}
 		}
 	end
-	for key, v in pairs(sadb.custom) do
+	for key in pairs(sadb.custom) do
 		makeoption(key)
 	end
 end

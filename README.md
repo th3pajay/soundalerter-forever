@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.25-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.31-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-purple.svg"/>
@@ -47,7 +47,7 @@ A voice and visual alert addon for arena and battleground PvP: instant callouts 
 | **Voice Alerts** | 450+ spell callouts for target, focus and nameplate enemies | [Voice Alerts](#voice-alerts---instant-audio-callouts) |
 | **Proximity Alerts** | Sticky toasts with distance, buffs and click to target | [Proximity](#proximity-alerts---range-detection) |
 | **Battleground Alerts** | Team-aware flag tracking for WSG and Eye of the Storm | [Battlegrounds](#battleground-alerts---objective-tracking) |
-| **Resource Bars** | Health, power and combo points, optional animated waves | [Resource Bars](#resource-bars---power-tracking) |
+| **Resource Bars** | Health, power and combo points, optional bar textures (Waves, Streaks, Motes, Fog) | [Resource Bars](#resource-bars---power-tracking) |
 | **Casting Bars** | Player, target and focus cast bars | [Casting Bars](#casting-bars---accurate-timing) |
 | **Cast Feed** | Scrolling history of casts per unit | [Cast Feed](#cast-feed---scrolling-cast-history) |
 | **Spell Tracker** | Icons for buffs, debuffs and cooldowns that work in combat | [Spell Tracker](#spell-tracker---aura-management) |
@@ -156,10 +156,18 @@ Unified bars for Health, Mana, Energy, Rage, and Combo Points.
 * Position memory per profile
 * Pixel-perfect: sizes, positions and the fill edge snap to whole screen pixels (exact at scale 1.0; other scale values stay approximately sharp)
 * Event-driven: a bar only runs a per-frame update while its low-power pulse or overcap glow is showing
-* Optional **Animated Waves** bar texture (off by default, shared with the casting bars): the top edge of the fill is a smooth, random, slowly travelling water surface in three depth layers; it adds a 20 Hz update only while a wave-textured bar is visible, and works on horizontal bars only
+* Selectable **Bar Texture**, shared with the casting bars: Default, Solid, Transparent, plus four moving textures (off by default, horizontal bars only)
+  * **Waves**: the top edge of the fill is a smooth, random, slowly travelling water surface in three depth layers (redraws at 20 Hz)
+  * **Streaks**, **Motes** and **Fog**: three tiled layers scroll across the fill at different speeds for a sense of depth (30 Hz)
+* The moving textures only run an update while a bar using one is visible
 
 <p align="center">
-<img src="Media/waves.svg" alt="Illustration of the Animated Waves bar texture on mana, energy and rage bars" width="640"/>
+<img src="Media/default.svg" alt="Illustration of the Default bar texture on mana, energy and rage bars" width="640"/>
+<img src="Media/transparent.svg" alt="Illustration of the Transparent bar texture on mana, energy and rage bars" width="640"/>
+<img src="Media/waves.svg" alt="Illustration of the Waves bar texture on mana, energy and rage bars" width="640"/>
+<img src="Media/streaks.svg" alt="Illustration of the Streaks bar texture on mana, energy and rage bars" width="640"/>
+<img src="Media/motes.svg" alt="Illustration of the Motes bar texture on mana, energy and rage bars" width="640"/>
+<img src="Media/fog.svg" alt="Illustration of the Fog bar texture on mana, energy and rage bars" width="640"/>
 </p>
 
 **Configuration**: `/sa` -> Resource Management tab
@@ -172,7 +180,7 @@ Cast bars for Player, Target, and Focus units.
 * Channeled and mid-cast targeting support
 * Finish animations: a completed cast flashes green and fades out, an interrupted cast turns red, shows "Interrupted" and fades out; cancelled casts just disappear
 * Configurable orientation (horizontal/vertical) and fill direction per bar
-* Optional **Animated Waves** bar texture (off by default): see Resource Bars; vertical casting bars keep the default texture
+* Same bar texture choices as the resource bars, including Waves, Streaks, Motes and Fog (see Resource Bars); vertical casting bars keep the default texture
 * Pixel-perfect: sizes, positions and the fill edge snap to whole screen pixels at any UI scale, and the bars cost nothing while idle (the update loop only runs during a cast; the time text only redraws when its digits change)
 
 **Configuration**: `/sa` -> Casting Bars tab
@@ -213,6 +221,7 @@ Icon-based tracking for buffs, debuffs, and cooldowns.
 * Aura spiral animation and duration number, kept working in combat (when the game hides the aura, a timer starts on your own cast using the duration last seen out of combat, or a per-spell Aura Duration you set for combat-only spells)
 * Optional spell cooldown numbers (gold, top of icon) for spells with Track Cooldown enabled, also working in combat
 * Optional green "Ready!" in the same spot when a tracked spell is off cooldown (`Show 'Ready!' When Cooldown Finished`, off by default)
+* State borders: grey when idle, green for a buff, red for a debuff, with a glow that flashes white when an aura is applied, pulses red in the last 3 seconds, pulses green when the spell is ready and stays faintly blue while it is on cooldown (the last two follow the spell's Track Cooldown toggle)
 * Cooldown text, numbers and the aura spiral stay fully visible when the icon itself is dimmed
 * Icons stay correct through druid form swaps and other aura changes (auras are looked up by spell ID)
 

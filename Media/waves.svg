@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="292" viewBox="0 0 880 292" role="img" aria-label="Illustration of the Animated Waves bar texture" font-family="Segoe UI, Helvetica Neue, Helvetica, Arial, sans-serif">
-<title>Illustration of the Animated Waves bar texture</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="292" viewBox="0 0 880 292" role="img" aria-label="Illustration of the Waves bar texture" font-family="Segoe UI, Helvetica Neue, Helvetica, Arial, sans-serif">
+<title>Illustration of the Waves bar texture</title>
 <defs>
 <linearGradient id="g0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5aa8ff"/><stop offset="1" stop-color="#1c63c7"/></linearGradient>
 <clipPath id="c0"><rect x="120" y="62" width="396.8" height="38"/></clipPath>
@@ -9,7 +9,7 @@
 <clipPath id="c2"><rect x="120" y="186" width="499.2" height="38"/></clipPath>
 </defs>
 <rect width="880" height="292" rx="14" fill="#0e1117"/>
-<text x="30" y="36" font-size="18" font-weight="700" fill="#ffd100">Animated Waves</text><text x="190" y="36" font-size="13" fill="#98a0b3">optional bar texture for resource and casting bars (illustration, not a screenshot)</text>
+<text x="30" y="36" font-size="18" font-weight="700" fill="#ffd100">Waves</text><text x="190" y="36" font-size="13" fill="#98a0b3">optional bar texture for resource and casting bars (illustration, not a screenshot)</text>
 <text x="30" y="87" font-size="15" fill="#e8eaf0">Mana</text>
 <rect x="120" y="62" width="640" height="38" fill="#05070b" stroke="#2b3347"/>
 <g clip-path="url(#c0)">

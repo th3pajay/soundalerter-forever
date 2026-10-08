@@ -55,6 +55,11 @@ function TrackerState:Remaining(index, now)
     return nil
 end
 
+function TrackerState:CooldownReadout(index)
+    local record = self.records[index]
+    return record and record.cooldown
+end
+
 function TrackerState:Observe(index, observation, now)
     local record = self:Get(index)
 

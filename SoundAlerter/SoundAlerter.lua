@@ -11,7 +11,6 @@ local UnitAura = SA_COMPAT.UnitAura
 local sadb
 
 local playerName = UnitName("player")
-local ARENA_UNIT_TOKENS = {"arena1", "arena2", "arena3", "arena4", "arena5"}
 
 local FILTER_TYPE_ANY = COMBATLOG_FILTER_EVERYTHING
 local FILTER_TYPE_FRIENDLY = COMBATLOG_FILTER_FRIENDLY_UNITS
@@ -22,24 +21,7 @@ local FILTER_TYPE_ME = COMBATLOG_FILTER_ME
 local FILTER_TYPE_MINE = COMBATLOG_FILTER_MINE
 local FILTER_TYPE_MY_PET = COMBATLOG_FILTER_MY_PET
 
-local function SafeUnitGUIDMatches(unit, guid)
-    if not UnitExists(unit) then return false end
-    local unitGUID = UnitGUID(unit)
-    if issecretvalue(unitGUID) then return false end
-    return unitGUID == guid
-end
-
-local function SafeUnitClass(unit)
-    local _, class = UnitClass(unit)
-    if issecretvalue(class) then return nil end
-    return class
-end
-
-local function SafeUnitName(unit)
-    local name = UnitName(unit)
-    if issecretvalue(name) then return nil end
-    return name
-end
+local Plain, SafeUnitName, SafeUnitClass = SA_COMPAT.Plain, SA_COMPAT.SafeUnitName, SA_COMPAT.SafeUnitClass
 
 SoundAlerter.SafeUnitName = SafeUnitName
 
@@ -89,7 +71,7 @@ function SoundAlerter:ChangeProfile()
 	sadb = self.db1.profile
 	self:OnOptionsProfileChanged()
 
-	for k,v in SoundAlerter:IterateModules() do
+	for _,v in SoundAlerter:IterateModules() do
 		if type(v.ChangeProfile) == 'function' then
 			v:ChangeProfile()
 		end
@@ -903,7 +885,7 @@ end
 
 function SoundAlerter:LimitLearnedClassesCache(maxSize)
     local entries = {}
-    for guid, class in pairs(self.learnedClasses) do
+    for guid in pairs(self.learnedClasses) do
         table.insert(entries, guid)
     end
 
@@ -1039,7 +1021,7 @@ function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFoc
 
     local name = SafeUnitName(unit)
     local guid = UnitGUID(unit)
-    if not name or not guid or issecretvalue(guid) then return end
+    if not name or not Plain(guid) then return end
 
     local isAllySource = sourceUnit ~= nil and sourceUnit:match("^party%d$") ~= nil
     if isAllySource and not sadb.dArenaPartner then
@@ -1156,7 +1138,7 @@ function SoundAlerter:CheckCustomAlerts(eventName, sourceUnit, destUnit, spellID
     local destName = destUnit and SafeUnitName(destUnit)
     local sourceName = sourceUnit and SafeUnitName(sourceUnit)
 
-    for k, css in pairs(sadb.custom) do
+    for _, css in pairs(sadb.custom) do
         if css.eventtype and css.eventtype[eventName] then
             local spellIdNum = css.spellidNum
             if spellIdNum == nil or css.spellidNumSrc ~= css.spellid then
@@ -1294,7 +1276,7 @@ function SoundAlerter:CheckProximityAlert(unit)
     if not UnitIsVisible(unit) then return end
 
     local guid = UnitGUID(unit)
-    if not guid or issecretvalue(guid) then return end
+    if not Plain(guid) then return end
 
     if guid:sub(1, 7) ~= "Player-" then return end
 
@@ -1324,8 +1306,8 @@ function SoundAlerter:CheckProximityAlert(unit)
     local _, unitClass = UnitClass(unit)
     local unitLevel = UnitLevel(unit)
 
-    if not unitName or issecretvalue(unitName) then return end
-    if not unitClass or issecretvalue(unitClass) then return end
+    if not Plain(unitName) then return end
+    if not Plain(unitClass) then return end
     if issecretvalue(unitLevel) then return end
 
     self.guidToClassCache[guid] = unitClass
@@ -1385,7 +1367,7 @@ function SoundAlerter:NAME_PLATE_UNIT_ADDED(event, unit)
     if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
 
     local guid = UnitGUID(unit)
-    if not guid or issecretvalue(guid) then return end
+    if not Plain(guid) then return end
 
     self.trackedNameplates[guid] = unit
 
@@ -1394,7 +1376,7 @@ end
 
 function SoundAlerter:NAME_PLATE_UNIT_REMOVED(event, unit)
     local guid = UnitGUID(unit)
-    if not guid or issecretvalue(guid) then return end
+    if not Plain(guid) then return end
 
     self.trackedNameplates[guid] = nil
     unitAuraSnapshot[unit] = nil
@@ -1403,7 +1385,7 @@ end
 
 function SoundAlerter:IsTrackedNameplate(unit)
     local guid = UnitGUID(unit)
-    if not guid or issecretvalue(guid) then return false end
+    if not Plain(guid) then return false end
     return self.trackedNameplates[guid] ~= nil
 end
 
@@ -1439,7 +1421,7 @@ function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
     if not sadb.castStart and ((sadb.myself and isTargetOrFocus) or (sadb.enemyinrange and isTracked)) then
         local guid = UnitGUID(unit)
         local name = SafeUnitName(unit)
-        if guid and not issecretvalue(guid) and name then
+        if Plain(guid) and name then
             self:PlaySpell(self.spellList.castStart, spellID, guid, name)
             if not sadb.chatalerts and sadb.chatcastStart and self.spellList.castStart[spellID] then
                 local startMsg = gsub(sadb.castStartChat, "(#spell#)", (GetSpellLink(spellID) or ""))
@@ -1462,7 +1444,7 @@ function SoundAlerter:UNIT_SPELLCAST_SUCCEEDED(event, unit, castGUID, spellID)
 
     local guid = UnitGUID(unit)
     local name = SafeUnitName(unit)
-    if not guid or issecretvalue(guid) or not name then return end
+    if not Plain(guid) or not name then return end
 
     if INTERRUPT_ABILITY_SPELLS[spellID] then
         lastInterruptCast = { spellID = spellID, name = name, time = GetTime() }

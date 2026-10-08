@@ -600,6 +600,16 @@ function ResourceBar:UpdateComboPoints()
 	end
 end
 
+local function restComboPoint(cp, color)
+	cp:SetScale(CP_DEFAULT_SCALE)
+	if cp.glow then cp.glow:SetAlpha(0) end
+	if cp.particles then cp.particles:SetAlpha(0) end
+	if cp.sparks then cp.sparks:SetAlpha(0) end
+	if color and cp.texture then
+		cp.texture:SetVertexColor(color.r, color.g, color.b, 1)
+	end
+end
+
 function ResourceBar:CancelCPAnimation(cpIndex)
 	local cp = self.comboPoints[cpIndex]
 	if not cp then return end
@@ -609,11 +619,7 @@ function ResourceBar:CancelCPAnimation(cpIndex)
 	cp.bounceTime = nil
 	cp.bounceStart = nil
 
-	cp:SetScale(CP_DEFAULT_SCALE)
-
-	if cp.sparks then cp.sparks:SetAlpha(0) end
-	if cp.glow then cp.glow:SetAlpha(0) end
-	if cp.particles then cp.particles:SetAlpha(0) end
+	restComboPoint(cp)
 
 	if self.cpAnimationState then
 		self.cpAnimationState.running[cpIndex] = false
@@ -707,22 +713,7 @@ function ResourceBar:Animate5CPCelebrationWave()
 			for i = 1, 5 do
 				local cp = self.comboPoints[i]
 				if cp then
-					if cp.glow then
-						cp.glow:SetAlpha(0)
-					end
-					if cp.particles then
-						cp.particles:SetAlpha(0)
-					end
-					if cp.sparks then
-						cp.sparks:SetAlpha(0)
-					end
-
-					cp:SetScale(CP_DEFAULT_SCALE)
-
-					local color = self.cachedColors.comboMax
-					if color and cp.texture then
-						cp.texture:SetVertexColor(color.r, color.g, color.b, 1)
-					end
+					restComboPoint(cp, self.cachedColors.comboMax)
 				end
 			end
 			frame:SetScript("OnUpdate", nil)
@@ -780,20 +771,7 @@ function ResourceBar:Animate5CPCelebrationWave()
 							end
 						end
 					elseif cpProgress >= 1 then
-						cp:SetScale(CP_DEFAULT_SCALE)
-						if cp.glow then
-							cp.glow:SetAlpha(0)
-						end
-						if cp.particles then
-							cp.particles:SetAlpha(0)
-						end
-						if cp.sparks then
-							cp.sparks:SetAlpha(0)
-						end
-						local color = self.cachedColors.comboMax
-						if color and cp.texture then
-							cp.texture:SetVertexColor(color.r, color.g, color.b, 1)
-						end
+						restComboPoint(cp, self.cachedColors.comboMax)
 					end
 				end
 			end
@@ -804,12 +782,13 @@ end
 function ResourceBar:ApplyBarTexture()
 	if not self.db then return end
 
-	local texture = self.db.barTexture or "default"
+	local texture = SoundAlerter.BarTexture:Normalize(self.db.barTexture)
+	self.db.barTexture = texture
 
 	for barKey in pairs(BAR_CONFIGS) do
 		local barName = barKey .. "Bar"
 		if self[barName] then
-			SoundAlerter.BarUtils:ApplyBarTexture(self[barName], texture)
+			SoundAlerter.BarTexture:Apply(self[barName], texture)
 		end
 	end
 end
