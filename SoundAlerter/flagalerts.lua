@@ -275,7 +275,7 @@ end
 
 function FlagAlerts:PLAYER_REGEN_ENABLED()
     self.inCombat = false
-    FlushDeferredFlagHides()
+    self:FlushDeferredFlagHides()
     self:UpdateFlagToastLayout()
 
     if sadb.flagToastsEnabled then
@@ -1151,7 +1151,7 @@ local function HideFlagToast(toast)
     end
 end
 
-local function FlushDeferredFlagHides()
+function FlagAlerts:FlushDeferredFlagHides()
     for toast in pairs(deferredFlagHides) do
         deferredFlagHides[toast] = nil
         if not toast.inUse then
