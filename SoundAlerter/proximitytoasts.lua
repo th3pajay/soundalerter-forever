@@ -215,6 +215,30 @@ local function UpdateCountdownSegments(toast, displayElapsed)
         if toast.countdownBar.segments[i] then
             toast.countdownBar.segments[i]:SetAlpha(0)
         end
+local function IsLocked(toast)
+    return toast.isSecure and InCombatLockdown()
+end
+
+local deferredHides = {}
+
+local function HideToast(toast)
+    if IsLocked(toast) then
+        toast:SetAlpha(0)
+        deferredHides[toast] = true
+    else
+        toast:Hide()
+    end
+end
+
+local function FlushDeferredHides()
+    for toast in pairs(deferredHides) do
+        deferredHides[toast] = nil
+        if not toast.inUse then
+            toast:Hide()
+        end
+    end
+end
+
     end
     toast.cachedSegmentData.lastHiddenSegment = secondsElapsed
 end
@@ -493,6 +517,7 @@ function ProximityToasts:Initialize()
     combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     combatFrame:SetScript("OnEvent", function(self, event)
+            FlushDeferredHides()
         if event == "PLAYER_REGEN_DISABLED" then
             ProximityToasts.inCombat = true
         elseif event == "PLAYER_REGEN_ENABLED" then
@@ -522,9 +547,9 @@ end
 
 function ProximityToasts:ReleaseToast(toast)
     toast:SetScript("OnUpdate", nil)
-    toast:Hide()
+    HideToast(toast)
     toast:SetAlpha(0)
-    toast:SetScale(1.0)
+    if not IsLocked(toast) then toast:SetScale(1.0) end
     toast.inUse = false
     toast.creationTime = 0
     toast.startTime = 0
@@ -955,7 +980,7 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
     toast.segmentsHidden = false
 
     toast:SetAlpha(0)
-    toast:SetScale(1.0)
+    if not IsLocked(toast) then toast:SetScale(1.0) end
     toast:Show()
 
     toast:SetScript("OnUpdate", function(self, frameDelta)
@@ -970,7 +995,9 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
                 local eased = 1 - (1 - t) * (1 - t)
                 self.currentY = self.slideFromY + (self.slideToY - self.slideFromY) * eased
             end
-            self:SetPoint("TOP", UIParent, "TOP", self.slideBaseX, self.currentY)
+            if not IsLocked(self) then
+                self:SetPoint("TOP", UIParent, "TOP", self.slideBaseX, self.currentY)
+            end
         end
 
         if self.pauseState.active then
@@ -987,12 +1014,13 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
         if elapsed < FADE_IN_DURATION then
             local progress = elapsed / FADE_IN_DURATION
             self:SetAlpha(progress)
-            local scale = 1.15 - (0.15 * progress)
-            self:SetScale(scale)
+            if not IsLocked(self) then
+                self:SetScale(1.15 - (0.15 * progress))
+            end
 
         elseif elapsed < (FADE_IN_DURATION + self.displayDuration) then
             self:SetAlpha(1)
-            self:SetScale(1.0)
+            if not IsLocked(self) then self:SetScale(1.0) end
 
             local displayElapsed = elapsed - FADE_IN_DURATION
             UpdateCountdownSegments(self, displayElapsed)
@@ -1011,7 +1039,6 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
 
         else
             self:SetScript("OnUpdate", nil)
-            self:Hide()
             ProximityToasts:ReleaseToast(self)
         end
     end)

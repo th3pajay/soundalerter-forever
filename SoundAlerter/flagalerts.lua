@@ -275,6 +275,8 @@ end
 
 function FlagAlerts:PLAYER_REGEN_ENABLED()
     self.inCombat = false
+    FlushDeferredFlagHides()
+    self:UpdateFlagToastLayout()
 
     if sadb.flagToastsEnabled then
         if self.flagSecureCreationPending then
@@ -1134,6 +1136,31 @@ function FlagAlerts:ResolveToastAppearance(carrierTeam)
     return bgFile, bgR, bgG, bgB, bgA, borderR, borderG, borderB, borderA
 end
 
+local function IsFlagToastLocked(toast)
+    return toast.isSecure and InCombatLockdown()
+end
+
+local deferredFlagHides = {}
+
+local function HideFlagToast(toast)
+    if IsFlagToastLocked(toast) then
+        toast:SetAlpha(0)
+        deferredFlagHides[toast] = true
+    else
+        toast:Hide()
+    end
+end
+
+local function FlushDeferredFlagHides()
+    for toast in pairs(deferredFlagHides) do
+        deferredFlagHides[toast] = nil
+        if not toast.inUse then
+            toast:Hide()
+            toast:EnableMouse(false)
+        end
+    end
+end
+
 function FlagAlerts:CreateFlagToastFrame(index, isSecure)
     local frameName = isSecure and "SoundAlerterFlagSecureToast"..index or "SoundAlerterFlagInsecureToast"..index
     local toast = CreateFrame("Button", frameName, UIParent, "BackdropTemplate")
@@ -1323,10 +1350,12 @@ function FlagAlerts:ReleaseFlagToast(toast)
 
     toast:SetScript("OnUpdate", nil)
 
-    toast:Hide()
+    HideFlagToast(toast)
     toast:SetAlpha(0)
-    toast:SetScale(1.0)
-    toast:EnableMouse(false)
+    if not IsFlagToastLocked(toast) then
+        toast:SetScale(1.0)
+        toast:EnableMouse(false)
+    end
 
     toast.titleText:SetText("")
     toast.detailText:SetText("")
@@ -1425,11 +1454,13 @@ function FlagAlerts:UpdateFlagToastLayout()
     end)
 
     for i, toast in ipairs(self.activeFlagToasts) do
-        toast:ClearAllPoints()
-        if i == 1 then
-            toast:SetPoint("TOP", UIParent, "TOP", baseX, baseY)
-        else
-            toast:SetPoint("TOP", self.activeFlagToasts[i-1], "BOTTOM", 0, -FLAG_VERTICAL_SPACING)
+        if not IsFlagToastLocked(toast) then
+            toast:ClearAllPoints()
+            if i == 1 then
+                toast:SetPoint("TOP", UIParent, "TOP", baseX, baseY)
+            else
+                toast:SetPoint("TOP", self.activeFlagToasts[i-1], "BOTTOM", 0, -FLAG_VERTICAL_SPACING)
+            end
         end
     end
 end
@@ -1561,8 +1592,9 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
         if timeSinceStart < FLAG_FADE_IN_DURATION then
             local progress = timeSinceStart / FLAG_FADE_IN_DURATION
             self:SetAlpha(progress)
-            local scale = 1.15 - (0.15 * progress)
-            self:SetScale(scale)
+            if not IsFlagToastLocked(self) then
+                self:SetScale(1.15 - (0.15 * progress))
+            end
 
             if self.secureButton then
                 self.secureButton:SetAlpha(progress)
@@ -1573,7 +1605,7 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
 
         if timeSinceStart < (FLAG_FADE_IN_DURATION + self.displayDuration) then
             self:SetAlpha(1)
-            self:SetScale(1.0)
+            if not IsFlagToastLocked(self) then self:SetScale(1.0) end
 
             if self.secureButton then
                 self.secureButton:SetAlpha(1)
@@ -1612,7 +1644,9 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
 
     toast:Show()
     toast:SetAlpha(0)
-    toast:EnableMouse(true)
+    if not IsFlagToastLocked(toast) then
+        toast:EnableMouse(true)
+    end
 
     if toast.secureButton and not InCombatLockdown() then
         toast.secureButton:EnableMouse(true)

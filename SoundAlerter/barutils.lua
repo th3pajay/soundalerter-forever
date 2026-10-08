@@ -440,9 +440,10 @@ function BarUtils:AcquireToastFromPool(state, releaseFn, onExhausted)
 		end
 	end
 
-	if #state.activeList > 0 then
-		local oldest = state.activeList[1]
-		if oldest then
+	local locked = InCombatLockdown()
+	for i = 1, #state.activeList do
+		local oldest = state.activeList[i]
+		if oldest and not (locked and oldest.isSecure) then
 			releaseFn(oldest)
 			oldest.inUse = true
 			if onExhausted then onExhausted(oldest) end
