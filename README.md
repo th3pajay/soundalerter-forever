@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.35-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.38-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-purple.svg"/>
@@ -104,7 +104,7 @@ Instant audio callouts for enemy cooldowns, crowd control and interrupts, for yo
 <img src="Media/resource_mgt.gif?raw=true" alt="Resource Mgt" width="256"/>
 </p>
 
-* **Resource bars:** Health, Mana, Energy, Rage and Combo Points, feral form support, pixel-perfect, event-driven
+* **Resource bars:** Health, Mana, Energy, Rage and Combo Points (10 selectable point shapes), feral form support, pixel-perfect, event-driven
 * **Bar textures** shared with the casting bars: Default, Solid, Transparent, plus Waves, Streaks, Motes and Fog
 
 <p align="center">
@@ -114,6 +114,8 @@ Instant audio callouts for enemy cooldowns, crowd control and interrupts, for yo
 
 * **Casting bars:** player, target and focus, channeled and mid-cast support, finish animations, configurable direction
 * **Cast feed:** one icon row per unit with hover details and time between casts (off by default). The client hides other units' casts, so some are shown generically
+
+Every options page uses the same left-hand rail as Voice Alerts, with live previews for bars, toasts, chat lines and the cast feed.
 
 **Configuration**: `/sa` -> Resource Management, Casting Bars, Cast Feed
 
@@ -129,6 +131,7 @@ Instant audio callouts for enemy cooldowns, crowd control and interrupts, for yo
 * Aura spiral, duration numbers and an optional depleting border timer
 * "Ready!" when a spell is off cooldown, with state borders and glows (idle, buff, debuff, expiring, ready)
 * Stays correct through druid form swaps (auras are matched by spell ID)
+* **By class:** pick a class on the left, switch what each spell tracks with chips, and preview every icon state live. Presets with undo
 
 **Configuration**: `/sa` -> Spell Tracker
 

@@ -23,6 +23,19 @@ local BAR_WIDTH = 280
 local BAR_HEIGHT = 20
 local CP_CONTAINER_WIDTH = 280
 local CP_HEIGHT = 30
+local CP_TEXTURE_DIR = "Interface\\AddOns\\SoundAlerter\\Textures\\"
+local CP_SHAPE_TEXTURES = {
+	circle = CP_TEXTURE_DIR .. "circle",
+	ring = CP_TEXTURE_DIR .. "cp_ring",
+	pip = CP_TEXTURE_DIR .. "cp_pip",
+	diamond = CP_TEXTURE_DIR .. "cp_diamond",
+	hexagon = CP_TEXTURE_DIR .. "cp_hexagon",
+	star = CP_TEXTURE_DIR .. "cp_star",
+	shield = CP_TEXTURE_DIR .. "cp_shield",
+	pill = CP_TEXTURE_DIR .. "cp_pill",
+	triangle = CP_TEXTURE_DIR .. "cp_triangle",
+	bar = CP_TEXTURE_DIR .. "cp_bar",
+}
 local CP_SPACING = 8
 
 local VALUE_UPDATE_THROTTLE = 0.016
@@ -91,7 +104,7 @@ local RESOURCE_BAR_KEYS = {
 	comboActiveColor = true,
 	comboMaxColor = true,
 	comboInactiveColor = true,
-	comboStyle = true,
+	comboStyle = "circle",
 	fullCPSound = true,
 	barTexture = true,
 	healthHeight = true,
@@ -420,24 +433,19 @@ end
 function ResourceBar:ApplyCPStyle()
 	if not self.comboPoints or not self.db then return end
 
-	local style = self.db.comboStyle or "circle"
+	local style = self.db.comboStyle
+	if not CP_SHAPE_TEXTURES[style] and style ~= "square" then style = "circle" end
+	local path = CP_SHAPE_TEXTURES[style]
 
 	for i = 1, 5 do
 		local cp = self.comboPoints[i]
 		if cp and cp.texture then
-			if style == "square" then
+			if path then
+				cp.texture:SetTexture(path)
+			else
 				cp.texture:SetTexture("Interface\\Buttons\\WHITE8X8")
-				cp.texture:SetTexCoord(0, 1, 0, 1)
-			elseif style == "circle" then
-				local success = cp.texture:SetTexture("Interface\\AddOns\\SoundAlerter\\Textures\\circle")
-				if not success then
-					success = cp.texture:SetTexture("Interface\\Minimap\\Ping\\ping5")
-				end
-				if not success then
-					cp.texture:SetTexture("Interface\\Buttons\\WHITE8X8")
-				end
-				cp.texture:SetTexCoord(0, 1, 0, 1)
 			end
+			cp.texture:SetTexCoord(0, 1, 0, 1)
 		end
 	end
 end
@@ -691,7 +699,7 @@ function ResourceBar:Animate5CPCelebrationWave()
 	end
 
 	if self.db.fullCPSound then
-		PlaySound("AuctionWindowClose")
+		PlaySound(SOUNDKIT and SOUNDKIT.AUCTION_WINDOW_CLOSE or 5275)
 	end
 
 	self.comboFrame:SetScript("OnUpdate", function(frame, elapsed)

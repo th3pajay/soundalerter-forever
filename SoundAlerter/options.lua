@@ -1613,9 +1613,22 @@ function SoundAlerter:BuildResourceBarOptions()
 					desc = "Choose the visual shape for combo points.",
 					values = {
 						circle = "Circle",
+						ring = "Ring",
+						pip = "Pip",
+						diamond = "Diamond",
+						hexagon = "Hexagon",
+						star = "Star",
+						shield = "Shield",
+						pill = "Pill",
+						triangle = "Triangle",
+						bar = "Segment Bar",
 						square = "Square",
 					},
-					get = function() return SoundAlerter.ResourceBar:GetSettings().comboStyle end,
+					get = function()
+						local style = SoundAlerter.ResourceBar:GetSettings().comboStyle
+						if type(style) ~= "string" then return "circle" end
+						return style
+					end,
 					set = function(info, value)
 						SoundAlerter.ResourceBar:SetSetting("comboStyle", value)
 						if SoundAlerter.ResourceBar then
@@ -2166,35 +2179,96 @@ function SoundAlerter:BuildCastFeedOptions()
 		party4 = "Party 4",
 	}
 
-	local selectedRow = "player"
-
-	local function SelectedRow()
-		return Feed():GetSettings().rows[selectedRow]
+	local function Row(unit)
+		return Feed():GetSettings().rows[unit]
 	end
 
-	local function RowDisabled()
-		return Disabled() or not SelectedRow().enabled
-	end
-
-	local function ApplyRow(field, value)
+	local function CopyToAll(unit)
 		local feed = Feed()
 		if not feed then return end
-		feed:SetSetting(selectedRow .. "." .. field, value)
-		feed:LoadSettings()
-	end
-
-	local function CopyToAll()
-		local feed = Feed()
-		if not feed then return end
-		local source = SelectedRow()
-		for _, unit in ipairs(rowUnits) do
-			feed:SetSetting(unit .. ".direction", source.direction)
-			feed:SetSetting(unit .. ".scale", source.scale)
+		local source = Row(unit)
+		for _, target in ipairs(rowUnits) do
+			feed:SetSetting(target .. ".direction", source.direction)
+			feed:SetSetting(target .. ".scale", source.scale)
 		end
 		feed:LoadSettings()
 	end
 
-	return {
+	local function RowPreview(unit)
+		local feed = Feed()
+		if not feed then return "" end
+		local row = Row(unit)
+		local size = math.floor(20 * row.scale)
+		local icon = "|TInterface\\Icons\\Spell_Nature_Lightning:" .. size .. "|t"
+		local vertical = row.direction == "up" or row.direction == "down"
+		local strip = vertical and (icon .. "\n" .. icon .. "\n" .. icon) or (icon .. " " .. icon .. " " .. icon .. " " .. icon .. " " .. icon)
+		return "|cff8a93a3Live preview, icons travel " .. row.direction .. "|r\n" .. strip
+	end
+
+	local function RowGroup(unit, index)
+		local function RowOff()
+			return Disabled() or not Row(unit).enabled
+		end
+
+		return {
+			type = 'group',
+			inline = true,
+			name = rowLabels[unit],
+			order = 2 + index,
+			args = {
+				livePreview = {
+					type = 'description',
+					name = function() return RowPreview(unit) end,
+					fontSize = "medium",
+					width = "full",
+					order = 0,
+				},
+				enabled = {
+					type = 'toggle',
+					name = "Show row",
+					desc = "Give this unit its own row.",
+					get = function() return Row(unit).enabled end,
+					set = function(info, value) Apply(unit .. ".enabled", value) end,
+					disabled = Disabled,
+					width = "full",
+					order = 1,
+				},
+				direction = {
+					type = 'select',
+					name = "Direction",
+					desc = "Direction the icons travel. New casts appear at the opposite edge.",
+					values = { left = "Left", right = "Right", up = "Up", down = "Down" },
+					sorting = { "left", "right", "up", "down" },
+					get = function() return Row(unit).direction end,
+					set = function(info, value) Apply(unit .. ".direction", value) end,
+					disabled = RowOff,
+					order = 2,
+				},
+				scale = {
+					type = 'range',
+					name = "Scale",
+					desc = "Scales this row's icons, spacing and length together.",
+					min = 0.5,
+					max = 3,
+					step = 0.05,
+					get = function() return Row(unit).scale end,
+					set = function(info, value) Apply(unit .. ".scale", value) end,
+					disabled = RowOff,
+					order = 3,
+				},
+				copyToAll = {
+					type = 'execute',
+					name = "Copy to All Rows",
+					desc = "Give every row this row's direction and scale.",
+					func = function() CopyToAll(unit) end,
+					disabled = RowOff,
+					order = 4,
+				},
+			},
+		}
+	end
+
+	local options = {
 		type = 'group',
 		name = "Cast Feed",
 		icon = "Interface\\Icons\\Spell_Nature_Lightning",
@@ -2286,73 +2360,6 @@ function SoundAlerter:BuildCastFeedOptions()
 				},
 			},
 
-			rowsGroup = {
-				type = 'group',
-				inline = true,
-				name = "Rows",
-				order = 3,
-				args = {
-					shown = {
-						type = 'multiselect',
-						name = "Show Rows",
-						desc = "Each ticked unit gets its own row.",
-						values = rowLabels,
-						get = function(info, unit) return Feed():GetSettings().rows[unit].enabled end,
-						set = function(info, unit, value) Apply(unit .. ".enabled", value) end,
-						disabled = Disabled,
-						width = "half",
-						order = 1,
-					},
-					selected = {
-						type = 'select',
-						name = "Edit Row",
-						desc = "Pick the row that Direction and Scale apply to.",
-						values = rowLabels,
-						sorting = rowUnits,
-						get = function() return selectedRow end,
-						set = function(info, value) selectedRow = value end,
-						disabled = Disabled,
-						order = 2,
-					},
-					direction = {
-						type = 'select',
-						name = "Direction",
-						desc = "Direction the icons travel. New casts appear at the opposite edge.",
-						values = {
-							left = "Left",
-							right = "Right",
-							up = "Up",
-							down = "Down",
-						},
-						sorting = { "left", "right", "up", "down" },
-						get = function() return SelectedRow().direction end,
-						set = function(info, value) ApplyRow("direction", value) end,
-						disabled = RowDisabled,
-						order = 3,
-					},
-					scale = {
-						type = 'range',
-						name = "Scale",
-						desc = "Scales this row's icons, spacing and length together.",
-						min = 0.5,
-						max = 3,
-						step = 0.05,
-						get = function() return SelectedRow().scale end,
-						set = function(info, value) ApplyRow("scale", value) end,
-						disabled = RowDisabled,
-						order = 4,
-					},
-					copyToAll = {
-						type = 'execute',
-						name = "Copy to All Rows",
-						desc = "Give every row the selected row's direction and scale.",
-						func = CopyToAll,
-						disabled = RowDisabled,
-						order = 5,
-					},
-				},
-			},
-
 			appearanceGroup = {
 				type = 'group',
 				inline = true,
@@ -2370,6 +2377,12 @@ function SoundAlerter:BuildCastFeedOptions()
 			},
 		},
 	}
+
+	for index, unit in ipairs(rowUnits) do
+		options.args["row_" .. unit] = RowGroup(unit, index)
+	end
+
+	return SoundAlerter:RailCastFeed(options)
 end
 
 function SoundAlerter:BuildStatisticsOptions()
@@ -2654,7 +2667,7 @@ function SoundAlerter:BuildVoiceAlertOptions()
 				getOption = getOption,
 				spellTexture = SpellTexture,
 			}),
-			chatalerter = {
+			chatalerter = SoundAlerter:RailChat({
 				type = 'group',
 				name = "Chat Alerts",
 				desc = "Alerts you and others via sending a chat message",
@@ -3004,7 +3017,7 @@ function SoundAlerter:BuildVoiceAlertOptions()
 						},
 					},
 				},
-			},
+			}),
 		},
 	}
 end
@@ -3305,13 +3318,13 @@ function SoundAlerter:OnOptionsCreate()
 
 	self:AddOption('General', self:BuildGeneralOptions())
 
-	self:AddOption('ProximityAlerts', self:BuildProximityOptions())
+	self:AddOption('ProximityAlerts', self:RailProximity(self:BuildProximityOptions()))
 
-	self:AddOption('BattlegroundAlerts', self:BuildFlagOptions())
+	self:AddOption('BattlegroundAlerts', self:RailFlag(self:BuildFlagOptions()))
 
-	self:AddOption('ResourceBar', self:BuildResourceBarOptions())
+	self:AddOption('ResourceBar', self:RailResourceBars(self:BuildResourceBarOptions()))
 
-	self:AddOption('CastingBars', self:BuildCastingBarOptions())
+	self:AddOption('CastingBars', self:RailCastingBars(self:BuildCastingBarOptions()))
 
 	self:AddOption('CastFeed', self:BuildCastFeedOptions())
 

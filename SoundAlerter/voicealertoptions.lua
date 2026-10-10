@@ -206,13 +206,6 @@ function SoundAlerter:BuildVoiceAlertPanel(ctx)
     }
 
     local overviewArgs = {
-        presets = {
-            type = 'group',
-            inline = true,
-            name = "Presets",
-            order = 1,
-            args = presetArgs,
-        },
         extras = {
             type = 'group',
             inline = true,
@@ -251,9 +244,10 @@ function SoundAlerter:BuildVoiceAlertPanel(ctx)
     end
 
     local args = {
+        presetsHeader = { type = 'header', name = "Presets", order = 0.5 },
         overview = {
             type = 'group',
-            name = "Overview and presets",
+            name = "Arena extras and silencing",
             icon = "Interface\\Icons\\INV_Misc_Bell_01",
             order = 1,
             args = overviewArgs,
@@ -266,6 +260,7 @@ function SoundAlerter:BuildVoiceAlertPanel(ctx)
             args = searchArgs,
         },
     }
+    for key, widget in pairs(presetArgs) do args["preset_" .. key] = widget end
     for name, group in pairs(classGroups) do args[name] = group end
 
     return {

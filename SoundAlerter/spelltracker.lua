@@ -192,6 +192,7 @@ function SpellTracker:CreateIconText(frame)
     cooldownText:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -1)
     cooldownText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -1)
     cooldownText:SetJustifyH("CENTER")
+    cooldownText:SetWordWrap(false)
     cooldownText:SetTextColor(1, 0.82, 0, 1)
     cooldownText:SetFont("Fonts\\FRIZQT__.TTF", CONSTANTS.DEFAULT_COOLDOWN_TEXT_SIZE, "OUTLINE")
     cooldownText:SetText("")
@@ -612,13 +613,27 @@ local COUNTDOWN_COLOR = { 1, 0.82, 0 }
 
 local cooldownReading = {}
 
+local READY_WIDTH_FACTOR = 3.6
+local READY_MIN_FONT = 7
+
+local function applyCooldownFont(frame, ready)
+    local size = frame.cooldownFontSize or CONSTANTS.DEFAULT_COOLDOWN_TEXT_SIZE
+    if ready and frame.iconSize then
+        local fit = math.floor((frame.iconSize - 2) / READY_WIDTH_FACTOR)
+        size = math.min(size, math.max(READY_MIN_FONT, fit))
+    end
+    frame.cooldownText:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE")
+end
+
 local function applyCooldownText(frame, text)
     if text == frame.lastCooldownText then
         return
     end
     if text == READY_TEXT then
+        applyCooldownFont(frame, true)
         frame.cooldownText:SetTextColor(READY_COLOR[1], READY_COLOR[2], READY_COLOR[3], 1)
     elseif frame.lastCooldownText == READY_TEXT then
+        applyCooldownFont(frame, false)
         frame.cooldownText:SetTextColor(COUNTDOWN_COLOR[1], COUNTDOWN_COLOR[2], COUNTDOWN_COLOR[3], 1)
     end
     frame.cooldownText:SetText(text)
@@ -729,8 +744,10 @@ function SpellTracker:SetFramePosition(frame, trackerIndex)
     frame:SetSize(size, size)
     frame.glow:SetSize(size * 1.75, size * 1.75)
 
+    frame.cooldownFontSize = cooldownTextSize
+    frame.iconSize = size
     if frame.cooldownText then
-        frame.cooldownText:SetFont("Fonts\\FRIZQT__.TTF", cooldownTextSize, "OUTLINE")
+        applyCooldownFont(frame, frame.lastCooldownText == READY_TEXT)
     end
     self:StyleCooldownNumbers(frame, cooldownTextSize)
 
@@ -820,6 +837,11 @@ function SpellTracker:RebuildTrackingLookups()
             }
             if config.trackCooldown then
                 cooldownEnabledTrackers[#cooldownEnabledTrackers + 1] = i
+            else
+                local frame = iconFrames[i]
+                if frame and frame.cooldownText then
+                    applyCooldownText(frame, "")
+                end
             end
         end
     end
