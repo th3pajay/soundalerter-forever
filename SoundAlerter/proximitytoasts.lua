@@ -105,12 +105,7 @@ local unitScanOrder = {
 local function TargetByNameCompat(targetName, unitToken)
     if not targetName then return false end
 
-    local sadb = SoundAlerter.db1.profile
-
     if UnitExists("target") and SafeUnitName("target") == targetName then
-        if sadb.debugmode then
-            SoundAlerter:Print("[Toast Click] Already targeting: " .. targetName)
-        end
         return true
     end
 
@@ -118,9 +113,6 @@ local function TargetByNameCompat(targetName, unitToken)
         TargetUnit(unitToken)
 
         if UnitExists("target") and SafeUnitName("target") == targetName then
-            if sadb.debugmode then
-                SoundAlerter:Print("[Toast Click] Targeted via cached token: " .. targetName .. " (" .. unitToken .. ")")
-            end
             return true
         end
     end
@@ -130,17 +122,12 @@ local function TargetByNameCompat(targetName, unitToken)
             TargetUnit(unitId)
 
             if UnitExists("target") and SafeUnitName("target") == targetName then
-                if sadb.debugmode then
-                    SoundAlerter:Print("[Toast Click] Targeted via scan: " .. targetName .. " (" .. unitId .. ")")
-                end
                 return true
             end
         end
     end
 
-    if sadb.debugmode then
-        SoundAlerter:Print("[Toast Click] Could not locate unit: " .. targetName .. " (not in scannable units)")
-    end
+    SoundAlerter:Debug("ProximityToasts", "toast click: could not locate %s in any scannable unit", targetName)
 
     return false
 end
@@ -220,6 +207,7 @@ local function IsLocked(toast)
 end
 
 local deferredHides = {}
+local deferredButtons = {}
 
 local function HideToast(toast)
     if IsLocked(toast) then
@@ -236,6 +224,11 @@ local function FlushDeferredHides()
         if not toast.inUse then
             toast:Hide()
         end
+    end
+    for button in pairs(deferredButtons) do
+        deferredButtons[button] = nil
+        button:Hide()
+        button:SetAlpha(1)
     end
 end
 
@@ -396,10 +389,7 @@ local function CreateToastFrame(index, isSecure)
         local targetSuccess = TargetByNameCompat(targetName, self.userData.unitToken)
 
         if not targetSuccess then
-            if sadb.debugmode then
-                SoundAlerter:Print("[ProximityToasts] Failed to target " .. targetName .. " (unit not visible)")
-            end
-
+            SoundAlerter:Debug("ProximityToasts", "failed to target %s (unit not visible)", targetName)
         end
 
         if IsShiftKeyDown() then
@@ -531,9 +521,6 @@ function ProximityToasts:Initialize()
     self.initialized = true
     self:StartCleanupTimer()
 
-    if SoundAlerter.db1.profile.debugmode then
-        SoundAlerter:Print("Proximity Toasts initialized with dual pools (" .. MAX_TOASTS .. " secure + " .. MAX_TOASTS .. " insecure)")
-    end
 end
 
 function ProximityToasts:AcquireToast()
@@ -572,8 +559,8 @@ function ProximityToasts:ReleaseToast(toast)
             toast.secureButton:SetAttribute("macrotext1", nil)
             toast.secureButton:SetAttribute("shift-macrotext1", nil)
         else
-
-            toast.secureButton:Hide()
+            toast.secureButton:SetAlpha(0)
+            deferredButtons[toast.secureButton] = true
         end
     end
 
@@ -687,9 +674,10 @@ function ProximityToasts:CopyToastData(oldFrame, newFrame)
                 newFrame.secureButton:SetAttribute("shift-macrotext1", "/target " .. safeUnitName .. "\n/focus target")
             end
 
+            newFrame.secureButton:SetAlpha(1)
             newFrame.secureButton:Show()
-        elseif SoundAlerter.db1.profile.debugmode then
-            SoundAlerter:Print("[ProximityToasts] CopyToastData: Skipped secure config (in combat - should never happen)")
+        else
+            SoundAlerter:Debug("ProximityToasts", "CopyToastData skipped the secure config, in combat (should not happen)")
         end
     end
 
@@ -802,30 +790,22 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
     local sadb = SoundAlerter.db1.profile
 
     if not self.initialized then
-        if sadb.debugmode then
-            SoundAlerter:Print("[ProximityToasts] ShowToast blocked: not initialized")
-        end
+        SoundAlerter:Debug("ProximityToasts", "toast blocked: not initialized")
         return
     end
 
     if not sadb.proximityToasts or not sadb.proximityToasts.enabled then
-        if sadb.debugmode then
-            SoundAlerter:Print("[ProximityToasts] ShowToast blocked: toasts disabled")
-        end
+        SoundAlerter:Debug("ProximityToasts", "toast blocked: toasts disabled in options (%s)", tostring(unitName))
         return
     end
 
     if not unitName then
-        if sadb.debugmode then
-            SoundAlerter:Print("[ProximityToasts] ShowToast blocked: no unitName")
-        end
+        SoundAlerter:Debug("ProximityToasts", "toast blocked: no unit name (class %s, type %s)", tostring(className), tostring(alertType))
         return
     end
 
     if guid and not self:ShouldShowToast(guid) then
-        if sadb.debugmode then
-            SoundAlerter:Print("[ProximityToasts] ShowToast blocked: cooldown (" .. unitName .. ")")
-        end
+        SoundAlerter:Debug("ProximityToasts", "toast blocked: %s is on the toast cooldown", unitName)
         return
     end
 
@@ -837,15 +817,11 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
 
     local toast = self:AcquireToast()
     if not toast then
-        if sadb.debugmode then
-            SoundAlerter:Print("[ProximityToasts] ShowToast blocked: no available toast frame")
-        end
+        SoundAlerter:Debug("ProximityToasts", "toast blocked: no free toast frame for %s", unitName)
         return
     end
 
-    if sadb.debugmode then
-        SoundAlerter:Print("[ProximityToasts] Showing toast for " .. unitName .. " (" .. (className or "UNKNOWN") .. ")")
-    end
+    SoundAlerter:Debug("ProximityToasts", "showing toast for %s (%s, %s), %d/%d active", unitName, className or "UNKNOWN", tostring(alertType), #self.activeToasts, maxConcurrent)
 
     toast.icon:SetTexture(CLASS_ICONS[className] or "Interface\\Icons\\Ability_Rogue_Ambush")
 
@@ -933,9 +909,10 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
                 toast.secureButton:SetAttribute("shift-macrotext1", "/target " .. safeUnitName .. "\n/focus target")
             end
 
+            toast.secureButton:SetAlpha(1)
             toast.secureButton:Show()
-        elseif sadb.debugmode then
-            SoundAlerter:Print("[ProximityToasts] Skipped secure button config (in combat)")
+        else
+            SoundAlerter:Debug("ProximityToasts", "secure button config skipped, in combat")
         end
     end
 
@@ -1046,9 +1023,6 @@ function ProximityToasts:OnProfileChanged()
     end
     wipe(self.lastToastTime)
 
-    if SoundAlerter.db1.profile.debugmode then
-        SoundAlerter:Print("Proximity Toasts: Profile changed")
-    end
 end
 
 function ProximityToasts:OnDisable()

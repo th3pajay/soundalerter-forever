@@ -12,8 +12,15 @@ local FinderFormat = SA_FinderFormat
 local GetBuildInfo = GetBuildInfo
 
 local MAX_SPELL_ID = 70000
+local SCAN_CHUNK_SIZE = 1000
+local SCAN_CHUNK_DELAY = 0.05
 local DB_MAX_AGE = 2592000
 local DB_FORMAT = 2
+
+function SoundAlerter:GetSpellScanInfo()
+    local seconds = math.ceil(MAX_SPELL_ID / SCAN_CHUNK_SIZE) * SCAN_CHUNK_DELAY
+    return MAX_SPELL_ID, seconds
+end
 
 SoundAlerter.spellDatabase = {
     byID = {},
@@ -199,8 +206,8 @@ function SoundAlerter:BuildSpellDatabase()
         end, 0.1)
     end
 
-    local CHUNK_SIZE = 1000
-    local CHUNK_DELAY = 0.05
+    local CHUNK_SIZE = SCAN_CHUNK_SIZE
+    local CHUNK_DELAY = SCAN_CHUNK_DELAY
     local currentID = 1
     local ProcessChunk
 
@@ -250,7 +257,7 @@ function SoundAlerter:BuildSpellDatabase()
             self:SaveSpellDatabase()
 
             local spellCount = self:CountSpells()
-            self:Print(string_format("Spell database built: %d spells indexed", spellCount))
+            self:Print(string_format("Spell database built: %d spells indexed in %.0f seconds", spellCount, db.buildSeconds or 0))
         end
     end
 
@@ -266,7 +273,11 @@ function SoundAlerter:BuildSpellDatabase()
         end
     end
 
-    self:Print("Building spell database... This will take ~3-4 seconds.")
+    local maxID, minimumSeconds = self:GetSpellScanInfo()
+    local estimate = minimumSeconds >= 90
+        and string_format("at least %d minutes", math.floor(minimumSeconds / 60 + 0.5))
+        or string_format("at least %d seconds", math.ceil(minimumSeconds))
+    self:Print(string_format("Building spell database: scanning spell IDs 1 to %d. This takes %s, longer on a slower PC. Progress shows in Developer Tools > Database.", maxID, estimate))
     ProcessChunk()
 end
 
@@ -726,9 +737,7 @@ function SoundAlerter:SearchSpells(searchTerm, rankFilter)
     local searchCache = db.searchCache
     local cachedResult = searchCache[cacheKey]
     if cachedResult then
-        if self.db1.profile.debugmode then
-            self:Print(string_format("[SpellFinder] Cache hit for '%s': %d result(s)", searchTerm, #cachedResult))
-        end
+        self:Debug("SpellFinder", "'%s' cache hit: %d result(s)", searchTerm, #cachedResult)
         return cachedResult
     end
 
@@ -825,9 +834,7 @@ function SoundAlerter:SearchSpells(searchTerm, rankFilter)
     self:CacheSearchResult(cacheKey, results)
     RecordSearchTiming(elapsedMs, scanDescriptions and "description" or (fuzzy and "fuzzy" or "search"))
 
-    if self.db1.profile.debugmode then
-        self:Print(string_format("[SpellFinder] Search '%s': %d result(s) in %.2fms", searchTerm, resultCount, elapsedMs))
-    end
+    self:Debug("SpellFinder", "'%s' %s search: %d result(s) in %.2fms", searchTerm, scanDescriptions and "description" or (fuzzy and "fuzzy" or "name"), resultCount, elapsedMs)
 
     return results
 end

@@ -28,6 +28,7 @@ Format.CATEGORIES = {
     { key = "proximityAlerts", label = "Proximity", color = { 61, 220, 132 } },
     { key = "trinketAlerts", label = "Trinkets", color = { 255, 176, 32 } },
     { key = "flagAlerts", label = "Flags", color = { 199, 139, 255 } },
+    { key = "interruptAlerts", label = "Interrupts", color = { 255, 107, 107 } },
 }
 
 Format.ZONES = {

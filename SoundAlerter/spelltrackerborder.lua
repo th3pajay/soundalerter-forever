@@ -22,6 +22,23 @@ function Border.BorderKey(auraType, active)
     return "IDLE"
 end
 
+function Border.TimerMode(enabled, decision)
+    if not enabled or not decision then
+        return nil
+    end
+    if decision.expiration and decision.duration and decision.expiration - decision.duration > 0 then
+        return "plain"
+    end
+    if not decision.expiration and decision.secret then
+        return "secret"
+    end
+    return nil
+end
+
+function Border.TimerColor(auraType)
+    return Border.COLORS[Border.BorderKey(auraType, true)]
+end
+
 function Border.GlowKey(active, remaining, readout)
     if active and remaining and remaining > 0 and remaining <= Border.EXPIRING_SECONDS then
         return "expiring"

@@ -369,13 +369,18 @@ local function buildDisplayTab()
             numbers = {
                 type = 'group',
                 inline = true,
-                name = "Numbers",
+                name = "Timers",
                 order = 2,
                 args = {
                     showTimerText = globalToggle("showTimerText", {
                         name = "Show Aura Duration Numbers",
                         desc = "Display the aura duration countdown at the bottom of spell tracker icons. This shows how long the buff/debuff lasts.",
                         order = 1,
+                    }),
+                    showBorderTimer = globalToggle("showBorderTimer", {
+                        name = "Depleting Border Timer",
+                        desc = "Draw a colored border around the icon that shrinks as the buff/debuff runs out.",
+                        order = 1.5,
                     }),
                     showCooldownText = globalToggle("showCooldownText", {
                         name = "Show Spell Cooldown Numbers",

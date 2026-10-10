@@ -16,6 +16,7 @@ local ICON_KEYS = {
 local GLOBAL_KEYS = {
     locked = true,
     showTimerText = true,
+    showBorderTimer = true,
     showCooldownText = true,
     showReadyText = true,
 }

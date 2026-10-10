@@ -17,6 +17,12 @@ dbDefaults = {
 		MinimapButtonPosition = nil,
 		MinimapButtonHidden = false,
 
+		minimapTracking = {
+			enabled = false,
+			target = true,
+			focus = true,
+		},
+
 		all = false,
 		arena = true,
 		battleground = true,
@@ -39,7 +45,6 @@ dbDefaults = {
 		class = true,
 
 		blindenemy = true,
-		cycloneenemy = true,
 		fearenemy = true,
 		hexenemy = true,
 		polyenemy = true,
@@ -51,10 +56,10 @@ dbDefaults = {
 		vanishalert = true,
 
 		interruptenemy = true,
+		interruptemote = false,
 		enemyinterrupts = true,
 
 		blindselffriend = true,
-		cycloneselffriend = true,
 		fearselffriend = true,
 		hexselffriend = true,
 		sapselffriend = true,
@@ -263,6 +268,7 @@ dbDefaults = {
 		spellTracker = {
 			locked = false,
 			showTimerText = true,
+			showBorderTimer = false,
 			showCooldownText = true,
 			showReadyText = false,
 			icons = {},
@@ -327,6 +333,7 @@ dbDefaults = {
 					spellAlerts = 0,
 					proximityAlerts = 0,
 					trinketAlerts = 0,
+					interruptAlerts = 0,
 					flagAlerts = 0,
 				},
 				byClass = {},
@@ -344,6 +351,7 @@ dbDefaults = {
 					spellAlerts = 0,
 					proximityAlerts = 0,
 					trinketAlerts = 0,
+					interruptAlerts = 0,
 					flagAlerts = 0,
 				},
 

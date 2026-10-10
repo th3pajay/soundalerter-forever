@@ -245,9 +245,7 @@ function BarUtils:SwapInsecureToSecurePool(state, releaseFn, copyFn, addon, labe
 		end
 
 		if not newFrame then
-			if addon.db1.profile.debugmode then
-				addon:Print(string.format("[%s SWAP] No secure frames available, aborting swap", label))
-			end
+			addon:Debug("BarSwap", "%s: no secure frames available, swap aborted after %d frames", label, swappedCount)
 			break
 		end
 
@@ -271,11 +269,8 @@ function BarUtils:SwapInsecureToSecurePool(state, releaseFn, copyFn, addon, labe
 		state.metrics.histogram[swappedCount] = (state.metrics.histogram[swappedCount] or 0) + 1
 	end
 
-	if addon.db1.profile.debugmode then
-		local avgTime = state.metrics.totalTime / state.metrics.count
-		addon:Print(string.format("[%s SWAP] %d frames swapped in %.2fms (avg: %.2fms, max: %.2fms)",
-			label, swappedCount, elapsed, avgTime, state.metrics.maxTime))
-	end
+	addon:Debug("BarSwap", "%s: %d frames swapped in %.2fms (avg %.2fms, max %.2fms)",
+		label, swappedCount, elapsed, state.metrics.totalTime / state.metrics.count, state.metrics.maxTime)
 
 	if elapsed > budgetMs then
 		addon:Print(string.format("[%s SWAP WARNING] Frame swap took %.2fms (exceeds %.1fms budget)",

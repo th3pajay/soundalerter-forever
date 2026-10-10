@@ -287,9 +287,6 @@ function ResourceBar:UpdateResourceBar(barKey, config)
 	if current == nil or max == nil then return end
 
 	if issecretvalue(current) or issecretvalue(max) then
-		if SoundAlerter.db1.profile.debugmode and self.lastValues[barKey] ~= nil then
-			SoundAlerter:Print(string.format("[ResourceBar] %s using secret-value display path", barKey))
-		end
 		local color = self.cachedColors[barKey]
 		if color then
 			bar:SetStatusBarColor(color.r, color.g, color.b)
@@ -685,10 +682,6 @@ end
 function ResourceBar:Animate5CPCelebrationWave()
 	if not self.comboFrame then return end
 
-	if SoundAlerter.db1.profile.debugmode then
-		SoundAlerter:Print("[ResourceBar] 5 combo point celebration triggered")
-	end
-
 	for i = 1, 5 do
 		self:CancelCPAnimation(i)
 	end
@@ -889,9 +882,6 @@ function ResourceBar:UpdateVisibility()
 				self:StopBarUpdates(barKey)
 			end
 
-			if SoundAlerter.db1.profile.debugmode then
-				SoundAlerter:Print(string.format("[ResourceBar] %s bar %s", barKey, self.db[enabledKey] and "enabled" or "disabled"))
-			end
 		end
 	end
 

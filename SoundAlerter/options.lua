@@ -5,15 +5,6 @@ local L = LibStub("AceLocale-3.0"):GetLocale("SoundAlerter")
 local self, SoundAlerter = SoundAlerter, SoundAlerter
 local GetSpellInfo, GetSpellLink = SA_COMPAT.GetSpellInfo, SA_COMPAT.GetSpellLink
 
-local voiceAlertSearchQueries = {
-	spellauraApplied = "",
-	spellAuraRemoved = "",
-	spellCastStart = "",
-	spellCastSuccess = "",
-	enemydebuff = "",
-	enemydebuffdown = ""
-}
-
 local function initOptions()
 	if SoundAlerter.options.args.general then
 		return
@@ -50,93 +41,6 @@ end
 local function getOption(info)
 	local name = info[#info]
 	return sadb[name]
-end
-
-local function createSearchBar(sectionKey)
-	return {
-		searchBarGroup = {
-			type = 'group',
-			inline = true,
-			name = "|TInterface\\Icons\\INV_Misc_Spyglass_02:20|t  Search Spells",
-			order = 1000,
-			args = {
-				searchInput = {
-					type = 'input',
-					name = "Search for spell names",
-					desc = "Type to filter spells by name. Search is case-insensitive and shows only matching spells.",
-					width = "full",
-					order = 1,
-					get = function()
-						return voiceAlertSearchQueries[sectionKey] or ""
-					end,
-					set = function(info, value)
-						voiceAlertSearchQueries[sectionKey] = value:lower()
-						AceConfigDialog:Open("SoundAlerter")
-					end,
-				},
-				clearButton = {
-					type = 'execute',
-					name = "Clear Search",
-					desc = "Clear the search filter and show all spells",
-					order = 2,
-					width = "half",
-					func = function()
-						voiceAlertSearchQueries[sectionKey] = ""
-						AceConfigDialog:Open("SoundAlerter")
-					end,
-					disabled = function()
-						return not voiceAlertSearchQueries[sectionKey] or voiceAlertSearchQueries[sectionKey] == ""
-					end,
-				},
-			},
-		},
-	}
-end
-
-local function shouldHideSpell(spellID, sectionKey)
-	local query = voiceAlertSearchQueries[sectionKey]
-	if not query or query == "" then
-		return false
-	end
-
-	local spellName = GetSpellInfo(spellID)
-	if not spellName then
-		return true
-	end
-
-	return not string.find(spellName:lower(), query, 1, true)
-end
-
-local function listOption(spellList, listType, sectionKey, ...)
-	local args = {}
-	for k,v in pairs(spellList) do
-		local key = SoundAlerter.spellList[listType] and SoundAlerter.spellList[listType][v]
-
-		if key then
-			local option = self:spellOptions(k, v)
-			if option.type == 'toggle' and not option.desc then
-				option.desc = function()
-					if GetSpellLink(v) then
-						GameTooltip:SetHyperlink(GetSpellLink(v));
-					end
-				end
-				option.descStyle = "custom"
-			end
-
-			if sectionKey then
-				option.hidden = function()
-					return shouldHideSpell(v, sectionKey)
-				end
-			end
-
-			rawset(args, key, option)
-		else
-			if sadb.debugmode then
-				print("|cffFF7D0ASoundAlerter|r: Missing spell definition for ID:", v, "in list type:", listType)
-			end
-		end
-	end
-	return args
 end
 
 local function SpellTexture(sid)
@@ -225,6 +129,40 @@ function SoundAlerter:BuildGeneralOptions()
 										SetCVar ("Sound_MasterVolume",tostring ("1")); SetCVar ("Sound_AmbienceVolume",tostring ("1")); SetCVar ("Sound_SFXVolume",tostring ("1")); SetCVar ("Sound_MusicVolume",tostring ("1"));
 										print("|cffFF7D0ASoundAlerter|r: Sound options reset.");
 									end,
+								order = 3,
+							},
+						},
+					},
+					minimapTracking = {
+						type = 'group',
+						inline = true,
+						name = "Minimap Tracking",
+						order = 10.5,
+						hidden = function() return not SoundAlerter.MinimapTracking end,
+						args = {
+							enabled = {
+								type = 'toggle',
+								name = "Track Target/Focus on Minimap",
+								desc = "Keeps target and focus on the minimap after every loading screen.",
+								get = function() return SoundAlerter.MinimapTracking:GetSettings().enabled end,
+								set = function(_, val) SoundAlerter.MinimapTracking:SetSetting("enabled", val) end,
+								width = "full",
+								order = 1,
+							},
+							target = {
+								type = 'toggle',
+								name = "Track Target",
+								get = function() return SoundAlerter.MinimapTracking:GetSettings().target end,
+								set = function(_, val) SoundAlerter.MinimapTracking:SetSetting("target", val) end,
+								disabled = function() return not SoundAlerter.MinimapTracking:GetSettings().enabled end,
+								order = 2,
+							},
+							focus = {
+								type = 'toggle',
+								name = "Track Focus",
+								get = function() return SoundAlerter.MinimapTracking:GetSettings().focus end,
+								set = function(_, val) SoundAlerter.MinimapTracking:SetSetting("focus", val) end,
+								disabled = function() return not SoundAlerter.MinimapTracking:GetSettings().enabled end,
 								order = 3,
 							},
 						},
@@ -2625,6 +2563,83 @@ function SoundAlerter:BuildStatisticsOptions()
 end
 
 function SoundAlerter:BuildVoiceAlertOptions()
+	local silenceGroup = {
+		type = 'group',
+		name = "Global Category Toggles",
+		desc = "Master toggles to disable entire spell categories. Uncheck to silence all alerts in that category.",
+		inline = true,
+		set = setOption,
+		get = getOption,
+		order = -1,
+		args = {
+			globalNote = {
+				type = 'description',
+				name = "|cffFFD700Note:|r These toggles disable entire categories. Use per-spell toggles below for fine-grained control.\n",
+				fontSize = "small",
+				order = 0,
+			},
+			aruaApplied = {
+				type = 'toggle',
+				name = "Silence Buff Applied Alerts",
+				desc = "When checked: Disables ALL sound notifications when enemy buffs are applied",
+				order = 1,
+			},
+			auraRemoved = {
+				type = 'toggle',
+				name = "Silence Buff Removed Alerts",
+				desc = "When checked: Disables ALL sound notifications when enemy buffs expire",
+				order = 2,
+			},
+			castStart = {
+				type = 'toggle',
+				name = "Silence Spell Casting Alerts",
+				desc = "When checked: Disables ALL notifications when enemies start casting spells",
+				order = 3,
+			},
+			castSuccess = {
+				type = 'toggle',
+				name = "Silence Enemy Cooldown Alerts",
+				desc = "When checked: Disables ALL sound notifications of enemy cooldown abilities",
+				order = 4,
+			},
+			chatalerts = {
+				type = 'toggle',
+				name = "Silence Chat Alerts",
+				desc = "When checked: Disables ALL chat notifications of special abilities",
+				order = 5,
+			},
+			interrupt = {
+				type = 'toggle',
+				name = "Silence Interrupt Alerts",
+				desc = "When checked: Disables notifications of friendly interrupted spells",
+				order = 6,
+			},
+			dArenaPartner = {
+				type = 'toggle',
+				name = "Silence Arena Partner CC Alerts",
+				desc = "When checked: Disables notifications when arena partners are CC'd",
+				order = 7,
+			},
+			dSelfDebuff = {
+				type = 'toggle',
+				name = "Silence Self Debuff Alerts",
+				desc = "When checked: Disables notifications when YOU are debuffed/CC'd",
+				order = 8,
+			},
+			dEnemyDebuff = {
+				type = 'toggle',
+				name = "Silence Enemy Debuff Alerts",
+				desc = "When checked: Disables notifications of enemy debuffs/CC",
+				order = 9,
+			},
+			dEnemyDebuffDown = {
+				type = 'toggle',
+				name = "Silence Enemy Debuff Expired Alerts",
+				desc = "When checked: Disables notifications when enemy debuffs/CC expire",
+				order = 10,
+			},
+		},
+	}
 	return {
 		type = 'group',
 		name = "Voice Alerts",
@@ -2633,494 +2648,12 @@ function SoundAlerter:BuildVoiceAlertOptions()
 		order = 2,
 		childGroups = "tab",
 		args = {
-			spellGeneral = {
-				type = 'group',
-				name = "Global Category Toggles",
-				desc = "Master toggles to disable entire spell categories. Uncheck to silence all alerts in that category.",
-				inline = true,
-				set = setOption,
-				get = getOption,
-				order = -1,
-				args = {
-					globalNote = {
-						type = 'description',
-						name = "|cffFFD700Note:|r These toggles disable entire categories. Use per-spell toggles below for fine-grained control.\n",
-						fontSize = "small",
-						order = 0,
-					},
-					aruaApplied = {
-						type = 'toggle',
-						name = "Silence Buff Applied Alerts",
-						desc = "When checked: Disables ALL sound notifications when enemy buffs are applied",
-						order = 1,
-					},
-					auraRemoved = {
-						type = 'toggle',
-						name = "Silence Buff Removed Alerts",
-						desc = "When checked: Disables ALL sound notifications when enemy buffs expire",
-						order = 2,
-					},
-					castStart = {
-						type = 'toggle',
-						name = "Silence Spell Casting Alerts",
-						desc = "When checked: Disables ALL notifications when enemies start casting spells",
-						order = 3,
-					},
-					castSuccess = {
-						type = 'toggle',
-						name = "Silence Enemy Cooldown Alerts",
-						desc = "When checked: Disables ALL sound notifications of enemy cooldown abilities",
-						order = 4,
-					},
-					chatalerts = {
-						type = 'toggle',
-						name = "Silence Chat Alerts",
-						desc = "When checked: Disables ALL chat notifications of special abilities",
-						order = 5,
-					},
-					interrupt = {
-						type = 'toggle',
-						name = "Silence Interrupt Alerts",
-						desc = "When checked: Disables notifications of friendly interrupted spells",
-						order = 6,
-					},
-					dArenaPartner = {
-						type = 'toggle',
-						name = "Silence Arena Partner CC Alerts",
-						desc = "When checked: Disables notifications when arena partners are CC'd",
-						order = 7,
-					},
-					dSelfDebuff = {
-						type = 'toggle',
-						name = "Silence Self Debuff Alerts",
-						desc = "When checked: Disables notifications when YOU are debuffed/CC'd",
-						order = 8,
-					},
-					dEnemyDebuff = {
-						type = 'toggle',
-						name = "Silence Enemy Debuff Alerts",
-						desc = "When checked: Disables notifications of enemy debuffs/CC",
-						order = 9,
-					},
-					dEnemyDebuffDown = {
-						type = 'toggle',
-						name = "Silence Enemy Debuff Expired Alerts",
-						desc = "When checked: Disables notifications when enemy debuffs/CC expire",
-						order = 10,
-					},
-				},
-			},
-			spellauraApplied = {
-				type = 'group',
-				name = "Enemy Defensives & Buffs",
-				desc = "Alert when enemies use defensive cooldowns or gain important buffs. Track when to pressure or wait out immunities. Use the search bar below to quickly find specific spells.",
-				set = setOption,
-				get = getOption,
-				disabled = function() return sadb.aruaApplied end,
-				order = 2,
-				args = {
-					class = {
-						type = 'toggle',
-						name = "Alert Class calling for trinketing in Arena",
-						desc = "Alert when an enemy class trinkets in arena",
-						confirm = function() PlaySoundFile(sadb.sapath.."paladin.mp3"); self:ScheduleTimer("PlayTrinket", 0.4); end,
-						order = 2,
-					},
-					drinking = {
-						type = 'toggle',
-						name = "Alert Drinking in Arena",
-						desc = "Alert when an enemy drinks in arena",
-						order = 3,
-					},
-					general = {
-						type = 'group',
-						inline = true,
-						name = "General spells",
-						order = 4,
-						args = {
-							trinket = {
-								type = 'toggle',
-								name = SpellTexture(42292).."PvP Trinket/Every Man for Himself",
-								desc = function ()
-									local link = GetSpellLink(42292)
-									if link then GameTooltip:SetHyperlink(link) end
-								end,
-								descStyle = "custom",
-								order = 1,
-							},
-						}
-					},
-					druid = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Druid:20|t  |cffFF7D0ADruid|r",
-						order = 5,
-						args = listOption({29166,22812,17116,22842,1850},"auraApplied","spellauraApplied"),
-					},
-					dk	= {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_DeathKnight:20|t  |cffC41F3BDeath Knight|r",
-						order = 6,
-						args = listOption({},"auraApplied","spellauraApplied"),
-					},
-					hunter = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Hunter:20|t  |cffABD473Hunter|r",
-						order = 7,
-						args = listOption({19263},"auraApplied","spellauraApplied"),
-					},
-					mage = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Mage:20|t  |cff69CCF0Mage|r",
-						order = 8,
-						args = listOption({12042,12472,12043,28682},"auraApplied","spellauraApplied"),
-					},
-					paladin = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Paladin:20|t  |cffF58CBAPaladin|r",
-						order = 9,
-						args = listOption({10278,1044,6940,498,64205},"auraApplied","spellauraApplied")
-					},
-					priest	= {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Priest:20|t  |cffFFFFFFPriest|r",
-						order = 10,
-						args = listOption({33206,10060,6346,47585,14751},"auraApplied","spellauraApplied")
-					},
-					rogue = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Rogue:20|t  |cffFFF569Rogue|r",
-						order = 11,
-						args = listOption({11305,14177,31224,13750,26669},"auraApplied","spellauraApplied")
-					},
-					shaman	= {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Shaman:20|t  |cff0070DEShaman|r",
-						order = 12,
-						args = listOption({30823,379,57960},"auraApplied","spellauraApplied"),
-					},
-					warrior	= {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Warrior:20|t  |cffC79C6EWarrior|r",
-						order = 13,
-						args = listOption({1719,55694,871,12975,18499,20230,23920,12328,9632,12292},"auraApplied","spellauraApplied")
-					},
-					warlock	= {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Warlock:20|t  |cff9482C9Warlock|r",
-						order = 14,
-						args = listOption({17941},"auraApplied","spellauraApplied"),
-						},
-					races = {
-						type = 'group',
-						inline = true,
-						name = "|cffFFFFFFGeneral Races|r",
-						order = 15,
-						args = listOption({1259799,20594,7744,20577,1259686,20554},"auraApplied","spellauraApplied"),
-					},
-
-					searchBarGroup = createSearchBar("spellauraApplied").searchBarGroup,
-					}
-				},
-			spellAuraRemoved = {
-				type = 'group',
-				name = "Enemy Defensives Expired",
-				desc = "Alert when enemy defensive cooldowns expire. Know when it's safe to go offensive again. Use the search bar below to quickly find specific spells.",
-				set = setOption,
-				get = getOption,
-				disabled = function() return sadb.auraRemoved end,
-				order = 3,
-				args = {
-					druid = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Druid:20|t  |cffFF7D0ADruid|r",
-						order = 1,
-						args = listOption({20687},"auraRemoved","spellAuraRemoved"),
-					},
-					dk = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_DeathKnight:20|t  |cffC41F3BDeath Knight|r",
-						order = 2,
-						args = listOption({},"auraRemoved","spellAuraRemoved"),
-					},
-					hunter = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Hunter:20|t  |cffABD473Hunter|r",
-						order = 3,
-						args = listOption({19263,34471},"auraRemoved","spellAuraRemoved"),
-					},
-					mage = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Mage:20|t  |cff69CCF0Mage|r",
-						order = 4,
-						args = listOption({},"auraRemoved","spellAuraRemoved"),
-					},
-					paladin = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Paladin:20|t  |cffF58CBAPaladin|r",
-						order = 5,
-						args = listOption({498,10278,11642},"auraRemoved","spellAuraRemoved"),
-					},
-					priest	= {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Priest:20|t  |cffFFFFFFPriest|r",
-						order = 6,
-						args = listOption({},"auraRemoved","spellAuraRemoved"),
-					},
-					rogue = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Rogue:20|t  |cffFFF569Rogue|r",
-						order = 7,
-						args = listOption({13750,5277},"auraRemoved","spellAuraRemoved"),
-					},
-					warrior = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Warrior:20|t  |cffC79C6EWarrior|r",
-						order = 8,
-						args = listOption({1719,871,12292,46924},"auraRemoved","spellAuraRemoved"),
-					},
-
-				searchBarGroup = createSearchBar("spellAuraRemoved").searchBarGroup,
-				}
-			},
-			spellCastStart = {
-				type = 'group',
-				name = "Enemy Crowd Control (Cast Start)",
-				desc = "Alert when enemies start casting CC spells like Polymorph, Cyclone, or Fear. Gives you time to interrupt or react. Use the search bar below to quickly find specific spells.",
-				disabled = function() return sadb.castStart end,
-				set = setOption,
-				get = getOption,
-				order = 4,
-				args = {
-					general = {
-						type = 'group',
-						inline = true,
-						name = "General Spells",
-						order = 2,
-						args = {
-							bigHeal = {
-								type = 'toggle',
-								name = SpellTexture(48782).."Big Heals",
-								desc = "Heal, Holy Light, Healing Wave, Healing Touch",
-								order = 1,
-							},
-							resurrection = {
-								type = 'toggle',
-								name = SpellTexture(20609).."Resurrection spells",
-								desc = "Ancestral Spirit, Redemption, etc",
-								order = 2,
-							},
-						}
-					},
-					druid = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Druid:20|t  |cffFF7D0ADruid|r",
-						order = 3,
-						args = listOption({2637,21668,740},"castStart","spellCastStart"),
-					},
-					hunter = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Hunter:20|t  |cffABD473Hunter|r",
-						order = 4,
-						args = listOption({982,14327},"castStart","spellCastStart"),
-					},
-					mage = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Mage:20|t  |cff69CCF0Mage|r",
-						order = 5,
-						args = listOption({118},"castStart","spellCastStart"),
-					},
-					paladin = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Paladin:20|t  |cffF58CBAPaladin|r",
-						order = 6,
-						args = listOption({10326},"castStart","spellCastStart"),
-					},
-					priest	= {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Priest:20|t  |cffFFFFFFPriest|r",
-						order = 7,
-						args = listOption({8129,9484,605},"castStart","spellCastStart"),
-					},
-					shaman	= {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Shaman:20|t  |cff0070DEShaman|r",
-						order = 8,
-						args = listOption({},"castStart","spellCastStart"),
-						},
-
-					warlock	= {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Warlock:20|t  |cff9482C9Warlock|r",
-						order = 9,
-						args = listOption({6215,17928,710,11712},"castStart","spellCastStart"),
-					},
-
-				searchBarGroup = createSearchBar("spellCastStart").searchBarGroup,
-				},
-			},
-			spellCastSuccess = {
-				type = 'group',
-				name = "Enemy Offensive Cooldowns",
-				desc = "Alert when enemies use major offensive cooldowns. Know when burst damage windows are active and when to play defensively. Use the search bar below to quickly find specific spells.",
-				disabled = function() return sadb.castSuccess end,
-				set = setOption,
-				get = getOption,
-				order = 5,
-				args = {
-					druid = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Druid:20|t  |cffFF7D0ADruid|r",
-						order = 1,
-						args = listOption({5215},"castSuccess","spellCastSuccess"),
-					},
-					dk	= {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_DeathKnight:20|t  |cffC41F3BDeath Knight|r",
-						order = 2,
-						args = listOption({},"castSuccess","spellCastSuccess"),
-					},
-					hunter = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Hunter:20|t  |cffABD473Hunter|r",
-						order = 3,
-						args = listOption({23989,24335,14311,13810,1310687},"castSuccess","spellCastSuccess"),
-					},
-					mage = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Mage:20|t  |cff69CCF0Mage|r",
-						order = 4,
-						args = listOption({12051,11958,2139,66,11366},"castSuccess","spellCastSuccess"),
-					},
-					paladin = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Paladin:20|t  |cffF58CBAPaladin|r",
-						order = 5,
-						args = listOption({20066,10308,31884},"castSuccess","spellCastSuccess"),
-					},
-					priest	= {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Priest:20|t  |cffFFFFFFPriest|r",
-						order = 6,
-						args = listOption({10890,34433},"castSuccess","spellCastSuccess"),
-					},
-					rogue = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Rogue:20|t  |cffFFF569Rogue|r",
-						order = 7,
-						args = listOption({11297,2094,1766,14185,27617,13877,1784},"castSuccess","spellCastSuccess"),
-					},
-					shaman	= {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Shaman:20|t  |cff0070DEShaman|r",
-						order = 8,
-						args = listOption({8143,16190,2484,8177},"castSuccess","spellCastSuccess"),
-					},
-					warrior	= {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Warrior:20|t  |cffC79C6EWarrior|r",
-						order = 9,
-						args = listOption({2457,2458,71,676,65930,6552,72},"castSuccess","spellCastSuccess"),
-					},
-					warlock = {
-						type = 'group',
-						inline = true,
-						name = "|TInterface\\Icons\\ClassIcon_Warlock:20|t  |cff9482C9Warlock|r",
-						order = 10,
-						args = listOption({5138,19647,17926,6358,17925},"castSuccess","spellCastSuccess"),
-					},
-
-				searchBarGroup = createSearchBar("spellCastSuccess").searchBarGroup,
-				},
-			},
-			enemydebuff = {
-				type = 'group',
-				name = "Your CC on Enemies",
-				desc = "Alert when you or your arena partner successfully land crowd control on enemies. Confirms CC application for coordination. Use the search bar below to quickly find specific spells.",
-				disabled = function() return sadb.dEnemyDebuff end,
-				set = setOption,
-				get = getOption,
-				order = 6,
-				args = {
-						fromself = {
-						type = 'group',
-						inline = true,
-						name = "|cffFFF569From Self|r",
-						order = 1,
-						args = listOption({2094,12826,118},"enemyDebuffs","enemydebuff"),
-					},
-					fromarenapartner = {
-						type = 'group',
-						inline = true,
-						name = "|cffFFF569From Arena Partner or affecting your Target|r",
-						order = 2,
-						args = listOption({2094,12826,118},"friendCCenemy","enemydebuff"),
-					},
-
-					searchBarGroup = createSearchBar("enemydebuff").searchBarGroup,
-				},
-			},
-			enemydebuffdown = {
-				type = 'group',
-				name = "Your CC Expired on Enemies",
-				desc = "Alert when your crowd control effects on enemies expire. Know when enemies are free and can act again. Use the search bar below to quickly find specific spells.",
-				disabled = function() return sadb.dEnemyDebuffDown end,
-				set = setOption,
-				get = getOption,
-				order = 7,
-				args = {
-					fromself = {
-						type = 'group',
-						inline = true,
-						name = "|cffFFF569From Self|r",
-						order = 1,
-						args = listOption({2094,12826,118},"enemyDebuffdown","enemydebuffdown"),
-					},
-					fromarenapartner = {
-						type = 'group',
-						inline = true,
-						name = "|cffFFF569From Arena Partner or affecting your Target|r",
-						desc = "Alerts you if your arena partner casts a spell or your target gets afflicted by a spell",
-						order = 2,
-						args = listOption({2094,51724,12826,118,},"enemyDebuffdownAP","enemydebuffdown"),
-					},
-
-					searchBarGroup = createSearchBar("enemydebuffdown").searchBarGroup,
-				},
-			},
+			alerts = SoundAlerter:BuildVoiceAlertPanel({
+				silence = silenceGroup,
+				setOption = setOption,
+				getOption = getOption,
+				spellTexture = SpellTexture,
+			}),
 			chatalerter = {
 				type = 'group',
 				name = "Chat Alerts",
@@ -3214,27 +2747,15 @@ function SoundAlerter:BuildVoiceAlertOptions()
 								desc = "Enemies that have blinded you will be alerted",
 								order = 4,
 							},
-							cycloneenemy = {
-								type = 'toggle',
-								name = SpellTexture(33786).."Cyclone on Enemy",
-								desc = "Enemies you cyclone will be alerted in chat",
-								order = 5,
-							},
-							cycloneselffriend = {
-								type = 'toggle',
-								name = SpellTexture(33786).."Cyclone on Self/Friend",
-								desc = "Enemies you cyclone will be alerted in chat",
-								order = 6,
-							},
 							hexenemy = {
 								type = 'toggle',
-								name = SpellTexture(51514).."Hex on Enemy",
+								name = SpellTexture(450600).."Hex on Enemy",
 								desc = "Enemies you hex will be alerted in chat",
 								order = 7,
 							},
 							hexselffriend = {
 								type = 'toggle',
-								name = SpellTexture(51514).."Hex on Self/Friend",
+								name = SpellTexture(450600).."Hex on Self/Friend",
 								desc = "Enemies you hex will be alerted in chat",
 								order = 8,
 							},
@@ -3270,15 +2791,15 @@ function SoundAlerter:BuildVoiceAlertOptions()
 							},
 							vanishenemy = {
 								type = 'toggle',
-								name = SpellTextureName(26889),
+								name = SpellTextureName(1856),
 								desc = "Enemies that have casted Vanish will be alerted",
 								order = 13,
 							},
 							trinketalert = {
 								type = 'toggle',
-								name = SpellTextureName(42292),
+								name = SpellTextureName(1259718),
 								desc = function ()
-									local link = GetSpellLink(42292)
+									local link = GetSpellLink(1259718)
 									if link then GameTooltip:SetHyperlink(link) end
 								end,
 								order = 14,
@@ -3288,6 +2809,12 @@ function SoundAlerter:BuildVoiceAlertOptions()
 								name = "Interrupt on Enemy",
 								desc = "Sends a chat message if you have interrupted an enemy's spell.",
 								order = 15,
+							},
+							interruptemote = {
+								type = 'toggle',
+								name = "Roar on Interrupt",
+								desc = "Plays the /roar emote when you interrupt an enemy's spell.",
+								order = 15.5,
 							},
 							interruptself = {
 								type = 'toggle',
@@ -3444,7 +2971,7 @@ function SoundAlerter:BuildVoiceAlertOptions()
 						type = "group",
 						inline = true,
 						hidden = function() if sadb.vanishenemy then return false else return true end end,
-						name = SpellTextureName(26889),
+						name = SpellTextureName(1856),
 						order = 17,
 						args = {
 							vanishTF = {
@@ -3478,42 +3005,21 @@ function SoundAlerter:BuildVoiceAlertOptions()
 					},
 				},
 			},
-			FriendDebuff = {
-				type = 'group',
-				name = "Arena Partner Under Attack",
-				desc = "Alert when enemies cast spells targeting your arena partner. React quickly to peel or assist your teammate.",
-				disabled = function() return sadb.dArenaPartner end,
-				set = setOption,
-				get = getOption,
-				order = 8,
-				args = listOption({118,6215},"friendCCs"),
-			},
-			FriendDebuffSuccess = {
-			type = 'group',
-			name = "Arena Partner CC'd",
-			desc = "Alert when your arena partner gets crowd controlled. Coordinate defensive cooldowns or peels to protect your teammate.",
-			disabled = function() return sadb.dArenaPartner end,
-			set = setOption,
-			get = getOption,
-			order = 9,
-			args = listOption({14309,2094,10308,12826,6215,2139,51724},"friendCCSuccess"),
-			},
-			selfDebuffs = {
-				type = 'group',
-				name = "CC on You",
-				desc = "Alert when you get crowd controlled by enemies. Know immediately when to trinket or call for help from teammates.",
-				disabled = function() return sadb.dSelfDebuff end,
-				set = setOption,
-				get = getOption,
-				order = 10,
-				args = listOption({118,6215,14309,13809,65930,17928,2094,51724,10308,17926,115138,20066,34490,19434,47476,19386,6358},"selfDebuff"),
-			},
 		},
 	}
 end
 
 local function IsDatabaseBuilding()
 	return SoundAlerter.spellDatabase.isBuilding
+end
+
+local LONG_SCAN_SECONDS = 30
+
+local function ScanDurationText(seconds)
+	if seconds >= 90 then
+		return string.format("%d minutes", math.floor(seconds / 60 + 0.5))
+	end
+	return string.format("%d seconds", math.ceil(seconds))
 end
 
 function SoundAlerter:BuildSpellFinderOptions()
@@ -3657,15 +3163,38 @@ function SoundAlerter:BuildSpellFinderOptions()
 					rebuild = {
 						type = 'execute',
 						name = "|cffFFAA00[REBUILD DATABASE]|r",
-						desc = "Full rebuild of the spell database. Only needed if the database is corrupted or after a major game patch. Scans all spell IDs and may cause a brief frame stutter.",
+						desc = function()
+							local maxID, seconds = SoundAlerter:GetSpellScanInfo()
+							return string.format("Full rebuild of the spell database. Scans every spell ID from 1 to %d and takes at least %s.%s Only needed after a major game patch or if the database is corrupted.", maxID, ScanDurationText(seconds), seconds >= LONG_SCAN_SECONDS and " You will be asked to confirm twice." or "")
+						end,
 						width = "full",
 						order = 2,
 						disabled = IsDatabaseBuilding,
-						confirm = true,
-						confirmText = "This will rebuild the spell database and take 3-4 seconds. Continue?",
+						confirm = function()
+							local maxID, seconds = SoundAlerter:GetSpellScanInfo()
+							return string.format("|cffFFAA00WARNING:|r indexing spell IDs 1 to %d takes at least %s and can make the game stutter while it runs. Do you want to continue?", maxID, ScanDurationText(seconds))
+						end,
 						func = function()
-							devtools():Invalidate()
-							SoundAlerter:RebuildSpellDatabase()
+							local maxID, seconds = SoundAlerter:GetSpellScanInfo()
+							local function startScan()
+								devtools():Invalidate()
+								SoundAlerter:RebuildSpellDatabase()
+							end
+							if seconds < LONG_SCAN_SECONDS then
+								startScan()
+								return
+							end
+							StaticPopupDialogs["SOUNDALERTER_CONFIRM_SPELL_SCAN"] = {
+								text = string.format("|cffFF4040FINAL CONFIRMATION|r\n\nThis starts a full spell index (IDs 1 to %d). It takes at least %s and you may notice stuttering until it finishes. Start the scan now?", maxID, ScanDurationText(seconds)),
+								button1 = "Start scan",
+								button2 = CANCEL,
+								OnAccept = startScan,
+								timeout = 0,
+								whileDead = true,
+								hideOnEscape = true,
+								preferredIndex = 3,
+							}
+							StaticPopup_Show("SOUNDALERTER_CONFIRM_SPELL_SCAN")
 						end,
 					},
 				},
@@ -3702,7 +3231,7 @@ function SoundAlerter:BuildSpellFinderOptions()
 					debugmode = {
 						type = 'toggle',
 						name = "Debug Mode",
-						desc = "Enable debug logging across all addon modules. Prints combat log events, search timings and module state changes to chat. Chatty by design.",
+						desc = "Prints readable traces of alert decisions, skipped chat sends, secret-value fallbacks and timings to chat. Each line is tagged with time and module.",
 						width = "full",
 						order = 1,
 						get = function() return sadb.debugmode end,

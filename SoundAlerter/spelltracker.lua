@@ -8,6 +8,7 @@ local ICON_SIZE = Settings.DEFAULT_ICON_SIZE
 local ICON_SPACING = 4
 local ICON_POOL_SIZE = 20
 local UPDATE_THROTTLE = 0.033
+local BORDER_RING_TEXTURE = "Interface\\AddOns\\SoundAlerter\\Textures\\border_ring.tga"
 
 local CONSTANTS = {
     INACTIVE_ALPHA = 0.3,
@@ -101,6 +102,40 @@ function SpellTracker:CreateIconCooldown(frame)
 
     frame.cooldownNumbers = self:CreateNumbersFrame(frame)
     frame.auraNumbers = self:CreateNumbersFrame(frame)
+    frame.borderCooldown = self:CreateBorderTimer(frame)
+end
+
+function SpellTracker:CreateBorderTimer(frame)
+    local ring = CreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
+    if not ring.SetSwipeTexture then return nil end
+
+    ring:SetAllPoints(frame)
+    ring:SetFrameLevel(frame.cooldown:GetFrameLevel() + 1)
+    ring:SetSwipeTexture(BORDER_RING_TEXTURE)
+    ring:SetDrawSwipe(true)
+    ring:SetDrawEdge(false)
+    ring:SetDrawBling(false)
+    ring:SetHideCountdownNumbers(true)
+    ring:SetReverse(true)
+    return ring
+end
+
+function SpellTracker:UpdateBorderTimer(frame, config, decision, auraDuration)
+    local ring = frame.borderCooldown
+    if not ring then return end
+
+    local mode = Border.TimerMode(self.db.showBorderTimer, decision)
+    if mode == "plain" then
+        local color = Border.TimerColor(config.auraType)
+        ring:SetSwipeColor(color[1], color[2], color[3], 1)
+        ring:SetCooldown(decision.expiration - decision.duration, decision.duration)
+    elseif mode == "secret" and auraDuration and ring.SetCooldownFromDurationObject then
+        local color = Border.TimerColor(config.auraType)
+        ring:SetSwipeColor(color[1], color[2], color[3], 1)
+        ring:SetCooldownFromDurationObject(auraDuration, true)
+    else
+        ring:Clear()
+    end
 end
 
 function SpellTracker:CreateNumbersFrame(frame)
@@ -356,9 +391,9 @@ function SpellTracker:ScanAuras(unit)
         local ok, observation, auraInstanceID = Game.LookupAura(unit, spellID, config.auraType)
 
         if not ok then
-            if self.addon.db1.profile.debugmode and not self.lookupFailed[unit] then
+            if not self.lookupFailed[unit] then
                 self.lookupFailed[unit] = true
-                self.addon:Print(string.format("[SpellTracker] aura lookup failed for %s", unit))
+                self.addon:Debug("SpellTracker", "aura lookup failed for %s (reported once per unit)", unit)
             end
         else
             local decision = self.state:Observe(config.trackerIndex, observation, GetTime())
@@ -396,6 +431,7 @@ function SpellTracker:UpdateTracker(trackerIndex, spellID, decision, unit, auraI
         frame.texture:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
     end
 
+    local auraDuration
     if decision.expiration then
         local startTime = decision.expiration - decision.duration
         if startTime > 0 then
@@ -407,7 +443,7 @@ function SpellTracker:UpdateTracker(trackerIndex, spellID, decision, unit, auraI
         frame.auraNumbers:Clear()
     else
         frame.cooldown:Clear()
-        local auraDuration = decision.secret and Game.AuraDurationObject(unit, auraInstanceID)
+        auraDuration = decision.secret and Game.AuraDurationObject(unit, auraInstanceID)
         if auraDuration and frame.cooldown.SetCooldownFromDurationObject then
             frame.cooldown:SetCooldownFromDurationObject(auraDuration, true)
             frame.auraNumbers:SetHideCountdownNumbers(not self.db.showTimerText)
@@ -419,6 +455,7 @@ function SpellTracker:UpdateTracker(trackerIndex, spellID, decision, unit, auraI
         end
     end
 
+    self:UpdateBorderTimer(frame, config, decision, auraDuration)
     self:SetFramePosition(frame, trackerIndex)
 
     local shouldShow, alpha = self:DetermineVisibility(trackerIndex, true)
@@ -435,8 +472,8 @@ function SpellTracker:UpdateTracker(trackerIndex, spellID, decision, unit, auraI
     end
     self:RefreshBorder(trackerIndex)
 
-    if decision.isNew and self.addon.db1.profile.debugmode then
-        self.addon:Print(string.format("[SpellTracker] Tracker %d activated: spellID %d", trackerIndex, spellID))
+    if decision.isNew then
+        self.addon:Debug("SpellTracker", "tracker %d activated: spell %d, %s", trackerIndex, spellID, decision.secret and "secret timing (duration object)" or "readable timing")
     end
 end
 
@@ -469,6 +506,7 @@ function SpellTracker:HideTracker(trackerIndex)
     frame.lastTimerText = ""
     frame.cooldown:Clear()
     frame.auraNumbers:Clear()
+    if frame.borderCooldown then frame.borderCooldown:Clear() end
     self.state:Hide(trackerIndex)
     if frame.glowKey == "applied" then
         applyGlow(frame, nil)
@@ -812,6 +850,9 @@ function SpellTracker:SetSetting(key, value)
         self:SetLocked(value)
     else
         self.db[key] = value
+        if key == "showBorderTimer" then
+            self:RefreshAllTrackers()
+        end
     end
 end
 
@@ -868,10 +909,6 @@ function SpellTracker:AddTrackedSpell(spellID, unit, auraType)
         posY = defaultY,
     })
 
-    if self.addon.db1.profile.debugmode then
-        self.addon:Print(string.format("[SpellTracker] Added tracked spell %d (%s, %s)", spellID, unit, auraType))
-    end
-
     self:LoadSettings()
     return true
 end
@@ -879,10 +916,6 @@ end
 function SpellTracker:RemoveTrackedSpell(index)
     if not self.db then return end
     if index < 1 or index > #self.db.icons then return end
-
-    if self.addon.db1.profile.debugmode then
-        self.addon:Print(string.format("[SpellTracker] Removed tracked spell at index %d", index))
-    end
 
     local count = #self.db.icons
     table.remove(self.db.icons, index)
@@ -900,6 +933,7 @@ function SpellTracker:ResetFrameDisplay(frame)
     frame.lastTimerText = ""
     frame.cooldown:Clear()
     frame.auraNumbers:Clear()
+    if frame.borderCooldown then frame.borderCooldown:Clear() end
     frame.cooldownNumbers:Clear()
     frame.cooldownNumbers.sentStart = nil
     frame.cooldownNumbers.sentDuration = nil

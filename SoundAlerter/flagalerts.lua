@@ -204,10 +204,6 @@ function FlagAlerts:OnInitialize()
     local locale = GetLocale()
     self.flagPatterns = LOCALE_PATTERNS[locale] or LOCALE_PATTERNS.enUS
 
-    if sadb.debugmode then
-        SoundAlerter:Print(string_format("[FlagAlerts] Initialized with locale: %s | Persistent cache: %d players",
-            locale, self.persistentCacheSize))
-    end
 end
 
 function FlagAlerts:OnEnable()
@@ -222,11 +218,6 @@ function FlagAlerts:OnEnable()
 
     self:ScheduleRepeatingTimer("CleanupPersistentCache", 300)
 
-    if sadb.debugmode then
-        SoundAlerter:Print("[FlagAlerts] Enabled and listening for battleground events")
-        SoundAlerter:Print("[FlagAlerts] Detection: Chat messages")
-        SoundAlerter:Print("[FlagAlerts] Combat-aware taint protection: Enabled")
-    end
 end
 
 function FlagAlerts:OnDisable()
@@ -237,9 +228,6 @@ function FlagAlerts:OnDisable()
     self:UnregisterEvent("PLAYER_REGEN_ENABLED")
     self:CancelAllTimers()
 
-    if sadb.debugmode then
-        SoundAlerter:Print("[FlagAlerts] Disabled")
-    end
 end
 
 function FlagAlerts:OnProfileChanged()
@@ -247,10 +235,6 @@ function FlagAlerts:OnProfileChanged()
 
     self.persistentCache = sadb.persistentClassCache
 
-    if sadb.debugmode then
-        SoundAlerter:Print(string_format("[FlagAlerts] Profile changed - Battleground Alerts %s",
-            sadb.battlegroundAlertsEnabled and "ENABLED" or "DISABLED"))
-    end
 end
 
 function FlagAlerts:CHAT_MSG_BG_SYSTEM_ALLIANCE(event, message, ...)
@@ -268,9 +252,7 @@ end
 function FlagAlerts:PLAYER_REGEN_DISABLED()
     self.inCombat = true
 
-    if sadb.debugmode then
-        SoundAlerter:Print("[FlagAlerts] Entered combat - chat alerts will be suppressed to prevent taint")
-    end
+    SoundAlerter:Debug("FlagAlerts", "Entered combat - chat alerts will be suppressed to prevent taint")
 end
 
 function FlagAlerts:PLAYER_REGEN_ENABLED()
@@ -286,18 +268,14 @@ function FlagAlerts:PLAYER_REGEN_ENABLED()
         self:SwapInsecureToSecureFlagFrames()
     end
 
-    if sadb.debugmode then
-        SoundAlerter:Print("[FlagAlerts] Left combat - all features restored")
-    end
+    SoundAlerter:Debug("FlagAlerts", "Left combat - all features restored")
 end
 
 function FlagAlerts:HandleFlagPickup(playerName, guid, carrierTeam)
     if not sadb.flagPickupAudio then return end
 
     if not self:ShouldProcessFlagEvent(playerName, "PICKUP") then
-        if sadb.debugmode then
-            SoundAlerter:Print(string_format("[FlagAlerts] Dedupe: Ignoring duplicate pickup for %s", playerName))
-        end
+        SoundAlerter:Debug("FlagAlerts", "Dedupe: Ignoring duplicate pickup for %s", playerName)
         return
     end
 
@@ -313,19 +291,14 @@ function FlagAlerts:HandleFlagPickup(playerName, guid, carrierTeam)
 
     self.performanceMetrics.auraPickups = self.performanceMetrics.auraPickups + 1
 
-    if sadb.debugmode then
-        SoundAlerter:Print(string_format("[FlagAlerts] Aura Detection: %s (%s, %s) picked up flag",
-            playerName, playerClass or "UNKNOWN", carrierTeam or "UNKNOWN_TEAM"))
-    end
+    SoundAlerter:Debug("FlagAlerts", "Aura Detection: %s (%s, %s) picked up flag", playerName, playerClass or "UNKNOWN", carrierTeam or "UNKNOWN_TEAM")
 end
 
 function FlagAlerts:HandleFlagDrop(playerName, guid, carrierTeam)
     if not sadb.flagDropAudio then return end
 
     if not self:ShouldProcessFlagEvent(playerName, "DROP") then
-        if sadb.debugmode then
-            SoundAlerter:Print(string_format("[FlagAlerts] Dedupe: Ignoring duplicate drop for %s", playerName))
-        end
+        SoundAlerter:Debug("FlagAlerts", "Dedupe: Ignoring duplicate drop for %s", playerName)
         return
     end
 
@@ -341,10 +314,7 @@ function FlagAlerts:HandleFlagDrop(playerName, guid, carrierTeam)
 
     self.performanceMetrics.auraDrops = self.performanceMetrics.auraDrops + 1
 
-    if sadb.debugmode then
-        SoundAlerter:Print(string_format("[FlagAlerts] Aura Detection: %s (%s, %s) dropped flag",
-            playerName, playerClass or "UNKNOWN", carrierTeam or "UNKNOWN_TEAM"))
-    end
+    SoundAlerter:Debug("FlagAlerts", "Aura Detection: %s (%s, %s) dropped flag", playerName, playerClass or "UNKNOWN", carrierTeam or "UNKNOWN_TEAM")
 end
 
 function FlagAlerts:ShouldProcessFlagEvent(playerName, eventType)
@@ -377,17 +347,13 @@ function FlagAlerts:PassesTeamFilter(playerName, playerTeam)
 
             if sadb.flagOnlyEnemyTeam and isFriendly then
                 self.performanceMetrics.teamFiltered = self.performanceMetrics.teamFiltered + 1
-                if sadb.debugmode then
-                    SoundAlerter:Print(string_format("[FlagAlerts] Filtered friendly team event: %s", playerName))
-                end
+                SoundAlerter:Debug("FlagAlerts", "Filtered friendly team event: %s", playerName)
                 return false
             end
 
             if sadb.flagOnlyFriendlyTeam and isEnemy then
                 self.performanceMetrics.teamFiltered = self.performanceMetrics.teamFiltered + 1
-                if sadb.debugmode then
-                    SoundAlerter:Print(string_format("[FlagAlerts] Filtered enemy team event: %s", playerName))
-                end
+                SoundAlerter:Debug("FlagAlerts", "Filtered enemy team event: %s", playerName)
                 return false
             end
         end
@@ -433,9 +399,7 @@ function FlagAlerts:ProcessFlagEvent(message)
 
     local startTime = debugprofilestop()
 
-    if sadb.debugmode then
-        SoundAlerter:Print(string_format("[FlagAlerts DEBUG] CHAT MESSAGE: %s", message))
-    end
+    SoundAlerter:Debug("FlagAlerts", "CHAT MESSAGE: %s", message)
 
     local playerName, eventType, flagName, carrierTeam
     for _, patternData in ipairs(self.flagPatterns) do
@@ -461,16 +425,11 @@ function FlagAlerts:ProcessFlagEvent(message)
     end
 
     if not playerName or not eventType then
-        if sadb.debugmode then
-            SoundAlerter:Print("[FlagAlerts DEBUG] ✗ No pattern match - message ignored")
-        end
+        SoundAlerter:Debug("FlagAlerts", "No pattern match - message ignored")
         return
     end
 
-    if sadb.debugmode then
-        SoundAlerter:Print(string_format("[FlagAlerts DEBUG] CHAT PATTERN MATCHED - Player: %s | Event: %s | Flag: %s | Team: %s",
-            playerName, eventType, flagName or "N/A", carrierTeam or "UNKNOWN"))
-    end
+    SoundAlerter:Debug("FlagAlerts", "CHAT PATTERN MATCHED - Player: %s | Event: %s | Flag: %s | Team: %s", playerName, eventType, flagName or "N/A", carrierTeam or "UNKNOWN")
 
     if eventType == "PICKUP" and not sadb.flagPickupAudio then return end
     if eventType == "DROP" and not sadb.flagDropAudio then return end
@@ -478,17 +437,12 @@ function FlagAlerts:ProcessFlagEvent(message)
 
     if eventType ~= "CAPTURE" then
         if not self:ShouldProcessFlagEvent(playerName, eventType) then
-            if sadb.debugmode then
-                SoundAlerter:Print(string_format("[FlagAlerts] Chat Dedupe: Ignoring duplicate %s for %s (aura already fired)",
-                    eventType, playerName))
-            end
+            SoundAlerter:Debug("FlagAlerts", "Chat Dedupe: Ignoring duplicate %s for %s (aura already fired)", eventType, playerName)
             return
         end
     end
 
-    if carrierTeam and sadb.debugmode then
-        SoundAlerter:Print(string_format("[FlagAlerts] Chat: Inferred %s is on %s (from flag name)", playerName, carrierTeam))
-    end
+    SoundAlerter:Debug("FlagAlerts", "Chat: Inferred %s is on %s (from flag name)", playerName, carrierTeam)
 
     local playerClass = self:GetPlayerClassByName(playerName)
 
@@ -521,11 +475,7 @@ function FlagAlerts:ProcessFlagEvent(message)
     times[idx] = elapsed
     self.performanceMetrics.processingTimesIndex = (idx % maxSamples) + 1
 
-    if sadb.debugmode then
-        local combatStatus = self.inCombat and " [COMBAT]" or ""
-        SoundAlerter:Print(string_format("[FlagAlerts] Event processed in %.2fms: %s (%s) - %s%s",
-            elapsed, playerName, playerClass or "UNKNOWN", eventType, combatStatus))
-    end
+    SoundAlerter:Debug("FlagAlerts", "%s %s (%s) processed in %.2fms%s", eventType, playerName, playerClass or "UNKNOWN", elapsed, self.inCombat and ", in combat" or "")
 end
 
 local function GetOptimalCacheSize()
@@ -598,9 +548,6 @@ function FlagAlerts:GetPlayerClassByName(playerName)
         cached.lastSeen = GetTime()
         self.performanceMetrics.persistentCacheHits = self.performanceMetrics.persistentCacheHits + 1
 
-        if sadb.debugmode then
-            SoundAlerter:Print(string_format("[FlagAlerts] Persistent cache hit: %s = %s", playerName, cached.class))
-        end
 
         return cached.class
     end
@@ -698,9 +645,6 @@ function FlagAlerts:CleanupPersistentCache()
         self.persistentCacheSize = self.persistentCacheSize - 1
     end
 
-    if sadb.debugmode and #toDelete > 0 then
-        SoundAlerter:Print(string_format("[FlagAlerts] Cleaned up %d expired persistent cache entries", #toDelete))
-    end
 end
 
 function FlagAlerts:GetPersistentCacheSize()
@@ -736,12 +680,6 @@ function FlagAlerts:TriggerFlagAlert(playerName, playerClass, eventType, carrier
         self:SendFlagChatAlert(playerName, playerClass, eventType)
     end
 
-    if sadb.debugmode then
-        local cacheHitRate = (self.performanceMetrics.cacheHits /
-            (self.performanceMetrics.cacheHits + self.performanceMetrics.cacheMisses)) * 100
-        SoundAlerter:Print(string_format("[FlagAlerts] %s (%s) - %s | Cache Hit Rate: %.1f%%",
-            playerName, playerClass or "Unknown", eventType, cacheHitRate))
-    end
 end
 
 function FlagAlerts:QueueAudio(playerClass, eventType)
@@ -802,10 +740,7 @@ function FlagAlerts:SendFlagChatAlert(playerName, playerClass, eventType)
     if self.inCombat then
         self.performanceMetrics.chatAlertsSuppressed = self.performanceMetrics.chatAlertsSuppressed + 1
 
-        if sadb.debugmode then
-            SoundAlerter:Print(string_format("[FlagAlerts] Chat alert suppressed (combat taint protection): %s %s",
-                playerName, eventType))
-        end
+        SoundAlerter:Debug("FlagAlerts", "Chat alert suppressed (combat taint protection): %s %s", playerName, eventType)
         return
     end
 
@@ -824,8 +759,8 @@ function FlagAlerts:SendFlagChatAlert(playerName, playerClass, eventType)
     message = string_gsub(message, "#action#", actionText or "flag event")
 
     local ok, err = pcall(SendChatMessage, message, sadb.flagChatChannel or "SAY")
-    if not ok and sadb.debugmode then
-        SoundAlerter:Print("[FlagAlerts] SendChatMessage error: "..tostring(err))
+    if not ok then
+        SoundAlerter:Debug("FlagAlerts", "SendChatMessage to %s failed: %s", sadb.flagChatChannel or "SAY", tostring(err))
     end
 end
 
@@ -1141,6 +1076,7 @@ local function IsFlagToastLocked(toast)
 end
 
 local deferredFlagHides = {}
+local deferredFlagButtons = {}
 
 local function HideFlagToast(toast)
     if IsFlagToastLocked(toast) then
@@ -1158,6 +1094,11 @@ function FlagAlerts:FlushDeferredFlagHides()
             toast:Hide()
             toast:EnableMouse(false)
         end
+    end
+    for button in pairs(deferredFlagButtons) do
+        deferredFlagButtons[button] = nil
+        button:Hide()
+        button:SetAlpha(1)
     end
 end
 
@@ -1291,8 +1232,8 @@ function FlagAlerts:CreateFlagToastFrame(index, isSecure)
         if SoundAlerter.ProximityToasts and SoundAlerter.ProximityToasts.TargetByNameCompat then
             local targetSuccess = SoundAlerter.ProximityToasts.TargetByNameCompat(targetName, nil)
 
-            if not targetSuccess and sadb.debugmode then
-                SoundAlerter:Print("[FlagAlerts] Failed to target " .. targetName .. " (unit not visible)")
+            if not targetSuccess then
+                SoundAlerter:Debug("FlagAlerts", "failed to target %s (unit not visible)", targetName)
             end
         end
 
@@ -1339,9 +1280,7 @@ function FlagAlerts:AcquireFlagToast()
         function(toast) self:ReleaseFlagToast(toast) end,
         function()
             self.flagToastMetrics.poolExhaustions = self.flagToastMetrics.poolExhaustions + 1
-            if sadb.debugmode then
-                SoundAlerter:Print("[FlagAlerts] Pool exhausted, evicted oldest toast")
-            end
+            SoundAlerter:Debug("FlagAlerts", "Pool exhausted, evicted oldest toast")
         end)
 end
 
@@ -1379,9 +1318,8 @@ function FlagAlerts:ReleaseFlagToast(toast)
         toast.secureButton:SetAttribute("macrotext1", nil)
         toast.secureButton:SetAttribute("macrotext", nil)
     elseif toast.secureButton then
-
-        toast.secureButton:Hide()
-
+        toast.secureButton:SetAlpha(0)
+        deferredFlagButtons[toast.secureButton] = true
     end
 
     toast.startTime = 0
@@ -1437,10 +1375,6 @@ function FlagAlerts:InitializeFlagToastPools()
         self:CreateSecureFlagToastPool()
     end
 
-    if sadb.debugmode then
-        SoundAlerter:Print(string_format("[FlagAlerts] Initialized dual pools (%d secure + %d insecure frames, ~24 KB)",
-            MAX_FLAG_TOASTS, MAX_FLAG_TOASTS))
-    end
 end
 
 function FlagAlerts:UpdateFlagToastLayout()
@@ -1470,9 +1404,7 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
 
     local toast = self:AcquireFlagToast()
     if not toast then
-        if sadb.debugmode then
-            SoundAlerter:Print("[FlagAlerts] Failed to acquire toast frame")
-        end
+        SoundAlerter:Debug("FlagAlerts", "Failed to acquire toast frame")
         return
     end
 
@@ -1568,6 +1500,7 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
         local macroText = "/target " .. playerName
         toast.secureButton:SetAttribute("macrotext1", macroText)
         toast.secureButton:SetAttribute("macrotext", macroText)
+        toast.secureButton:SetAlpha(1)
         toast.secureButton:Show()
     end
 
@@ -1672,12 +1605,7 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
         self.flagToastMetrics.captureToasts = self.flagToastMetrics.captureToasts + 1
     end
 
-    if sadb.debugmode then
-        SoundAlerter:Print(string_format("[FlagAlerts] Showed flag toast: %s (%s) - %s | Pool: %s | Active: %d/%d",
-            playerName, playerClass or "Unknown", eventType,
-            self.inCombat and "Insecure" or "Secure",
-            #self.activeFlagToasts, MAX_FLAG_TOASTS))
-    end
+    SoundAlerter:Debug("FlagAlerts", "toast shown: %s (%s) %s, %s pool, %d/%d active", playerName, playerClass or "Unknown", eventType, self.inCombat and "insecure" or "secure", #self.activeFlagToasts, MAX_FLAG_TOASTS)
 end
 
 function FlagAlerts:CopyFlagToastData(oldFrame, newFrame)
@@ -1746,6 +1674,7 @@ function FlagAlerts:CopyFlagToastData(oldFrame, newFrame)
             local macroText = "/target " .. unitName
             newFrame.secureButton:SetAttribute("macrotext1", macroText)
             newFrame.secureButton:SetAttribute("macrotext", macroText)
+            newFrame.secureButton:SetAlpha(1)
             newFrame.secureButton:Show()
             newFrame.secureButton:SetAlpha(newFrame:GetAlpha())
         end

@@ -438,10 +438,6 @@ function CastingBars:BeginCast(unit, channeling)
 		self:UpdateLatency(b)
 	end
 
-	if self.addon.db1.profile.debugmode then
-		self.addon:Print(string_format("[CastingBars] %s %s: %s", unit, channeling and "channeling" or "casting", spellName))
-	end
-
 	b.frame:Show()
 	self:Attach()
 end
@@ -517,10 +513,6 @@ end
 function CastingBars:OnCastStop(unit)
 	local b = self.bars[unit]
 	if not b then return end
-
-	if (b.casting or b.channeling) and self.addon.db1.profile.debugmode then
-		self.addon:Print(string_format("[CastingBars] %s stopped: %s", unit, b.spellName))
-	end
 
 	self:ResetState(b)
 

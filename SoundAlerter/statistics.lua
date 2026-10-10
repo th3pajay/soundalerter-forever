@@ -388,6 +388,7 @@ local function newSession(number)
 			spellAlerts = 0,
 			proximityAlerts = 0,
 			trinketAlerts = 0,
+			interruptAlerts = 0,
 			flagAlerts = 0,
 		},
 		byClass = {},
@@ -405,6 +406,7 @@ local function newAllTime()
 			spellAlerts = 0,
 			proximityAlerts = 0,
 			trinketAlerts = 0,
+			interruptAlerts = 0,
 			flagAlerts = 0,
 		},
 		byZone = {
@@ -458,10 +460,6 @@ function Statistics:RecordAlert(category, spellID, sourceGUID, sourceName, spell
 
 	if sourceGUID and sourceName then
 		self:TrackEnemyPlayer(sourceGUID, sourceName, spellID)
-	end
-
-	if sadb.debugmode then
-		print(string.format("<SA> STATS: Recorded %s alert (Total: %d)", category, sadb.statistics.session.totalAlerts))
 	end
 end
 
@@ -520,9 +518,7 @@ function Statistics:UpdateTopSpells(spellID, sourceGUID, sourceName, spellSchool
 
 			if lowestSpellID then
 				topSpells[lowestSpellID] = nil
-				if sadb.debugmode then
-					print(string.format("<SA> STATS: Evicted spell %d (lowest count: %d)", lowestSpellID, lowestCount))
-				end
+				SoundAlerter:Debug("Statistics", "top spells full, evicted spell %d (count %d)", lowestSpellID, lowestCount)
 			end
 		end
 
@@ -668,9 +664,7 @@ function Statistics:PruneEnemyTracking(maxEnemies)
 			enemies[enemyList[i].name] = nil
 		end
 
-		if sadb.debugmode then
-			print(string.format("<SA> STATS: Pruned %d enemies (kept top %d)", enemyCount - maxEnemies, maxEnemies))
-		end
+		SoundAlerter:Debug("Statistics", "pruned %d enemies, kept top %d", enemyCount - maxEnemies, maxEnemies)
 	end
 end
 
@@ -736,10 +730,6 @@ function Statistics:SaveSessionHistory()
 		data.trend.lastSessionCount = currentCount
 		data.trend.currentSessionCount = 0
 	end
-
-	if sadb.debugmode then
-		SoundAlerter:Print("Session history saved for statistics")
-	end
 end
 
 function Statistics:InitializeStatistics()
@@ -760,10 +750,6 @@ function Statistics:InitializeStatistics()
 
 		if not sadb.statistics.trackingStartTime or sadb.statistics.trackingStartTime == 0 then
 			sadb.statistics.trackingStartTime = time()
-		end
-
-		if sadb.debugmode then
-			SoundAlerter:Print(string.format("Statistics initialized (Session #%d)", sadb.statistics.allTime.totalSessions))
 		end
 	end
 end
