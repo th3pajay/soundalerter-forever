@@ -95,6 +95,13 @@ function SoundAlerter:BuildGeneralOptions()
 						fontSize = "small",
 						order = 0,
 					},
+					blizzardAudioWarning = {
+						type = 'description',
+						name = "|cffFF6600Blizzard's own combat audio alerts are on.|r You may hear spoken alerts twice. Turn one of them off in the game's accessibility audio settings if that bothers you.\n",
+						fontSize = "medium",
+						hidden = function() return not SoundAlerter:BlizzardAudioAlertsEnabled() end,
+						order = 0.5,
+					},
 					all = {
 						type = 'toggle',
 						name = "Enable Everything",

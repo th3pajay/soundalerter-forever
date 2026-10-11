@@ -746,6 +746,12 @@ function SoundAlerter:PrintZoneLog()
     self:Print("|cffFFD700=== End Zone Log ("..#names.." zones visited) ===|r")
 end
 
+function SoundAlerter:BlizzardAudioAlertsEnabled()
+    if not (C_CombatAudioAlert and C_CombatAudioAlert.IsEnabled) then return false end
+    local ok, enabled = pcall(C_CombatAudioAlert.IsEnabled)
+    return ok and Plain(enabled) == true
+end
+
 function SoundAlerter:PLAYER_ENTERING_WORLD()
     CombatLogClearEntries()
     self:ClearAuraTracking()
@@ -754,6 +760,9 @@ function SoundAlerter:PLAYER_ENTERING_WORLD()
     end
     self.enterWorldTime = GetTime()
     self:RefreshZoneState()
+    if self:BlizzardAudioAlertsEnabled() then
+        self:Debug("Audio", "Blizzard combat audio alerts are on; spoken alerts may be doubled")
+    end
 end
 
 function SoundAlerter:ZONE_CHANGED_NEW_AREA()
