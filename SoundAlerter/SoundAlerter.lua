@@ -76,6 +76,7 @@ function SoundAlerter:ChangeProfile()
 	sadb = self.db1.profile
 	self:InvalidateTrackedAuraIDs()
 	self:UpdateScoreboardTracking()
+	self:ApplyTotemPlates()
 	self:OnOptionsProfileChanged()
 
 	for _,v in SoundAlerter:IterateModules() do
@@ -522,6 +523,7 @@ function SoundAlerter:OnEnable()
     self:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
     self:RegisterEvent("UNIT_NAME_UPDATE")
     self:RegisterEvent("UNIT_FACTION")
+    self:RegisterEvent("PLAYER_REGEN_ENABLED")
     self:RegisterEvent("UNIT_TARGET")
     self:RegisterEvent("UPDATE_BATTLEFIELD_SCORE")
     pcall(self.RegisterEvent, self, "LOSS_OF_CONTROL_ADDED")
@@ -542,6 +544,7 @@ function SoundAlerter:OnEnable()
     self.enterWorldTime = 0
 
     self:ApplyNameplateRange()
+    self:ApplyTotemPlates()
 
     self.failedGUIDLookups = {}
 
@@ -760,6 +763,49 @@ function SoundAlerter:RefreshZoneState()
     self:Debug("Zone", "%s: instanceType=%s pvpType=%s", zoneName, tostring(self.cachedInstanceType), tostring(self.cachedZonePvpType))
 end
 
+local TOTEM_CVARS = { "nameplateShowEnemyTotems", "nameplateShowFriendlyPlayerTotems" }
+
+function SoundAlerter:RestoreTotemPlates()
+    local global = self.db1.global
+    local backup = global.totemCVarBackup
+    if not backup or InCombatLockdown() then return end
+    for name, value in pairs(backup) do
+        pcall(SetCVar, name, value)
+    end
+    global.totemCVarBackup = nil
+end
+
+function SoundAlerter:ApplyTotemPlates()
+    if InCombatLockdown() then
+        self.totemPlatesPending = true
+        return
+    end
+    if not sadb.showTotemPlates then
+        self:RestoreTotemPlates()
+        return
+    end
+    local global = self.db1.global
+    global.totemCVarBackup = global.totemCVarBackup or {}
+    for _, name in ipairs(TOTEM_CVARS) do
+        local current = GetCVar(name)
+        if current ~= nil then
+            if global.totemCVarBackup[name] == nil then
+                global.totemCVarBackup[name] = current
+            end
+            if current ~= "1" then
+                pcall(SetCVar, name, "1")
+            end
+        end
+    end
+end
+
+function SoundAlerter:PLAYER_REGEN_ENABLED()
+    if self.totemPlatesPending then
+        self.totemPlatesPending = false
+        self:ApplyTotemPlates()
+    end
+end
+
 function SoundAlerter:ApplyNameplateRange()
     if sadb.overrideNameplateRange then
         SetCVar("nameplateMaxDistance", sadb.nameplateRange or 60)
@@ -819,6 +865,7 @@ end
 
 function SoundAlerter:PLAYER_LOGOUT()
     self:RemoveAllAuraSounds()
+    self:RestoreTotemPlates()
     self:SaveLearnedClasses()
 
     if sadb.statistics and sadb.statistics.enabled then
@@ -1400,6 +1447,8 @@ function SoundAlerter:ProbeNameplate(unit)
     self:ProbeValue("plate name/class/guid", UnitName(unit), class, UnitGUID(unit))
     if Plain(UnitIsPlayer(unit)) then
         self:ProbeValue("plate guild", (GetGuildInfo(unit)))
+    else
+        self:ProbeValue("plate npc name/creature type", UnitName(unit), UnitCreatureType(unit))
     end
     local ok, same = pcall(UnitIsUnit, unit .. "target", "player")
     if ok then

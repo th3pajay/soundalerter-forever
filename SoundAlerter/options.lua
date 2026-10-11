@@ -1039,6 +1039,18 @@ function SoundAlerter:BuildProximityOptions()
 						width = "full",
 						order = 1,
 					},
+					showTotemPlates = {
+						type = 'toggle',
+						name = "Show Totem Nameplates",
+						desc = "Turns on the game's enemy and friendly player totem nameplates so totems appear as plates. The game's two totem settings are saved first and put back when you turn this off or log out.",
+						get = function() return sadb.showTotemPlates end,
+						set = function(info, value)
+							sadb.showTotemPlates = value
+							SoundAlerter:ApplyTotemPlates()
+						end,
+						width = "full",
+						order = 2,
+					},
 				},
 			},
 
