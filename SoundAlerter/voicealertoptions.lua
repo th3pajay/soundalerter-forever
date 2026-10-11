@@ -300,7 +300,7 @@ function SoundAlerter:BuildVoiceAlertPanel(ctx)
         name = "Engine aura sounds",
         order = 6,
         args = {
-            engineAuraSounds = toggle("engineAuraSounds", "Let the game play self debuff alerts", "Experimental. Skips Statistics for those spells. /sa aurasound tests it.", 1, nil, function() return SoundAlerter:EngineAuraSoundSupported() end),
+            engineAuraSounds = toggle("engineAuraSounds", "Let the game play debuff alerts", "Experimental. Covers you and an enemy target or focus. Skips Statistics. /sa aurasound tests it.", 1, nil, function() return SoundAlerter:EngineAuraSoundSupported() end),
         },
     }
 

@@ -1,16 +1,31 @@
 local SoundAlerter = SoundAlerter
 
+local Plain = SA_COMPAT.Plain
+
 local registered = {}
+local enemyUnits = { target = false, focus = false }
+local ENEMY_TOKENS = { "target", "focus" }
 local TEST_UNITS = { "player", "target", "focus", "nameplate1", "arena1", "party1", "mouseover" }
 local TEST_SPELL = 2825
+local PLAY_SECONDS = 30
+local playIDs = {}
 
 function SoundAlerter:EngineAuraSoundSupported()
     return C_UnitAuras and C_UnitAuras.AddAuraSound and C_UnitAuras.RemoveAuraSound
         and Enum and Enum.UnitAuraSoundTrigger and true or false
 end
 
-function SoundAlerter:HasEngineAuraSound(spellID)
-    return registered[spellID] ~= nil
+function SoundAlerter:HasEngineAuraSound(unit, trigger, spellID)
+    if registered[SA_AuraSound.Key(unit, trigger, spellID)] then return true end
+    if unit == "player" or unit == "target" or unit == "focus" then return false end
+    local guid = Plain(UnitGUID(unit))
+    if not guid then return false end
+    for _, token in ipairs(ENEMY_TOKENS) do
+        if registered[SA_AuraSound.Key(token, trigger, spellID)] and Plain(UnitGUID(token)) == guid then
+            return true
+        end
+    end
+    return false
 end
 
 local function SavedIDs(self)
@@ -33,10 +48,10 @@ function SoundAlerter:RemoveAllAuraSounds()
     if not self:EngineAuraSoundSupported() then return end
     self:StopAuraSoundPlay()
     local ids = SavedIDs(self)
-    for spellID, entry in pairs(registered) do
+    for key, entry in pairs(registered) do
         pcall(C_UnitAuras.RemoveAuraSound, entry.id)
-        registered[spellID] = nil
-        ids[spellID] = nil
+        registered[key] = nil
+        ids[key] = nil
     end
 end
 
@@ -44,30 +59,44 @@ function SoundAlerter:SyncAuraSounds()
     local profile = self.db1.profile
     if not self:EngineAuraSoundSupported() then return end
     local ids = SavedIDs(self)
-    local desired = SA_AuraSound.Desired(self.spellList.selfDebuff, profile)
+    local desired = SA_AuraSound.Desired(self.spellList, profile, enemyUnits, self:IsAlertZoneAllowed() and true or false)
     local add, remove = SA_AuraSound.Diff(registered, desired)
-    for _, spellID in ipairs(remove) do
-        pcall(C_UnitAuras.RemoveAuraSound, registered[spellID].id)
-        registered[spellID] = nil
-        ids[spellID] = nil
+    for _, key in ipairs(remove) do
+        pcall(C_UnitAuras.RemoveAuraSound, registered[key].id)
+        registered[key] = nil
+        ids[key] = nil
     end
-    for _, spellID in ipairs(add) do
-        local file = desired[spellID]
-        local ok, id = pcall(C_UnitAuras.AddAuraSound, Enum.UnitAuraSoundTrigger.Added, {
-            unitToken = "player",
-            spellID = spellID,
-            soundFileName = file,
+    for _, key in ipairs(add) do
+        local entry = desired[key]
+        local ok, id = pcall(C_UnitAuras.AddAuraSound, Enum.UnitAuraSoundTrigger[entry.trigger], {
+            unitToken = entry.unit,
+            spellID = entry.spellID,
+            soundFileName = entry.file,
             throttleSeconds = 1,
         })
         if ok and type(id) == "number" then
-            registered[spellID] = { id = id, file = file }
-            ids[spellID] = id
+            registered[key] = { id = id, file = entry.file }
+            ids[key] = id
         else
-            self:Debug("AuraSound", "spell %d not registered: %s", spellID, tostring(id))
+            self:Debug("AuraSound", "%s not registered: %s", key, tostring(id))
         end
     end
     if #add > 0 or #remove > 0 then
         self:Debug("AuraSound", "synced: %d added, %d removed", #add, #remove)
+    end
+end
+
+function SoundAlerter:RefreshEnemyAuraUnits()
+    local changed = false
+    for _, unit in ipairs(ENEMY_TOKENS) do
+        local isEnemy = UnitExists(unit) and Plain(UnitIsPlayer(unit)) == true and Plain(UnitIsEnemy("player", unit)) == true
+        if isEnemy ~= enemyUnits[unit] then
+            enemyUnits[unit] = isEnemy
+            changed = true
+        end
+    end
+    if changed and self.db1.profile.engineAuraSounds then
+        self:SyncAuraSounds()
     end
 end
 
@@ -84,11 +113,9 @@ end
 function SoundAlerter:StartAuraSounds()
     self:ClearStaleAuraSounds()
     LibStub("AceConfigRegistry-3.0").RegisterCallback(self, "ConfigTableChange", "OnConfigTableChange")
+    self:RefreshEnemyAuraUnits()
     self:SyncAuraSounds()
 end
-
-local PLAY_SECONDS = 30
-local playIDs = {}
 
 function SoundAlerter:StopAuraSoundPlay()
     if self.auraSoundPlayTimer then

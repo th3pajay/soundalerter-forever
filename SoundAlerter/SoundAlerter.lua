@@ -755,6 +755,7 @@ function SoundAlerter:RefreshZoneState()
     self.cachedInInstance, self.cachedInstanceType = IsInInstance()
     self.cachedZonePvpType = GetZonePVPInfo()
     self:UpdateScoreboardTracking()
+    if sadb.engineAuraSounds then self:SyncAuraSounds() end
 
     local zoneName = GetRealZoneText() or GetZoneText() or "Unknown"
     self.zonePvpTypeLog = self.zonePvpTypeLog or {}
@@ -1548,7 +1549,7 @@ function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFoc
 
     if isPlayer then
         if not sadb.dSelfDebuff then
-            if self:HasEngineAuraSound(spellID) then
+            if self:HasEngineAuraSound("player", "Added", spellID) then
                 lossOfControlState.lastSelfDebuffAt = GetTime()
             elseif self:PlaySpell(self.spellList.selfDebuff, spellID) then
                 lossOfControlState.lastSelfDebuffAt = GetTime()
@@ -1580,7 +1581,7 @@ function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFoc
     local isAllySource = sourceUnit ~= nil and UnitKind(sourceUnit) == "party"
     if isAllySource and not sadb.dArenaPartner then
         self:PlaySpell(self.spellList.friendCCenemy, spellID)
-    elseif not sadb.dEnemyDebuff then
+    elseif not sadb.dEnemyDebuff and not self:HasEngineAuraSound(unit, "Added", spellID) then
         self:PlaySpell(self.spellList.enemyDebuffs, spellID, guid, name)
     end
 
@@ -1625,7 +1626,7 @@ function SoundAlerter:HandleDebuffRemoved(unit, spellID, isTargetOrFocus, isAlly
     local name = SafeUnitName(unit)
     if not name then return end
 
-    if not sadb.dEnemyDebuffDown then
+    if not sadb.dEnemyDebuffDown and not self:HasEngineAuraSound(unit, "Removed", spellID) then
         self:PlaySpell(self.spellList.enemyDebuffdown, spellID)
     end
 
@@ -2037,12 +2038,14 @@ end
 
 function SoundAlerter:PLAYER_TARGET_CHANGED()
     self:ClearAuraTracking("target")
+    self:RefreshEnemyAuraUnits()
     self:CheckWatchlist("target")
     self:CheckProximityAlert("target")
 end
 
 function SoundAlerter:PLAYER_FOCUS_CHANGED()
     self:ClearAuraTracking("focus")
+    self:RefreshEnemyAuraUnits()
 end
 
 function SoundAlerter:UPDATE_MOUSEOVER_UNIT()
