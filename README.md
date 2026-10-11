@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.51-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.52-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-purple.svg"/>
@@ -78,6 +78,7 @@ Instant audio callouts for enemy cooldowns, crowd control and interrupts, for yo
 * **Presets with undo:** Arena, Battleground, Only what hits me, Big cooldowns, Silence all
 * **Search** across every class by spell name or sound key
 * **Interrupts:** your own interrupts, Feral Charge included, are announced with the spell you stopped; optional `/roar` emote. When the client reveals who interrupted, the announcement is exact and immediate; otherwise it still pairs by timing
+* **Loss of control voice (off by default):** speaks the kind of effect that hits you (stun, fear, root, silence, disarm, incapacitate, spell lockout) from the game's own loss of control data, with no spell list, and stays quiet when a self debuff alert just spoke. Add `stunned.mp3` and `incapacitated.mp3` to `Voice/` for those two. `/sa` -> General -> Loss Of Control Voice
 * **Chat alerts** go to Say, Party, Raid or Instance, and fall back to your own chat when no channel is available
 
 **Configuration**: `/sa` -> Voice Alerts

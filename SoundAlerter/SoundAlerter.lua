@@ -524,6 +524,7 @@ function SoundAlerter:OnEnable()
     self:RegisterEvent("UNIT_FACTION")
     self:RegisterEvent("UNIT_TARGET")
     self:RegisterEvent("UPDATE_BATTLEFIELD_SCORE")
+    pcall(self.RegisterEvent, self, "LOSS_OF_CONTROL_ADDED")
     self:RegisterEvent("PLAYER_LOGOUT")
 
     self:RefreshZoneState()
@@ -673,6 +674,7 @@ function SoundAlerter:PlaySpell(list, spellID, sourceGUID, sourceName)
                 Statistics:RecordAlert("spellAlerts", spellID, sourceGUID, sourceName)
             end
         end
+        return true
     end
 end
 
@@ -1337,6 +1339,23 @@ function SoundAlerter:ProbeAuraUpdate(unit, kind, updateInfo, path)
         unit, kind, combat, path or "?", info, full, added, removed, firstSpell)
 end
 
+local lossOfControlState = { lastSpoken = {} }
+
+function SoundAlerter:LOSS_OF_CONTROL_ADDED(event, index)
+    if not sadb.lossOfControlVoice then return end
+    if not (C_LossOfControl and C_LossOfControl.GetActiveLossOfControlData) then return end
+    if not self:IsAlertZoneAllowed() then return end
+    local ok, data = pcall(C_LossOfControl.GetActiveLossOfControlData, Plain(index) or 1)
+    if not ok or type(data) ~= "table" then return end
+    local category = SA_LossOfControl.Category(Plain(data.locType))
+    if not category then return end
+    local now = GetTime()
+    if not SA_LossOfControl.ShouldSpeak(sadb, lossOfControlState, category, now) then return end
+    lossOfControlState.lastSpoken[category] = now
+    self:Debug("LossOfControl", "%s (%s)", category, tostring(Plain(data.locType)))
+    self:PlayVoice(sadb.sapath .. SA_LossOfControl.Voice(category))
+end
+
 local probeLog = SA_DebugLog.NewProbe(function(value) return issecretvalue(value) end)
 
 function SoundAlerter:ProbeValue(tag, ...)
@@ -1447,8 +1466,8 @@ function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFoc
     end
 
     if isPlayer then
-        if not sadb.dSelfDebuff then
-            self:PlaySpell(self.spellList.selfDebuff, spellID)
+        if not sadb.dSelfDebuff and self:PlaySpell(self.spellList.selfDebuff, spellID) then
+            lossOfControlState.lastSelfDebuffAt = GetTime()
         end
         if not sadb.chatalerts then
             if ((spellID == 450600 and sadb.hexselffriend) or

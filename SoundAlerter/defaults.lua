@@ -132,6 +132,15 @@ dbDefaults = {
 		quietOutsidePvPFlag = false,
 		snoozeMinutes = 15,
 		scoreboardClassFallback = true,
+		lossOfControlVoice = false,
+		lossOfControlDedupe = true,
+		lossOfControlStun = true,
+		lossOfControlFear = true,
+		lossOfControlRoot = true,
+		lossOfControlSilence = true,
+		lossOfControlDisarm = true,
+		lossOfControlIncapacitate = true,
+		lossOfControlInterrupt = true,
 
 		proximityToasts = {
 			enabled = false,
