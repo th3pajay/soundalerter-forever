@@ -1128,6 +1128,7 @@ local INTERRUPT_ABILITY_SPELLS = {
 }
 local lastInterruptCast = nil
 local lastEnemyCast = {}
+local lastEnemyCastAt = {}
 local lastPlayerInterrupt = nil
 local pendingEnemyInterrupt = nil
 local INTERRUPT_CORRELATION_WINDOW = 0.6
@@ -1137,7 +1138,7 @@ local function InterrupterIsPlayer(interruptedBy)
     return interruptedBy == UnitGUID("player")
 end
 
-function SoundAlerter:AnnounceEnemyInterrupt(enemyName, interruptedSpellID, abilitySpellID)
+function SoundAlerter:AnnounceEnemyInterrupt(enemyName, interruptedSpellID, abilitySpellID, unit)
     self:Debug("Interrupt", "paired: %s interrupted with spell %s (interrupted spell %s); sound=%s chat=%s emote=%s",
         enemyName, tostring(abilitySpellID), tostring(interruptedSpellID or "unknown"),
         tostring(not sadb.interrupt), tostring(not sadb.chatalerts and sadb.interruptenemy and true or false), tostring(sadb.interruptemote and true or false))
@@ -1151,7 +1152,7 @@ function SoundAlerter:AnnounceEnemyInterrupt(enemyName, interruptedSpellID, abil
         pcall(DoEmote, "ROAR")
     end
     if sadb.interrupt then return end
-    SoundAlerter:PlayVoice(sadb.sapath.."lockout.mp3");
+    SoundAlerter:PlayVoice(sadb.sapath .. SA_Interrupt.EnemySound(unit, sadb));
     if sadb.chatalerts or not sadb.interruptenemy then return end
 
     local abilityText = abilitySpellID and (GetSpellLink(abilitySpellID) or GetSpellInfo(abilitySpellID)) or ""
@@ -1163,14 +1164,33 @@ function SoundAlerter:AnnounceEnemyInterrupt(enemyName, interruptedSpellID, abil
     self:BroadcastChat(finalMessage)
 end
 
+function SoundAlerter:ScheduleInterruptReady(spellID)
+    if self.interruptReadyTimer then
+        self:CancelTimer(self.interruptReadyTimer)
+        self.interruptReadyTimer = nil
+    end
+    if not sadb.interruptReadyVoice then return end
+    local cooldown = SA_Interrupt.Cooldown(spellID)
+    if not cooldown then return end
+    self.interruptReadyTimer = self:ScheduleTimer("InterruptReady", cooldown)
+end
+
+function SoundAlerter:InterruptReady()
+    self.interruptReadyTimer = nil
+    if sadb.interruptReadyVoice and not sadb.interrupt and self:IsAlertZoneAllowed() then
+        self:PlayVoice(sadb.sapath .. "interruptready.mp3")
+    end
+end
+
 function SoundAlerter:RecordPlayerInterrupt(spellID)
     if issecretvalue(spellID) or not INTERRUPT_ABILITY_SPELLS[spellID] then return end
     local now = GetTime()
+    self:ScheduleInterruptReady(spellID)
     local pending = pendingEnemyInterrupt
     if pending and (now - pending.time) <= INTERRUPT_CORRELATION_WINDOW then
         pendingEnemyInterrupt = nil
         lastPlayerInterrupt = nil
-        self:AnnounceEnemyInterrupt(pending.name, pending.spellID, spellID)
+        self:AnnounceEnemyInterrupt(pending.name, pending.spellID, spellID, pending.unit)
         return
     end
     lastPlayerInterrupt = { spellID = spellID, time = now }
@@ -1996,6 +2016,7 @@ end
 function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
     if unit == "target" or unit == "focus" or unit == "mouseover" then
         lastEnemyCast[unit] = not issecretvalue(spellID) and spellID or nil
+        lastEnemyCastAt[unit] = GetTime()
     end
     if not unit or not IsRelevantCastUnit(unit) then return end
     if not self:IsAlertZoneAllowed() then return end
@@ -2037,7 +2058,7 @@ function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
 end
 
 function SoundAlerter:UNIT_SPELLCAST_SUCCEEDED(event, unit, castGUID, spellID)
-    if unit == "player" then
+    if unit == "player" or (unit == "pet" and sadb.interruptPets) then
         self:RecordPlayerInterrupt(spellID)
         return
     end
@@ -2141,6 +2162,10 @@ function SoundAlerter:UNIT_SPELLCAST_INTERRUPTED(event, unit, castGUID, spellID,
     if not name then return end
 
     local now = GetTime()
+    if not SA_Interrupt.PassesMinCast(sadb.interruptMinCast, lastEnemyCastAt[unit], now) then
+        self:Debug("Interrupt", "%s (%s) interrupted before the %.1fs minimum cast time", name, unit, sadb.interruptMinCast)
+        return
+    end
     local mine = lastPlayerInterrupt
     local byPlayer = InterrupterIsPlayer(interruptedBy)
     if byPlayer == false then
@@ -2151,13 +2176,13 @@ function SoundAlerter:UNIT_SPELLCAST_INTERRUPTED(event, unit, castGUID, spellID,
         local ability = mine and (now - mine.time) <= INTERRUPT_CORRELATION_WINDOW and mine.spellID or nil
         lastPlayerInterrupt = nil
         pendingEnemyInterrupt = nil
-        self:AnnounceEnemyInterrupt(name, spellID, ability)
+        self:AnnounceEnemyInterrupt(name, spellID, ability, unit)
     elseif mine and (now - mine.time) <= INTERRUPT_CORRELATION_WINDOW then
         lastPlayerInterrupt = nil
         pendingEnemyInterrupt = nil
-        self:AnnounceEnemyInterrupt(name, spellID, mine.spellID)
+        self:AnnounceEnemyInterrupt(name, spellID, mine.spellID, unit)
     else
         self:Debug("Interrupt", "%s (%s) was interrupted, waiting %.1fs for your interrupt cast", name, unit, INTERRUPT_CORRELATION_WINDOW)
-        pendingEnemyInterrupt = { name = name, spellID = spellID, time = now }
+        pendingEnemyInterrupt = { name = name, spellID = spellID, time = now, unit = unit }
     end
 end
