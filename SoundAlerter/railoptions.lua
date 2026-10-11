@@ -178,6 +178,10 @@ function SoundAlerter:RailProximity(options)
         { key = "toastAppearance", promote = "toastAppearance", name = "Toast look", icon = ICONS.look, order = 4 },
         { key = "toastPosition", promote = "toastPosition", name = "Position and test", icon = ICONS.position, order = 5 },
         { key = "clickInteractions", promote = "clickInteractions", name = "Clicks", icon = ICONS.click, order = 6 },
+        { key = "enemyAwareness", promote = "enemyAwareness", name = "Enemy targeting", icon = ICONS.alert, order = 7 },
+        { key = "quietRules", promote = "quietRules", name = "Quiet rules", icon = ICONS.filter, order = 8 },
+        { key = "identification", promote = "identification", name = "Identification", icon = ICONS.look, order = 9 },
+        { key = "watchlist", promote = "watchlist", name = "Watchlist", icon = ICONS.where, order = 10 },
     })
 end
 

@@ -238,6 +238,72 @@ function SoundAlerter:BuildVoiceAlertPanel(ctx)
             },
         },
     }
+    local function toggle(key, name, desc, order, parentKey, supported)
+        return {
+            type = 'toggle',
+            name = name,
+            desc = desc,
+            order = order,
+            get = function() return db()[key] end,
+            set = function(_, value) db()[key] = value end,
+            disabled = function()
+                if supported and not supported() then return true end
+                return parentKey ~= nil and not db()[parentKey]
+            end,
+        }
+    end
+
+    overviewArgs.lossOfControl = {
+        type = 'group',
+        inline = true,
+        name = "Loss of control voice",
+        order = 4,
+        args = {
+            lossOfControlVoice = toggle("lossOfControlVoice", "Enable", "Speak the control effect that hits you.", 1),
+            lossOfControlDedupe = toggle("lossOfControlDedupe", "Skip if a spell alert just spoke", nil, 2, "lossOfControlVoice"),
+            lossOfControlStun = toggle("lossOfControlStun", "Stun", nil, 3, "lossOfControlVoice"),
+            lossOfControlFear = toggle("lossOfControlFear", "Fear", nil, 4, "lossOfControlVoice"),
+            lossOfControlRoot = toggle("lossOfControlRoot", "Root", nil, 5, "lossOfControlVoice"),
+            lossOfControlSilence = toggle("lossOfControlSilence", "Silence", nil, 6, "lossOfControlVoice"),
+            lossOfControlDisarm = toggle("lossOfControlDisarm", "Disarm", nil, 7, "lossOfControlVoice"),
+            lossOfControlIncapacitate = toggle("lossOfControlIncapacitate", "Incapacitate", nil, 8, "lossOfControlVoice"),
+            lossOfControlInterrupt = toggle("lossOfControlInterrupt", "Spell lockout", nil, 9, "lossOfControlVoice"),
+        },
+    }
+
+    overviewArgs.interruptExtras = {
+        type = 'group',
+        inline = true,
+        name = "Interrupt extras",
+        order = 5,
+        args = {
+            interruptFocusVoice = toggle("interruptFocusVoice", "Own sound for focus", "Play focusinterrupted.mp3 for focus interrupts.", 1),
+            interruptMinCast = {
+                type = 'range',
+                name = "Minimum cast time (seconds)",
+                desc = "Ignore interrupts of shorter casts. 0 announces all.",
+                min = 0,
+                max = 3,
+                step = 0.1,
+                order = 2,
+                get = function() return db().interruptMinCast end,
+                set = function(_, value) db().interruptMinCast = value end,
+            },
+            interruptPets = toggle("interruptPets", "Count pet interrupts", nil, 3),
+            interruptReadyVoice = toggle("interruptReadyVoice", "Say when interrupt is ready", "Estimated from the spell's usual cooldown.", 4),
+        },
+    }
+
+    overviewArgs.engineAuraSounds = {
+        type = 'group',
+        inline = true,
+        name = "Engine aura sounds",
+        order = 6,
+        args = {
+            engineAuraSounds = toggle("engineAuraSounds", "Let the game play self debuff alerts", "Experimental. Skips Statistics for those spells. /sa aurasound tests it.", 1, nil, function() return SoundAlerter:EngineAuraSoundSupported() end),
+        },
+    }
+
     if ctx.silence then
         ctx.silence.order = 3
         overviewArgs.silence = ctx.silence
@@ -247,7 +313,7 @@ function SoundAlerter:BuildVoiceAlertPanel(ctx)
         presetsHeader = { type = 'header', name = "Presets", order = 0.5 },
         overview = {
             type = 'group',
-            name = "Arena extras and silencing",
+            name = "Extras and silencing",
             icon = "Interface\\Icons\\INV_Misc_Bell_01",
             order = 1,
             args = overviewArgs,
