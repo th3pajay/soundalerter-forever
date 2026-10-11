@@ -475,7 +475,7 @@ function ResourceBar:RegisterEvents()
 		local powerToken = config.powerToken
 
 		for _, event in ipairs(config.events) do
-			frame:RegisterEvent(event)
+			frame:RegisterUnitEvent(event, "player")
 		end
 
 		frame:SetScript("OnEvent", function(_, _, unitId, powerType)
@@ -485,9 +485,9 @@ function ResourceBar:RegisterEvents()
 		end)
 	end
 
-	self.comboFrame:RegisterEvent("UNIT_POWER_FREQUENT")
-	self.comboFrame:RegisterEvent("UNIT_POWER_UPDATE")
-	self.comboFrame:RegisterEvent("UNIT_MAXPOWER")
+	self.comboFrame:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
+	self.comboFrame:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
+	self.comboFrame:RegisterUnitEvent("UNIT_MAXPOWER", "player")
 	self.comboFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 	self.comboFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 	self.comboFrame:RegisterEvent("UI_SCALE_CHANGED")

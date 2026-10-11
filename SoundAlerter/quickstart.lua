@@ -35,6 +35,7 @@ QuickStart.GUIDE = {
     { key = "ResourceBar", label = "Resource Management", hint = "Health, mana, energy and rage bars" },
     { key = "CastingBars", label = "Casting Bars", hint = "Your cast, target and focus bars" },
     { key = "CastFeed", label = "Cast Feed", hint = "A log of enemy casts" },
+    { key = "CombatTimer", label = "Combat Drop Timer", hint = "How long until you leave combat" },
     { key = "SpellTracker", label = "Spell Tracker", hint = "Icons for buffs, debuffs and cooldowns" },
     { key = "Statistics", label = "Statistics", hint = "What triggered your alerts" },
     { key = "FindSpell", label = "Developer Tools", hint = "Find spell IDs, debug" },

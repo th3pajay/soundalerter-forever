@@ -32,6 +32,45 @@ SA_COMPAT.GetSpellSubtext = function(spellID)
     return nil
 end
 
+SA_COMPAT.IsSpellPassive = function(spellID)
+    if C_Spell.IsSpellPassive then
+        return SA_COMPAT.Plain(C_Spell.IsSpellPassive(spellID))
+    end
+    return nil
+end
+
+SA_COMPAT.IsSpellKnown = function(spellID)
+    if C_SpellBook and C_SpellBook.IsSpellKnown then
+        return SA_COMPAT.Plain(C_SpellBook.IsSpellKnown(spellID))
+    end
+    if IsSpellKnown then
+        return SA_COMPAT.Plain(IsSpellKnown(spellID))
+    end
+    return nil
+end
+
+SA_COMPAT.GetSpellCosts = function(spellID)
+    if not C_Spell.GetSpellPowerCost then return nil end
+    local list = C_Spell.GetSpellPowerCost(spellID)
+    if type(list) ~= "table" then return nil end
+    local costs = {}
+    for _, entry in ipairs(list) do
+        local cost = SA_COMPAT.Plain(entry.cost)
+        local name = SA_COMPAT.Plain(entry.name)
+        if type(cost) == "number" and cost > 0 and type(name) == "string" then
+            costs[#costs + 1] = { name = name, cost = cost }
+        end
+    end
+    return costs
+end
+
+SA_COMPAT.GetSpellMaxCharges = function(spellID)
+    if not C_Spell.GetSpellCharges then return nil end
+    local info = C_Spell.GetSpellCharges(spellID)
+    if type(info) ~= "table" then return nil end
+    return SA_COMPAT.Plain(info.maxCharges)
+end
+
 SA_COMPAT.GetSpellLink = function(spellID)
     return C_Spell.GetSpellLink(spellID)
 end

@@ -55,8 +55,8 @@ and say which ones you ran.
 1. `luac5.1 -p <file>` over every `.lua` you touched. The client embeds Lua 5.1: no `goto`, no
    `//`, `unpack` and not `table.unpack`. If the toolchain is not installed, write "not
    syntax-checked" instead of implying a pass.
-2. `grep -rnE '^[[:space:]]*--' SoundAlerter/` returns nothing — the comment rule, checked
-   rather than trusted.
+2. `grep -rnE '^[[:space:]]*--' SoundAlerter/ --include=*.lua --exclude-dir=Libs` returns nothing —
+   the comment rule, checked rather than trusted. The vendored `Libs/` directory is excluded.
 3. A behaviour change ships with its README.md edit in the same commit, and the README version
    badge and the TOC's `## Version` move together and never disagree.
 4. Read the changed path end to end, and re-read whatever it reads. Name the command or code path
@@ -83,7 +83,7 @@ and say which ones you ran.
   agent committed to most recently, keep the change minimal and name the file in the commit
   message.
 - **Never handle a possibly-secret value bare.** Do not compare, concatenate, format, do
-  arithmetic on, or key a table with it before scrubbing — `issecretvalue`, `canaccessvalue`.
+  arithmetic on, or key a table with it before scrubbing with `issecretvalue`.
   An unscrubbed secret throws and taints the addon for the rest of the session, and the damage
   reaches events that have nothing to do with the change.
 - **Verify a client call against the target branch's own generated documentation**, not from

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.38-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.43-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-purple.svg"/>
@@ -46,6 +46,7 @@ Built on the legacy of SoundAlerter: voice callouts, proximity toasts, cast bars
 | **Resource Bars** | Health, power and combo points, with animated textures |
 | **Casting Bars** | Player, target and focus bars with finish animations |
 | **Cast Feed** | Scrolling cast history per unit |
+| **Combat Drop Timer** | A thin line and digits counting down to the moment you leave combat |
 | **Spell Tracker** | Buff, debuff and cooldown icons that keep working in combat |
 | **Minimap Tracking** | Target and focus kept on the minimap across loading screens |
 | **Spell Finder** | Search spell IDs and descriptions |
@@ -113,11 +114,12 @@ Instant audio callouts for enemy cooldowns, crowd control and interrupts, for yo
 </p>
 
 * **Casting bars:** player, target and focus, channeled and mid-cast support, finish animations, configurable direction
+* **Combat drop timer:** a hairline bar with millisecond digits that drains toward the moment you leave combat (off by default, PvP only by default). The game does not report every hit to addons, so the countdown is an estimate that snaps to the real drop. Draggable, with saved size and position, a pulse in the last second, and a fade when you are free. `/sa ctprobe on` (debug mode) logs the combat events so the real window can be measured on your client
 * **Cast feed:** one icon row per unit with hover details and time between casts (off by default). The client hides other units' casts, so some are shown generically
 
-Every options page uses the same left-hand rail as Voice Alerts, with live previews for bars, toasts, chat lines and the cast feed.
+The options window is a flat left-hand list grouped under Setup, Alerts, Displays, Tools and Profile, with no sub-menus to open. Each module is one page of collapsible section cards (open or closed state is remembered, and the last page you used reopens), with live previews for bars, toasts, chat lines and the cast feed. Proximity, Battleground and Chat alert pages have a search box that finds any setting across those three modules; type and press Enter.
 
-**Configuration**: `/sa` -> Resource Management, Casting Bars, Cast Feed
+**Configuration**: `/sa` -> Resource Management, Casting Bars, Cast Feed, Combat Drop Timer
 
 ---
 
@@ -132,6 +134,7 @@ Every options page uses the same left-hand rail as Voice Alerts, with live previ
 * "Ready!" when a spell is off cooldown, with state borders and glows (idle, buff, debuff, expiring, ready)
 * Stays correct through druid form swaps (auras are matched by spell ID)
 * **By class:** pick a class on the left, switch what each spell tracks with chips, and preview every icon state live. Presets with undo
+* **Delete:** each spell has a Delete Spell button next to Size and timing, with a confirmation prompt you can turn off under Display > Delete Without Confirmation
 
 **Configuration**: `/sa` -> Spell Tracker
 
@@ -140,7 +143,7 @@ Every options page uses the same left-hand rail as Voice Alerts, with live previ
 ## Tools
 
 * **Minimap Tracking:** keeps target and focus on the minimap after every loading screen (off by default). `/sa` -> General
-* **Spell Finder:** search spell names and descriptions, with fuzzy matching and autocomplete.
+* **Spell Finder:** search spell names and descriptions, with fuzzy matching and autocomplete. Type a spell ID to jump straight to it, search for words in any order or from the middle of a name, and see cast time, range, icon ID, cost, charges, passive or active, and whether you know the spell. Filter results by Active or Passive and by Known or Not known.
 
 <p align="center">
 <img src="Media/find_spell_db_progress.gif?raw=true" alt="Find Spell" width="256"/>

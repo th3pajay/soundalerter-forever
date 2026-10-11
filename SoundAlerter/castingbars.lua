@@ -261,9 +261,10 @@ function CastingBars:Attach()
 	if self.updating then return end
 
 	self.updating = true
-	self.eventFrame:SetScript("OnUpdate", function()
+	self.onUpdateHandler = self.onUpdateHandler or function()
 		self:OnUpdate()
-	end)
+	end
+	self.eventFrame:SetScript("OnUpdate", self.onUpdateHandler)
 end
 
 function CastingBars:Detach()
@@ -273,17 +274,23 @@ function CastingBars:Detach()
 	self.eventFrame:SetScript("OnUpdate", nil)
 end
 
+local UNIT_CAST_EVENTS = {
+	"UNIT_SPELLCAST_START",
+	"UNIT_SPELLCAST_STOP",
+	"UNIT_SPELLCAST_FAILED",
+	"UNIT_SPELLCAST_INTERRUPTED",
+	"UNIT_SPELLCAST_DELAYED",
+	"UNIT_SPELLCAST_CHANNEL_START",
+	"UNIT_SPELLCAST_CHANNEL_STOP",
+	"UNIT_SPELLCAST_CHANNEL_UPDATE",
+}
+
 function CastingBars:RegisterEvents()
 	self.eventFrame = CreateFrame("Frame")
 
-	self.eventFrame:RegisterEvent("UNIT_SPELLCAST_START")
-	self.eventFrame:RegisterEvent("UNIT_SPELLCAST_STOP")
-	self.eventFrame:RegisterEvent("UNIT_SPELLCAST_FAILED")
-	self.eventFrame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
-	self.eventFrame:RegisterEvent("UNIT_SPELLCAST_DELAYED")
-	self.eventFrame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_START")
-	self.eventFrame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_STOP")
-	self.eventFrame:RegisterEvent("UNIT_SPELLCAST_CHANNEL_UPDATE")
+	for _, event in ipairs(UNIT_CAST_EVENTS) do
+		self.eventFrame:RegisterUnitEvent(event, unpack(UNIT_ORDER))
+	end
 	self.eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 	self.eventFrame:RegisterEvent("PLAYER_FOCUS_CHANGED")
 	self.eventFrame:RegisterEvent("UI_SCALE_CHANGED")
@@ -339,10 +346,25 @@ function CastingBars:OnEvent(event, unit)
 
 	if not self.bars[unit] then return end
 
-	local handler = EVENT_HANDLERS[event]
-	C_Timer.After(0, function()
-		handler(self, unit)
-	end)
+	local byEvent = self.deferred
+	if not byEvent then
+		byEvent = {}
+		self.deferred = byEvent
+	end
+	local deferred = byEvent[event]
+	if not deferred then
+		deferred = {}
+		byEvent[event] = deferred
+	end
+	local run = deferred[unit]
+	if not run then
+		local handler = EVENT_HANDLERS[event]
+		run = function()
+			handler(self, unit)
+		end
+		deferred[unit] = run
+	end
+	C_Timer.After(0, run)
 end
 
 function CastingBars:SetTimes(b, startTime, endTime)

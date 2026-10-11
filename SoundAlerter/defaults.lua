@@ -242,6 +242,28 @@ dbDefaults = {
 			},
 		},
 
+		combatTimer = {
+			enabled = false,
+			locked = true,
+			PositionX = 0,
+			PositionY = -120,
+			scale = 1,
+			width = 150,
+			thickness = 2,
+			windowSeconds = 5,
+			decimals = 3,
+			showDigits = true,
+			digitSize = 11,
+			animations = true,
+			fadeWhenFree = true,
+			freeAlpha = 0.3,
+			onlyInPvP = true,
+			hotColor = { r = 1, g = 0.3, b = 0.3 },
+			warmColor = { r = 1, g = 0.69, b = 0.13 },
+			coolColor = { r = 0.61, g = 0.9, b = 0.4 },
+			freeColor = { r = 0.24, g = 0.86, b = 0.52 },
+		},
+
 		castFeed = {
 			enabled = false,
 			locked = true,
@@ -271,6 +293,7 @@ dbDefaults = {
 			showBorderTimer = false,
 			showCooldownText = true,
 			showReadyText = false,
+			deleteWithoutConfirm = false,
 			icons = {},
 		},
 

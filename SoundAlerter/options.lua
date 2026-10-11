@@ -26,7 +26,15 @@ function SoundAlerter:ShowConfig()
     if widget and widget.frame and widget.frame:IsVisible() then
         widget:Hide()
     else
+        SA_OptionsNav.RestorePage(AceConfigDialog, sadb.ui)
 	    AceConfigDialog:Open(configName)
+        local opened = AceConfigDialog.OpenFrames[configName]
+        if opened and opened.frame and not opened.frame.saRemembersPage then
+            opened.frame.saRemembersPage = true
+            opened.frame:HookScript("OnHide", function()
+                SA_OptionsNav.RememberPage(AceConfigDialog, sadb.ui)
+            end)
+        end
     end
 end
 
@@ -34,7 +42,7 @@ local function setOption(info, value)
     local name = info[#info]
     sadb[name] = value
     if value then
-        PlaySoundFile(sadb.sapath .. name .. ".mp3");
+        SoundAlerter:PlayVoice(sadb.sapath .. name .. ".mp3");
     end
 end
 
@@ -62,6 +70,8 @@ function SoundAlerter:OnOptionsProfileChanged()
 	sadb = self.db1.profile
 	sadb.custom = sadb.custom or {}
 	sadb.proximityToasts = sadb.proximityToasts or {}
+	sadb.ui = sadb.ui or {}
+	sadb.ui.collapsed = sadb.ui.collapsed or {}
 end
 
 function SoundAlerter:BuildGeneralOptions()
@@ -3311,6 +3321,10 @@ end
 
 function SoundAlerter:OnOptionsCreate()
 	sadb = self.db1.profile
+	self:InvalidateTrackedAuraIDs()
+	sadb.ui = sadb.ui or {}
+	sadb.ui.collapsed = sadb.ui.collapsed or {}
+	SA_OptionsRail.Store = function() return sadb.ui.collapsed end
 	self:AddOption("profiles", LibStub("AceDBOptions-3.0"):GetOptionsTable(self.db1))
 	self.options.args.profiles.order = -1
 
@@ -3328,6 +3342,8 @@ function SoundAlerter:OnOptionsCreate()
 
 	self:AddOption('CastFeed', self:BuildCastFeedOptions())
 
+	self:AddOption('CombatTimer', self:BuildCombatTimerOptions())
+
 	self:AddOption('SpellTracker', self:BuildSpellTrackerOptions())
 
 	self:AddOption('Statistics', self:BuildStatisticsOptions())
@@ -3340,7 +3356,7 @@ function SoundAlerter:OnOptionsCreate()
 		self.options.args.custom.args[key] = {
 			type = 'group',
 			name = sadb.custom[key].name,
-			set = function(info, value) local name = info[#info] sadb.custom[key][name] = value end,
+			set = function(info, value) local name = info[#info] sadb.custom[key][name] = value SoundAlerter:InvalidateTrackedAuraIDs() end,
 			get = function(info) local name = info[#info] return sadb.custom[key][name] end,
 			order = sadb.custom[key].order,
 			args = {
@@ -3370,6 +3386,7 @@ function SoundAlerter:OnOptionsCreate()
 					desc = L["Visible in the spell tooltip when tooltip spell IDs are enabled"],
 					set = function(info, value)
 					local name = info[#info] sadb.custom[key][name] = value
+						SoundAlerter:InvalidateTrackedAuraIDs()
 						if GetSpellInfo(value) then
 							sadb.custom[key].spellname = GetSpellInfo(value)
 							self.options.args.custom.args[keytemp].spellname = GetSpellInfo(value)
@@ -3390,6 +3407,7 @@ function SoundAlerter:OnOptionsCreate()
 					confirmText = L["Are you sure?"],
 					func = function()
 						sadb.custom[key] = nil
+						SoundAlerter:InvalidateTrackedAuraIDs()
 						self.options.args.custom.args[keytemp] = nil
 					end,
 				},
@@ -3409,7 +3427,7 @@ function SoundAlerter:OnOptionsCreate()
 					order = 28,
 					name = L["Test"],
 					desc = L["If you don't hear anything, try restarting WoW"],
-					func = function() PlaySoundFile("Interface\\Addons\\SoundAlerter\\CustomSounds\\"..sadb.custom[key].soundfilepath) end,
+					func = function() SoundAlerter:PlayVoice("Interface\\Addons\\SoundAlerter\\CustomSounds\\"..sadb.custom[key].soundfilepath) end,
 					hidden = function() if sadb.custom[key].chatAlert then return true end end,
 				},
 				soundfilepath = {
@@ -3434,7 +3452,7 @@ function SoundAlerter:OnOptionsCreate()
 					name = L["Event type - it's best to have the least amount of event conditions"],
 					values = self.SA_EVENT,
 					get = function(info, k) return sadb.custom[key].eventtype[k] end,
-					set = function(info, k, v) sadb.custom[key].eventtype[k] = v end,
+					set = function(info, k, v) sadb.custom[key].eventtype[k] = v SoundAlerter:InvalidateTrackedAuraIDs() end,
 				},
 				sourceuidfilter = {
 					type = 'select',
@@ -3483,4 +3501,5 @@ function SoundAlerter:OnOptionsCreate()
 	for key in pairs(sadb.custom) do
 		makeoption(key)
 	end
+	SA_OptionsNav.Layout(self.options)
 end

@@ -7,6 +7,8 @@ local WAVE_INTERVAL = 0.05
 local WAVE_COLUMN_PIXELS = { 6, 5, 4 }
 local WAVE_LAYER_ALPHA = { 0.35, 0.6, 1 }
 
+local math_ceil, math_floor, math_min = math.ceil, math.floor, math.min
+
 local Wave = {}
 Wave.__index = Wave
 
@@ -335,11 +337,6 @@ local function anchorWaveColumn(bar, column, reverse)
 end
 
 local function updateWaves(bar, state, dt, width, height, fill)
-	state.accumulated = (state.accumulated or 0) + dt
-	if state.accumulated < WAVE_INTERVAL then return end
-	dt = state.accumulated
-	state.accumulated = 0
-
 	fill:SetAlpha(0)
 
 	if not state.wave or state.wave.width ~= width then
@@ -353,6 +350,7 @@ local function updateWaves(bar, state, dt, width, height, fill)
 
 	local reverse = bar:GetReverseFill() and true or false
 	local ppu = SoundAlerter.BarUtils:PixelsPerUnit(bar)
+	local minTop = 1 / ppu
 	local r, g, b = bar:GetStatusBarColor()
 	if state.r ~= r or state.g ~= g or state.b ~= b then
 		state.r, state.g, state.b = r, g, b
@@ -361,17 +359,19 @@ local function updateWaves(bar, state, dt, width, height, fill)
 
 	for layer = 1, Wave.LAYER_COUNT do
 		local spacing = WAVE_COLUMN_PIXELS[layer]
-		local count = math.ceil(width / spacing)
+		local count = math_ceil(width / spacing)
 		local columns = state.columns[layer]
+		local layerAlpha = WAVE_LAYER_ALPHA[layer]
+		local limit = fillWidth or width
 
 		for index = 1, count do
-			local column = waveColumn(state, layer, index)
+			local column = columns[index] or waveColumn(state, layer, index)
 			local x = column.x
-			local columnWidth = math.min(spacing, (fillWidth or width) - x)
+			local columnWidth = math_min(spacing, limit - x)
 			local top = columnWidth > 0 and wave:Height(layer, x + columnWidth / 2, height) or 0
-			top = math.floor(top * ppu + 0.5) / ppu
+			top = math_floor(top * ppu + 0.5) / ppu
 
-			if columnWidth <= 0 or top < 1 / ppu then
+			if columnWidth <= 0 or top < minTop then
 				if column.visible then
 					column:Hide()
 					column.visible = false
@@ -379,7 +379,7 @@ local function updateWaves(bar, state, dt, width, height, fill)
 			else
 				anchorWaveColumn(bar, column, reverse)
 				if column.colorVersion ~= state.colorVersion then
-					column:SetVertexColor(r, g, b, WAVE_LAYER_ALPHA[layer])
+					column:SetVertexColor(r, g, b, layerAlpha)
 					column.colorVersion = state.colorVersion
 				end
 				if column.shownWidth ~= columnWidth then
@@ -409,6 +409,16 @@ end
 
 function BarTexture:Update(bar, dt)
 	local state = bar.textureState
+	if state.style and state.style.wave then
+		local accumulated = (state.accumulated or 0) + dt
+		if accumulated < WAVE_INTERVAL then
+			state.accumulated = accumulated
+			return
+		end
+		dt = accumulated
+		state.accumulated = 0
+	end
+
 	local width, height = bar:GetSize()
 	local fill = bar:GetStatusBarTexture()
 
@@ -434,6 +444,12 @@ local function ensureDriver()
 	driver = CreateFrame("Frame")
 	driver.elapsed = 0
 	driver:SetScript("OnUpdate", function(self, elapsed)
+		if next(animatedBars) == nil then
+			self.elapsed = 0
+			self:Hide()
+			return
+		end
+
 		self.elapsed = self.elapsed + elapsed
 		if self.elapsed < TICK then return end
 

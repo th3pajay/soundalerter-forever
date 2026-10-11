@@ -74,6 +74,7 @@ end
 
 function SoundAlerter:ChangeProfile()
 	sadb = self.db1.profile
+	self:InvalidateTrackedAuraIDs()
 	self:OnOptionsProfileChanged()
 
 	for _,v in SoundAlerter:IterateModules() do
@@ -100,6 +101,10 @@ function SoundAlerter:ChangeProfile()
 
 	if self.CastFeed then
 		self.CastFeed:OnProfileChanged()
+	end
+
+	if self.CombatTimer then
+		self.CombatTimer:OnProfileChanged()
 	end
 
 	if self.FlagAlerts then
@@ -488,10 +493,6 @@ function SoundAlerter:OnInitialize()
 
     self:Print("|cffFF7D0ASoundAlerter|r by |cff00FF00th|r|cff00D4FF3|r|cff00FF00pajay|r - /SA ")
 	self:CreateMinimapButton()
-
-	if not self:LoadSpellDatabase() then
-		self:BuildSpellDatabase()
-	end
 end
 
 function SoundAlerter:InitializeModule(moduleName)
@@ -547,6 +548,7 @@ function SoundAlerter:OnEnable()
     self:InitializeModule("CastingBars")
     self:InitializeModule("SpellTracker")
     self:InitializeModule("CastFeed")
+    self:InitializeModule("CombatTimer")
     self:InitializeModule("MinimapTracking")
 
     local Statistics = self:GetModule("Statistics")
@@ -564,7 +566,7 @@ function SoundAlerter:OnEnable()
 end
 
 function SoundAlerter:PlayTrinket(sourceGUID, sourceName)
-    PlaySoundFile(sadb.sapath.."Trinket.mp3");
+    SoundAlerter:PlayVoice(sadb.sapath.."Trinket.mp3");
 
     if sadb.statistics and sadb.statistics.enabled then
         local Statistics = self:GetModule("Statistics")
@@ -575,7 +577,7 @@ function SoundAlerter:PlayTrinket(sourceGUID, sourceName)
 end
 
 function SoundAlerter:Interrupted()
-    PlaySoundFile(sadb.sapath.."Interrupted.mp3");
+    SoundAlerter:PlayVoice(sadb.sapath.."Interrupted.mp3");
 end
 
 local function IsChatBlocked()
@@ -602,27 +604,50 @@ local function ResolveChatChannel(channel, inInstance)
     return channel
 end
 
-function SoundAlerter:BroadcastChat(message)
-    if sadb.chatgroups.NONE then return end
-    local sent = false
+SoundAlerter.voiceFailures = 0
+
+function SoundAlerter:PlayVoice(path, channel)
+    local ok = PlaySoundFile and pcall(PlaySoundFile, path, channel)
+    if not ok then
+        self.voiceFailures = self.voiceFailures + 1
+        if self.voiceFailures == 1 then
+            self:Print("Voice playback unavailable on this client.")
+        end
+        self:Debug("Sound", "playback failed (%d): %s", self.voiceFailures, tostring(path))
+    end
+    return ok
+end
+
+function SoundAlerter:SendChat(message, channels)
     if IsChatBlocked() then
         self:Debug("Chat", "not sent, chat is locked down: %s", message)
-    else
-        local inInstance = IsInInstance()
-        for channel, enabled in pairs(sadb.chatgroups) do
-            if enabled and channel ~= "NONE" then
-                local target, reason = ResolveChatChannel(channel, inInstance)
-                if not target then
-                    self:Debug("Chat", "%s skipped, %s", channel, reason)
-                elseif pcall(SendChatMessage, message, target, nil, nil) then
-                    sent = true
-                    self:Debug("Chat", "sent to %s: %s", target, message)
-                else
-                    self:Debug("Chat", "%s send failed", target)
-                end
-            end
+        return false
+    end
+    local sent = false
+    local inInstance = IsInInstance()
+    for _, channel in ipairs(channels) do
+        local target, reason = ResolveChatChannel(channel, inInstance)
+        if not target then
+            self:Debug("Chat", "%s skipped, %s", channel, reason)
+        elseif pcall(SendChatMessage, message, target, nil, nil) then
+            sent = true
+            self:Debug("Chat", "sent to %s: %s", target, message)
+        else
+            self:Debug("Chat", "%s send failed", target)
         end
     end
+    return sent
+end
+
+function SoundAlerter:BroadcastChat(message)
+    if sadb.chatgroups.NONE then return end
+    local channels = {}
+    for channel, enabled in pairs(sadb.chatgroups) do
+        if enabled and channel ~= "NONE" then
+            channels[#channels + 1] = channel
+        end
+    end
+    local sent = self:SendChat(message, channels)
     if not sent then
         self:Debug("Chat", "no channel available, printed locally")
         self:Print(message)
@@ -633,7 +658,7 @@ function SoundAlerter:PlaySpell(list, spellID, sourceGUID, sourceName)
     if list[spellID] then
         if not sadb[list[spellID]] then return end
         self:Debug("Sound", "%s.mp3 (spell %d, source %s)", list[spellID], spellID, tostring(sourceName or "?"))
-        PlaySoundFile(sadb.sapath..list[spellID]..".mp3");
+        SoundAlerter:PlayVoice(sadb.sapath..list[spellID]..".mp3");
 
         if sadb.statistics and sadb.statistics.enabled then
             local Statistics = self:GetModule("Statistics")
@@ -757,6 +782,9 @@ function SoundAlerter:HandleCommand(input)
         if self.FlagAlerts then
             self.FlagAlerts:PrintHelp()
         end
+        if self.CombatTimer then
+            self.CombatTimer:PrintHelp()
+        end
     elseif command == "toast" then
         if self.ProximityToasts then
             self.ProximityToasts:HandleCommand(rest)
@@ -769,6 +797,12 @@ function SoundAlerter:HandleCommand(input)
         else
             self:Print("|cffFF0000FlagAlerts module not loaded.|r")
         end
+    elseif command == "ctprobe" then
+        if self.CombatTimer then
+            self.CombatTimer:HandleCommand(rest)
+        else
+            self:Print("|cffFF0000CombatTimer module not loaded.|r")
+        end
     elseif command == "apicheck" then
         self:RunApiCheck()
     elseif command == "zonelog" then
@@ -778,44 +812,82 @@ function SoundAlerter:HandleCommand(input)
     end
 end
 
+local REQUIRED_APIS = {
+    "PlaySoundFile",
+    "C_Spell", "C_Spell.GetSpellInfo", "C_Spell.GetSpellLink",
+    "C_Spell.GetSpellDescription", "C_Spell.GetSpellSubtext", "C_Spell.GetSpellCooldown",
+    "C_Spell.RequestLoadSpellData",
+    "C_PvP", "C_PvP.GetZonePVPInfo",
+    "C_UnitAuras", "C_UnitAuras.GetAuraDataByIndex",
+    "C_Timer", "C_Timer.After",
+    "UnitCastingInfo", "UnitChannelInfo",
+    "issecretvalue",
+}
+
+local RESTRICTED_PROBES = {
+    "GetZonePVPInfo", "GetSpellInfo", "GetSpellLink", "GetSpellCooldown",
+    "CombatLogGetCurrentEventInfo", "CombatLog_Object_IsA",
+}
+
+local SPELL_FINDER_CANDIDATES = {
+    "C_Spell.GetSpellPowerCost", "C_Spell.GetSpellCharges", "C_Spell.IsSpellPassive",
+    "C_Spell.GetSpellTexture", "C_Spell.GetSpellLossOfControlCooldown",
+    "C_SpellBook", "C_SpellBook.IsSpellKnown", "C_SpellBook.IsSpellInSpellBook",
+    "C_SpellBook.GetSpellBookItemInfo", "C_SpellBook.FindSpellBookSlotForSpell",
+    "GetSpellPowerCost", "GetSpellCharges", "IsPassiveSpell", "IsSpellKnown",
+}
+
+local function lookupPath(path)
+    local value = _G
+    for segment in path:gmatch("[^%.]+") do
+        if type(value) ~= "table" then return nil end
+        value = value[segment]
+    end
+    return value
+end
+
 function SoundAlerter:RunApiCheck()
     self:Print("|cffFFD700=== SoundAlerter API Check ===|r")
 
-    local function checkPath(path)
-        local value = _G
-        for segment in path:gmatch("[^%.]+") do
-            if type(value) ~= "table" then
-                value = nil
-                break
+    if not PlaySoundFile then
+        self:Print("|cffFF0000Voice playback unavailable: PlaySoundFile is missing.|r")
+    end
+
+    local function report(paths, presentTag, absentTag)
+        for _, path in ipairs(paths) do
+            local value = lookupPath(path)
+            if value ~= nil then
+                self:Print(presentTag.." "..path.." ("..type(value)..")")
+            else
+                self:Print(absentTag.." "..path)
             end
-            value = value[segment]
         end
-        local ok = value ~= nil
-        self:Print((ok and "|cff00FF00[OK]|r " or "|cffFF0000[MISSING]|r ")..path..(ok and (" ("..type(value)..")") or ""))
     end
 
-    local paths = {
-        "C_Spell", "C_Spell.GetSpellInfo", "C_Spell.GetSpellLink",
-        "C_Spell.GetSpellDescription", "C_Spell.GetSpellCooldown", "C_Spell.RequestLoadSpellData",
-        "C_PvP", "C_PvP.GetZonePVPInfo",
-        "C_UnitAuras", "C_UnitAuras.GetAuraDataByIndex",
-        "C_Timer", "C_Timer.After",
-        "UnitCastingInfo", "UnitChannelInfo",
-        "GetZonePVPInfo", "GetSpellInfo", "GetSpellLink", "GetSpellCooldown",
-        "issecretvalue", "CombatLogGetCurrentEventInfo", "CombatLog_Object_IsA",
-    }
+    self:Print("|cffFFD700=== Required APIs ===|r")
+    report(REQUIRED_APIS, "|cff00FF00[OK]|r", "|cffFF0000[MISSING]|r")
 
-    for _, path in ipairs(paths) do
-        checkPath(path)
+    self:Print("|cffFFD700=== Restricted or legacy probes (absent is expected) ===|r")
+    report(RESTRICTED_PROBES, "|cffFFAA00[present]|r", "|cff888888[absent]|r")
+
+    self:Print("|cffFFD700=== Spell Finder candidates (informational) ===|r")
+    report(SPELL_FINDER_CANDIDATES, "|cff00FF00[present]|r", "|cff888888[absent]|r")
+
+    self:Print("|cffFFD700=== Combat log ===|r")
+
+    local restrictedCheck = lookupPath("C_CombatLog.IsCombatLogRestricted")
+    if type(restrictedCheck) == "function" then
+        local ok, restricted = pcall(restrictedCheck)
+        self:Print("Combat log restricted right now: "..(ok and (restricted and "|cffFF0000yes|r" or "|cff00FF00no|r") or "|cff888888unknown|r"))
     end
 
-    self:Print("|cffFFD700=== Scanning for CombatLog functions ===|r")
-
+    local blizzardHelpers = 0
     for key, value in pairs(_G) do
-        if type(key) == "string" and key:lower():find("combatlog") and type(value) == "function" then
-            self:Print("|cff00FFFF[GLOBAL]|r "..key)
+        if type(key) == "string" and type(value) == "function" and key:lower():find("combatlog") then
+            blizzardHelpers = blizzardHelpers + 1
         end
     end
+    self:Print("Global CombatLog helper functions: "..blizzardHelpers.." (Blizzard UI helpers, not event sources)")
 
     for key, value in pairs(_G) do
         if type(key) == "string" and key:sub(1, 2) == "C_" and type(value) == "table" then
@@ -828,8 +900,6 @@ function SoundAlerter:RunApiCheck()
             end
         end
     end
-
-    self:Print("|cffFFD700=== End Scan ===|r")
 
     self:Print("|cffFFD700=== End API Check ===|r")
 end
@@ -996,7 +1066,7 @@ function SoundAlerter:AnnounceEnemyInterrupt(enemyName, interruptedSpellID, abil
         pcall(DoEmote, "ROAR")
     end
     if sadb.interrupt then return end
-    PlaySoundFile(sadb.sapath.."lockout.mp3");
+    SoundAlerter:PlayVoice(sadb.sapath.."lockout.mp3");
     if sadb.chatalerts or not sadb.interruptenemy then return end
 
     local abilityText = GetSpellLink(abilitySpellID) or GetSpellInfo(abilitySpellID) or ""
@@ -1028,7 +1098,33 @@ local function CollectTrackedSpellIDs(ids, source)
     end
 end
 
+local unitKindCache = {}
+
+local function UnitKind(unit)
+    local kind = unitKindCache[unit]
+    if kind == nil then
+        if unit:match("^arena%d$") then
+            kind = "arena"
+        elseif unit:match("^nameplate%d+$") then
+            kind = "nameplate"
+        elseif unit:match("^party%d$") then
+            kind = "party"
+        else
+            kind = false
+        end
+        unitKindCache[unit] = kind
+    end
+    return kind
+end
+
+local trackedAuraIDs
+
+function SoundAlerter:InvalidateTrackedAuraIDs()
+    trackedAuraIDs = nil
+end
+
 local function GetTrackedAuraSpellIDs()
+    if trackedAuraIDs then return trackedAuraIDs end
     local ids = {}
     CollectTrackedSpellIDs(ids, SoundAlerter.spellList and SoundAlerter.spellList.selfDebuff)
     CollectTrackedSpellIDs(ids, SoundAlerter.spellList and SoundAlerter.spellList.enemyDebuffs)
@@ -1046,6 +1142,7 @@ local function GetTrackedAuraSpellIDs()
             end
         end
     end
+    trackedAuraIDs = ids
     return ids
 end
 
@@ -1195,7 +1292,7 @@ function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFoc
     local guid = UnitGUID(unit)
     if not name or not Plain(guid) then return end
 
-    local isAllySource = sourceUnit ~= nil and sourceUnit:match("^party%d$") ~= nil
+    local isAllySource = sourceUnit ~= nil and UnitKind(sourceUnit) == "party"
     if isAllySource and not sadb.dArenaPartner then
         self:PlaySpell(self.spellList.friendCCenemy, spellID)
     elseif not sadb.dEnemyDebuff then
@@ -1327,7 +1424,7 @@ function SoundAlerter:CheckCustomAlerts(eventName, sourceUnit, destUnit, spellID
                     self:Debug("CustomSound", "%s matched on %s (spell %s, source %s -> dest %s)", tostring(css.name), eventName, tostring(spellID), tostring(sourceName), tostring(destName))
 
                     if not css.chatAlert then
-                        PlaySoundFile("Interface\\Addons\\SoundAlerter\\CustomSounds\\"..css.soundfilepath, "Master")
+                        SoundAlerter:PlayVoice("Interface\\Addons\\SoundAlerter\\CustomSounds\\"..css.soundfilepath, "Master")
                     else
                         local spell = gsub(css.chatalerttext, "([#]spell[#])", (GetSpellLink(spellID) or ""))
                         local targetName = destName or sourceName or ""
@@ -1350,9 +1447,10 @@ function SoundAlerter:UNIT_AURA(event, unit, updateInfo)
 
     local isPlayer = unit == "player"
     local isTargetOrFocus = not isPlayer and (unit == "target" or unit == "focus")
-    local isArena = not isPlayer and not isTargetOrFocus and unit:match("^arena%d$") ~= nil
-    local isNameplate = not isPlayer and not isTargetOrFocus and not isArena and unit:match("^nameplate%d+$") ~= nil
-    local isAlly = not isPlayer and not isTargetOrFocus and not isArena and not isNameplate and unit:match("^party%d$") ~= nil
+    local kind = not isPlayer and not isTargetOrFocus and UnitKind(unit)
+    local isArena = kind == "arena"
+    local isNameplate = kind == "nameplate"
+    local isAlly = kind == "party"
 
     if not (isPlayer or isTargetOrFocus or isArena or isNameplate or isAlly) then return end
     if not UnitExists(unit) then return end
@@ -1364,7 +1462,7 @@ function SoundAlerter:UNIT_AURA(event, unit, updateInfo)
                 DRINK_SPELL = GetSpellInfo(57073)
             end
             if UnitAura(unit, DRINK_SPELL) then
-                PlaySoundFile(sadb.sapath.."drinking.mp3");
+                SoundAlerter:PlayVoice(sadb.sapath.."drinking.mp3");
             end
         end
     end
@@ -1439,9 +1537,14 @@ SoundAlerter.CLASS_AUDIO_MAP = CLASS_AUDIO_MAP
 function SoundAlerter:GetApproxRange(unit)
     if not UnitExists(unit) then return nil end
 
-    if CheckInteractDistance(unit, 3) then
+    local function withinInteractRange(index)
+        local ok, inRange = pcall(CheckInteractDistance, unit, index)
+        return ok and inRange
+    end
+
+    if withinInteractRange(3) then
         return "Close"
-    elseif CheckInteractDistance(unit, 1) then
+    elseif withinInteractRange(1) then
         return "Nearby"
     elseif UnitIsVisible(unit) then
         return "Detected"
@@ -1498,10 +1601,10 @@ function SoundAlerter:CheckProximityAlert(unit)
 
     local classAudioFile = CLASS_AUDIO_MAP[unitClass]
     if classAudioFile then
-        PlaySoundFile(sadb.sapath .. classAudioFile .. ".mp3", "Master")
+        SoundAlerter:PlayVoice(sadb.sapath .. classAudioFile .. ".mp3", "Master")
     end
     self:ScheduleTimer(function()
-        PlaySoundFile(sadb.sapath .. "detected.mp3", "Master")
+        SoundAlerter:PlayVoice(sadb.sapath .. "detected.mp3", "Master")
     end, 0.8)
 
     do
@@ -1524,13 +1627,7 @@ function SoundAlerter:CheckProximityAlert(unit)
         local chatText = gsub(sadb.proximityChatText, "#class#", unitClass)
         chatText = gsub(chatText, "#player#", unitName)
 
-        if not sadb.chatgroups.NONE then
-            for channel, enabled in pairs(sadb.chatgroups) do
-                if enabled and channel ~= "NONE" then
-                    SendChatMessage(chatText, channel, nil, nil)
-                end
-            end
-        end
+        self:BroadcastChat(chatText)
     end
 end
 
@@ -1573,7 +1670,9 @@ function SoundAlerter:IsTrackedNameplate(unit)
 end
 
 local function IsRelevantCastUnit(unit)
-    return unit == "target" or unit == "focus" or unit:match("^nameplate%d+$") ~= nil or unit:match("^arena%d$") ~= nil
+    if unit == "target" or unit == "focus" then return true end
+    local kind = UnitKind(unit)
+    return kind == "nameplate" or kind == "arena"
 end
 
 function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
@@ -1587,7 +1686,7 @@ function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
 
     local isTargetOrFocus = (unit == "target" or unit == "focus")
     local isTracked = not isTargetOrFocus and self:IsTrackedNameplate(unit)
-    local isArenaEnemy = not isTargetOrFocus and not isTracked and unit:match("^arena%d$") ~= nil
+    local isArenaEnemy = not isTargetOrFocus and not isTracked and UnitKind(unit) == "arena"
 
     if isArenaEnemy then
         if sadb.dArenaPartner then return end
@@ -1664,7 +1763,7 @@ function SoundAlerter:UNIT_SPELLCAST_SUCCEEDED(event, unit, castGUID, spellID)
         if class and sadb.class then
             local classAudioFile = CLASS_AUDIO_MAP[class]
             if classAudioFile then
-                PlaySoundFile(sadb.sapath..classAudioFile..".mp3");
+                SoundAlerter:PlayVoice(sadb.sapath..classAudioFile..".mp3");
             end
             self:ScheduleTimer(function() self:PlayTrinket(guid, name) end, 0.4);
         else
@@ -1694,7 +1793,7 @@ function SoundAlerter:UNIT_SPELLCAST_INTERRUPTED(event, unit, castGUID, spellID)
         self:CheckCustomAlerts("SPELL_INTERRUPT", nil, unit, spellID)
 
         if not sadb.interrupt then
-            PlaySoundFile(sadb.sapath.."lockout.mp3");
+            SoundAlerter:PlayVoice(sadb.sapath.."lockout.mp3");
             if not sadb.chatalerts and sadb.interruptself then
                 local it = gsub(sadb.InterruptSelfText, "(#spell#)", (GetSpellLink(lastInterruptCast.spellID) or GetSpellInfo(lastInterruptCast.spellID) or ""))
                 it = gsub(it, "#interruptedspellname#", replacementText)

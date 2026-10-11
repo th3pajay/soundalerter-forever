@@ -69,7 +69,7 @@ function SoundAlerter:BuildVoiceAlertPanel(ctx)
                 get = function() return Model.ChipOn(db(), spell, event) end,
                 set = function(_, value)
                     Model.SetChip(db(), spell, event, value)
-                    if value then PlaySoundFile(db().sapath .. keys[1] .. ".mp3") end
+                    if value then SoundAlerter:PlayVoice(db().sapath .. keys[1] .. ".mp3") end
                     notify()
                 end,
             }
@@ -220,7 +220,7 @@ function SoundAlerter:BuildVoiceAlertPanel(ctx)
                     get = function() return db().class end,
                     set = function(_, value) db().class = value end,
                     confirm = function()
-                        PlaySoundFile(db().sapath .. "paladin.mp3")
+                        SoundAlerter:PlayVoice(db().sapath .. "paladin.mp3")
                         SoundAlerter:ScheduleTimer("PlayTrinket", 0.4)
                     end,
                 },
@@ -232,7 +232,7 @@ function SoundAlerter:BuildVoiceAlertPanel(ctx)
                     get = function() return db().drinking end,
                     set = function(_, value)
                         db().drinking = value
-                        if value then PlaySoundFile(db().sapath .. "drinking.mp3") end
+                        if value then SoundAlerter:PlayVoice(db().sapath .. "drinking.mp3") end
                     end,
                 },
             },

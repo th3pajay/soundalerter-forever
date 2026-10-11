@@ -385,7 +385,6 @@ SoundAlerterSpells = {
 
 SoundAlerterSpellMeta = {
 
-    -- Druid
     barkskin = { "Druid", "Barkskin" },
     berserk = { "Druid", "Berserk" },
     dash = { "Druid", "Dash" },
@@ -403,7 +402,6 @@ SoundAlerterSpellMeta = {
     survivalinstincts = { "Druid", "Survival Instincts" },
     tranquility = { "Druid", "Tranquility" },
 
-    -- Hunter
     aimedshot = { "Hunter", "Aimed Shot" },
     deterrence = { "Hunter", "Deterrence" },
     deterrencedown = { "Hunter", "Deterrence" },
@@ -419,7 +417,6 @@ SoundAlerterSpellMeta = {
     thebeastwithin = { "Hunter", "The Beast Within" },
     wyvernsting = { "Hunter", "Wyvern Sting" },
 
-    -- Mage
     arcanepower = { "Mage", "Arcane Power" },
     coldsnap = { "Mage", "Cold Snap" },
     combustion = { "Mage", "Combustion" },
@@ -441,7 +438,6 @@ SoundAlerterSpellMeta = {
     presenceofmind = { "Mage", "Presence of Mind" },
     pyroblast = { "Mage", "Pyroblast" },
 
-    -- Paladin
     auramastery = { "Paladin", "Aura Mastery" },
     avengingwrath = { "Paladin", "Avenging Wrath" },
     handoffreedom = { "Paladin", "Blessing of Freedom" },
@@ -459,7 +455,6 @@ SoundAlerterSpellMeta = {
     repentance = { "Paladin", "Repentance" },
     turnevil = { "Paladin", "Turn Undead" },
 
-    -- Priest
     dispersion = { "Priest", "Dispersion" },
     dispersiondown = { "Priest", "Dispersion" },
     fearward = { "Priest", "Fear Ward" },
@@ -474,7 +469,6 @@ SoundAlerterSpellMeta = {
     shadowfiend = { "Priest", "Shadowfiend" },
     silence = { "Priest", "Silence" },
 
-    -- Rogue
     adrenalinerush = { "Rogue", "Adrenaline Rush" },
     adrenalinerushdown = { "Rogue", "Adrenaline Rush" },
     bladeflurry = { "Rogue", "Blade Flurry" },
@@ -500,7 +494,6 @@ SoundAlerterSpellMeta = {
     stealth = { "Rogue", "Stealth" },
     vanish = { "Rogue", "Vanish" },
 
-    -- Shaman
     bloodlust = { "Shaman", "Bloodlust" },
     earthshield = { "Shaman", "Earth Shield" },
     earthbind = { "Shaman", "Earthbind Totem" },
@@ -515,7 +508,6 @@ SoundAlerterSpellMeta = {
     tremortotem = { "Shaman", "Tremor Totem" },
     watershield = { "Shaman", "Water Shield" },
 
-    -- Warlock
     banish = { "Warlock", "Banish" },
     curseoftongues = { "Warlock", "Curse of Tongues" },
     deathcoil = { "Warlock", "Death Coil" },
@@ -530,7 +522,6 @@ SoundAlerterSpellMeta = {
     spelllock = { "Warlock", "Spell Lock" },
     summonpet = { "Warlock", "Summon pet" },
 
-    -- Warrior
     battlestance = { "Warrior", "Battle Stance" },
     berserkerrage = { "Warrior", "Berserker Rage" },
     berserkerstance = { "Warrior", "Berserker Stance" },
@@ -555,7 +546,6 @@ SoundAlerterSpellMeta = {
     spellreflection = { "Warrior", "Spell Reflection" },
     sweepingstrikes = { "Warrior", "Sweeping Strikes" },
 
-    -- Races
     berserking = { "Races", "Berserking" },
     bloodfury = { "Races", "Blood Fury" },
     cannibalize = { "Races", "Cannibalize" },
@@ -566,7 +556,6 @@ SoundAlerterSpellMeta = {
     trinket = { "Races", "Stun break (racial)" },
     willoftheforsaken = { "Races", "Will of the Forsaken" },
 
-    -- Other
     bigheal = { "Other", "Big heals" },
     friendcountered = { "Other", "Interrupts on you" },
     resurrection = { "Other", "Resurrections" },

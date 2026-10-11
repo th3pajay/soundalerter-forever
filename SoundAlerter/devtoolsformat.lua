@@ -63,6 +63,7 @@ function Format.Status(info)
 
     parts[#parts + 1] = megabytes(info.memoryKB)
     parts[#parts + 1] = "debug " .. (info.debug and AMBER .. "on" or GREY .. "off") .. RESET
+    parts[#parts + 1] = "version " .. GOLD .. (info.addonVersion or "unknown") .. RESET
 
     return table.concat(parts, "     ")
 end
@@ -129,7 +130,6 @@ end
 function Format.Memory(info)
     return table.concat({
         line("Result cache", info.cacheEntries .. " / " .. info.cacheMax .. " entries"),
-        line("Prefix index", StatsFormat.Number(info.prefixBuckets) .. " buckets"),
         line("Addon memory", megabytes(info.memoryKB) .. GREY .. " (total)" .. RESET),
     }, "\n")
 end

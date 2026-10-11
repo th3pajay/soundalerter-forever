@@ -19,6 +19,7 @@ local GLOBAL_KEYS = {
     showBorderTimer = true,
     showCooldownText = true,
     showReadyText = true,
+    deleteWithoutConfirm = true,
 }
 
 function Settings.IsGlobalKey(key)

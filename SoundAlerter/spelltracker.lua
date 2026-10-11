@@ -329,7 +329,7 @@ end
 
 function SpellTracker:RegisterEvents()
     local eventFrame = self.container
-    eventFrame:RegisterEvent("UNIT_AURA")
+    eventFrame:RegisterUnitEvent("UNIT_AURA", "player", "target")
     eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     pcall(eventFrame.RegisterEvent, eventFrame, "UPDATE_SHAPESHIFT_FORM")

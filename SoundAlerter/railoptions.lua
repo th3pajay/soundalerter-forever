@@ -277,3 +277,37 @@ function SoundAlerter:RailCastFeed(options)
     sections[#sections + 1] = { key = "appearanceGroup", promote = "appearanceGroup", name = "Appearance", icon = ICONS.appearance, order = 20 }
     return Rail.Tree(options, sections)
 end
+
+local function timerSettings()
+    return SoundAlerter.CombatTimer and SoundAlerter.CombatTimer:GetSettings()
+end
+
+local function timerPreview()
+    local s = timerSettings()
+    if not s then return "" end
+    local r, g, b = colorOf(s, "hotColor", { 1, 0.3, 0.3 })
+    local width = math.min(s.width or 150, CAST_PREVIEW_MAX) * 0.8
+    local height = math.max(3, (s.thickness or 2) * 2)
+    local digits = ""
+    if s.showDigits then
+        digits = string.format("\n|cff8a93a3%.1f s left, shown with %d decimal%s|r", (s.windowSeconds or 5) * 0.62, s.decimals or 3, s.decimals == 1 and "" or "s")
+    end
+    return "|cff8a93a3Live preview, drains from the right|r\n" .. Rail.Bar(width, height, 0.62, r, g, b) .. digits
+end
+
+function SoundAlerter:RailCombatTimer(options)
+    addSummary(options, function()
+        local s = timerSettings()
+        if not s then return "" end
+        return Rail.Status("Combat Drop Timer", { { "on", s.enabled } }, "off") .. "\n" ..
+            Rail.Status("Runs", { { "PvP only", s.onlyInPvP }, { "everywhere", not s.onlyInPvP } }) .. "\n" ..
+            "|cffffd100Window:|r " .. s.windowSeconds .. " s    " ..
+            Rail.Status("Position", { { "unlocked, drag to move", not s.locked } }, "locked")
+    end)
+    addPreview(options.args.appearanceGroup, timerPreview)
+    return Rail.Tree(options, {
+        { key = "generalGroup", promote = "generalGroup", name = "General", icon = ICONS.general, order = 2 },
+        { key = "timingGroup", promote = "timingGroup", name = "Timing", icon = ICONS.perf, order = 3 },
+        { key = "appearanceGroup", promote = "appearanceGroup", name = "Appearance", icon = ICONS.appearance, order = 4 },
+    })
+end

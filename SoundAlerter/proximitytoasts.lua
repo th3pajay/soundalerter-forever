@@ -76,7 +76,7 @@ function ProximityToasts:SetSetting(key, value)
     end
     self:GetSettings()[key] = value
     if value and PROXIMITY_TOAST_PREVIEWABLE_KEYS[key] then
-        PlaySoundFile(SoundAlerter.db1.profile.sapath..key..".mp3")
+        SoundAlerter:PlayVoice(SoundAlerter.db1.profile.sapath..key..".mp3")
     end
 end
 
@@ -370,7 +370,7 @@ local function CreateToastFrame(index, isSecure)
     toast:EnableMouse(true)
     toast:RegisterForClicks("LeftButtonDown")
     toast:SetScript("OnClick", function(self, button)
-        if self.isSecure then
+        if self.isSecure or InCombatLockdown() then
             return
         end
 
@@ -1061,9 +1061,9 @@ function SoundAlerter.ProximityToasts:HandleCommand(msg)
         end
 
         if sadb.sapath then
-            PlaySoundFile(sadb.sapath .. "ROGUE.mp3", "Master")
+            SoundAlerter:PlayVoice(sadb.sapath .. "ROGUE.mp3", "Master")
             SoundAlerter:ScheduleTimer(function()
-                PlaySoundFile(sadb.sapath .. "detected.mp3", "Master")
+                SoundAlerter:PlayVoice(sadb.sapath .. "detected.mp3", "Master")
             end, 0.8)
         end
 
@@ -1144,9 +1144,9 @@ function SoundAlerter.ProximityToasts:HandleCommand(msg)
         end
 
         if sadb.sapath then
-            PlaySoundFile(sadb.sapath .. "ROGUE.mp3", "Master")
+            SoundAlerter:PlayVoice(sadb.sapath .. "ROGUE.mp3", "Master")
             SoundAlerter:ScheduleTimer(function()
-                PlaySoundFile(sadb.sapath .. "FlagPickup.mp3", "Master")
+                SoundAlerter:PlayVoice(sadb.sapath .. "FlagPickup.mp3", "Master")
             end, 0.8)
         end
 

@@ -34,6 +34,11 @@ local function currentMemoryKB(now)
     return memoryKB
 end
 
+local function addonVersion()
+    local read = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
+    return read and read("SoundAlerter", "Version") or "unknown"
+end
+
 local function buildStatus(now)
     local stats = SoundAlerter:GetDatabaseStats()
     statusInfo.isBuilding = stats.isBuilding
@@ -45,6 +50,7 @@ local function buildStatus(now)
     statusInfo.currentVersion = stats.currentVersion
     statusInfo.memoryKB = currentMemoryKB(now)
     statusInfo.debug = SoundAlerter.db1.profile.debugmode
+    statusInfo.addonVersion = addonVersion()
     return Format.Status(statusInfo)
 end
 
@@ -63,7 +69,6 @@ local function buildPerformance(now)
     local stats = SoundAlerter:GetDatabaseStats()
     memoryInfo.cacheEntries = stats.cacheEntries
     memoryInfo.cacheMax = stats.cacheMax
-    memoryInfo.prefixBuckets = stats.prefixBuckets
     memoryInfo.memoryKB = currentMemoryKB(now)
     return Format.Timings(timingRows) .. "\n\n" .. Format.Memory(memoryInfo)
 end

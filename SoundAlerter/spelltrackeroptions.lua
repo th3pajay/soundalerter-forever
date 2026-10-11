@@ -115,6 +115,21 @@ local function slotToggle(class, slot, key, widget)
     return widget
 end
 
+local function deleteSpell(index)
+    local config = index and iconConfig(index)
+    if not config then return end
+    local name = spellName(config.spellID)
+    tracker():RemoveTrackedSpell(index)
+    if selectedIndex == index then
+        selectedIndex = nil
+    elseif selectedIndex and selectedIndex > index then
+        selectedIndex = selectedIndex - 1
+    end
+    clearUndo()
+    SoundAlerter:Print("|cffff0000Removed " .. name .. " from tracker.|r")
+    refresh()
+end
+
 local function chipSlot(class, slot)
     local function config()
         local index = slotIndex(class, slot)
@@ -193,6 +208,19 @@ local function chipSlot(class, slot)
                     selectedIndex = (index ~= selectedIndex) and index or nil
                     refresh()
                 end,
+            },
+            delete = {
+                type = 'execute',
+                name = "Delete Spell",
+                desc = "Remove this spell from the tracker",
+                order = 7,
+                width = "normal",
+                confirm = function()
+                    if tracker():GetSettings().deleteWithoutConfirm then return false end
+                    local entry = config()
+                    return "Delete " .. (entry and spellName(entry.spellID) or "this spell") .. " from the tracker?"
+                end,
+                func = function() deleteSpell(slotIndex(class, slot)) end,
             },
         },
     }
@@ -273,28 +301,6 @@ local function editorGroup(class)
                 width = "double",
                 order = 4,
             }),
-            delete = {
-                type = 'execute',
-                name = "Delete Spell",
-                desc = "Remove this spell from the tracker",
-                width = "normal",
-                order = 5,
-                confirm = function()
-                    local config = selectedConfig()
-                    return "Delete " .. (config and spellName(config.spellID) or "this spell") .. " from the tracker?"
-                end,
-                func = function()
-                    local index = selectedIndex
-                    local config = index and iconConfig(index)
-                    if not config then return end
-                    local name = spellName(config.spellID)
-                    tracker():RemoveTrackedSpell(index)
-                    selectedIndex = nil
-                    clearUndo()
-                    SoundAlerter:Print("|cffff0000Removed " .. name .. " from tracker.|r")
-                    refresh()
-                end,
-            },
         },
     }
 end
@@ -485,6 +491,11 @@ local function buildDisplayTab()
                         name = "Lock Icons",
                         desc = "Lock all spell tracker icons in place. Unlock to drag and reposition individual icons.",
                         order = 1,
+                    }),
+                    deleteWithoutConfirm = globalToggle("deleteWithoutConfirm", {
+                        name = "Delete Without Confirmation",
+                        desc = "Skip the confirmation prompt when you delete a tracked spell. Deleting is immediate and cannot be undone.",
+                        order = 2,
                     }),
                 },
             },

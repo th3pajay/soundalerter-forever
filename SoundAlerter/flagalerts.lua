@@ -7,13 +7,11 @@ SoundAlerter.FlagAlerts = FlagAlerts
 local sadb
 local GetLocale = GetLocale
 local GetTime = GetTime
-local PlaySoundFile = PlaySoundFile
 local UnitExists = UnitExists
 local UnitName = UnitName
 local UnitClass = UnitClass
 local GetNumRaidMembers = SA_COMPAT.GetNumRaidMembers
 local GetNumPartyMembers = GetNumPartyMembers
-local SendChatMessage = SendChatMessage
 local debugprofilestop = debugprofilestop
 
 local string_match = string.match
@@ -696,9 +694,9 @@ function FlagAlerts:ProcessAudioQueue()
 
     local classAudioFile = audioEvent.class and SoundAlerter.CLASS_AUDIO_MAP[audioEvent.class]
     if classAudioFile then
-        PlaySoundFile(sadb.sapath .. classAudioFile .. ".mp3", "Master")
+        SoundAlerter:PlayVoice(sadb.sapath .. classAudioFile .. ".mp3", "Master")
     else
-        PlaySoundFile(sadb.sapath .. "Enemy.mp3", "Master")
+        SoundAlerter:PlayVoice(sadb.sapath .. "Enemy.mp3", "Master")
     end
 
     if sadb.statistics and sadb.statistics.enabled then
@@ -712,7 +710,7 @@ function FlagAlerts:ProcessAudioQueue()
     local objectiveFile = self:GetObjectiveAudioFile(audioEvent.action)
 
     self:ScheduleTimer(function()
-        PlaySoundFile(sadb.sapath .. objectiveFile .. ".mp3", "Master")
+        SoundAlerter:PlayVoice(sadb.sapath .. objectiveFile .. ".mp3", "Master")
 
         self:ScheduleTimer(function()
             self.audioInProgress = false
@@ -758,10 +756,7 @@ function FlagAlerts:SendFlagChatAlert(playerName, playerClass, eventType)
     message = string_gsub(message, "#player#", safePlayerName)
     message = string_gsub(message, "#action#", actionText or "flag event")
 
-    local ok, err = pcall(SendChatMessage, message, sadb.flagChatChannel or "SAY")
-    if not ok then
-        SoundAlerter:Debug("FlagAlerts", "SendChatMessage to %s failed: %s", sadb.flagChatChannel or "SAY", tostring(err))
-    end
+    SoundAlerter:SendChat(message, { sadb.flagChatChannel or "SAY" })
 end
 
 function FlagAlerts:CleanupCacheEntry(playerName)

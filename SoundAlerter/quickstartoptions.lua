@@ -131,7 +131,7 @@ local function buildSound()
                 desc = "Plays a short alert so you know the volume is right",
                 width = "normal",
                 order = 2,
-                func = function() PlaySoundFile(profile().sapath .. TEST_SOUND) end,
+                func = function() SoundAlerter:PlayVoice(profile().sapath .. TEST_SOUND) end,
             },
         },
     }

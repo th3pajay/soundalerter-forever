@@ -8,10 +8,13 @@ local math_min, math_max, math_floor = math.min, math.max, math.floor
 local time, select = time, select
 local GetSpellInfo, GetSpellLink = SA_COMPAT.GetSpellInfo, SA_COMPAT.GetSpellLink
 local GetSpellDescription, GetSpellSubtext = SA_COMPAT.GetSpellDescription, SA_COMPAT.GetSpellSubtext
+local IsSpellPassive, IsSpellKnown = SA_COMPAT.IsSpellPassive, SA_COMPAT.IsSpellKnown
+local GetSpellCosts, GetSpellMaxCharges = SA_COMPAT.GetSpellCosts, SA_COMPAT.GetSpellMaxCharges
 local FinderFormat = SA_FinderFormat
 local GetBuildInfo = GetBuildInfo
 
 local MAX_SPELL_ID = 70000
+local MIN_INNER_SUGGEST_CHARS = 3
 local SCAN_CHUNK_SIZE = 1000
 local SCAN_CHUNK_DELAY = 0.05
 local DB_MAX_AGE = 2592000
@@ -27,8 +30,6 @@ SoundAlerter.spellDatabase = {
     names = {},
     namesLower = {},
     nameToIdx = {},
-    searchIndex = {},
-    prefixIndex = {},
     searchCache = {},
     isBuilding = false,
     progress = 0,
@@ -36,7 +37,6 @@ SoundAlerter.spellDatabase = {
     totalSpells = 0,
     lastUpdate = 0,
     rankedSpells = 0,
-    prefixBuckets = 0,
     source = nil,
     buildSeconds = nil,
     builtOnVersion = nil
@@ -134,6 +134,22 @@ local SORT_COMPARATORS = {
     end,
 }
 
+local function SafeRead(reader, spellID)
+    if not reader then return nil end
+    local ok, value = pcall(reader, spellID)
+    if ok then return value end
+    return nil
+end
+
+local function ReadSpellProps(spellID)
+    return {
+        passive = SafeRead(IsSpellPassive, spellID),
+        known = SafeRead(IsSpellKnown, spellID),
+        costs = SafeRead(GetSpellCosts, spellID),
+        maxCharges = SafeRead(GetSpellMaxCharges, spellID),
+    }
+end
+
 local function ReverseComparator(comparator)
     return function(a, b) return comparator(b, a) end
 end
@@ -180,6 +196,7 @@ end
 
 function SoundAlerter:BuildSpellDatabase()
     local db = self.spellDatabase
+    db.ensured = true
 
     if db.isBuilding then
         return
@@ -193,9 +210,12 @@ function SoundAlerter:BuildSpellDatabase()
     if not self.dbRefreshTimer then
         self.dbRefreshTimer = self:ScheduleRepeatingTimer(function()
             if db.isBuilding then
-                local AceConfigRegistry = LibStub("AceConfigRegistry-3.0")
-                if AceConfigRegistry then
-                    AceConfigRegistry:NotifyChange("SoundAlerter")
+                local AceConfigDialog = LibStub("AceConfigDialog-3.0", true)
+                if AceConfigDialog and AceConfigDialog.OpenFrames and AceConfigDialog.OpenFrames["SoundAlerter"] then
+                    local AceConfigRegistry = LibStub("AceConfigRegistry-3.0")
+                    if AceConfigRegistry then
+                        AceConfigRegistry:NotifyChange("SoundAlerter")
+                    end
                 end
             else
                 if self.dbRefreshTimer then
@@ -203,7 +223,7 @@ function SoundAlerter:BuildSpellDatabase()
                     self.dbRefreshTimer = nil
                 end
             end
-        end, 0.1)
+        end, 0.5)
     end
 
     local CHUNK_SIZE = SCAN_CHUNK_SIZE
@@ -292,6 +312,15 @@ function SoundAlerter:SaveSpellDatabase()
     }
 end
 
+function SoundAlerter:EnsureSpellDatabase()
+    local db = self.spellDatabase
+    if db.ensured then return end
+    db.ensured = true
+    if not self:LoadSpellDatabase() then
+        self:BuildSpellDatabase()
+    end
+end
+
 function SoundAlerter:LoadSpellDatabase()
     if not SoundAlerterSpellDB then
         return false
@@ -356,8 +385,6 @@ function SoundAlerter:RebuildSpellDatabase()
     self.spellDatabase.names = {}
     self.spellDatabase.namesLower = {}
     self.spellDatabase.nameToIdx = {}
-    self.spellDatabase.searchIndex = {}
-    self.spellDatabase.prefixIndex = {}
     self.spellDatabase.totalSpells = 0
     self:ClearSearchCache()
     self:BuildSpellDatabase()
@@ -373,6 +400,7 @@ function SoundAlerter:CountSpells()
 end
 
 function SoundAlerter:GetDatabaseStatus()
+    self:EnsureSpellDatabase()
     local db = self.spellDatabase
 
     if db.isBuilding then
@@ -394,55 +422,19 @@ end
 
 function SoundAlerter:BuildSearchIndexes()
     local db = self.spellDatabase
-    local searchIndex = {}
-    local prefixIndex = {}
-    local namesLower = db.namesLower
-    local byID = db.byID
-
-    local string_byte, string_char = string.byte, string.char
-
-    for letter = string_byte('a'), string_byte('z') do
-        searchIndex[string_char(letter)] = {}
-    end
-
     local rankedSpells = 0
-    local prefixBuckets = 0
     local maxRank = 0
 
-    for spellID, data in pairs(byID) do
+    for _, data in pairs(db.byID) do
         if data.rank and data.rank > 0 then
             rankedSpells = rankedSpells + 1
             if data.rank > maxRank then
                 maxRank = data.rank
             end
         end
-        local lower = namesLower[data.nameIdx]
-        if lower then
-            local lowerLen = #lower
-
-            local firstChar = string_sub(lower, 1, 1)
-            local firstCharIndex = searchIndex[firstChar]
-            if firstCharIndex then
-                firstCharIndex[spellID] = true
-            end
-
-            if lowerLen >= 3 then
-                local prefix = string_sub(lower, 1, 3)
-                local prefixTable = prefixIndex[prefix]
-                if not prefixTable then
-                    prefixTable = {}
-                    prefixIndex[prefix] = prefixTable
-                    prefixBuckets = prefixBuckets + 1
-                end
-                prefixTable[spellID] = true
-            end
-        end
     end
 
-    db.searchIndex = searchIndex
-    db.prefixIndex = prefixIndex
     db.rankedSpells = rankedSpells
-    db.prefixBuckets = prefixBuckets
     db.maxRank = maxRank
 end
 
@@ -490,6 +482,7 @@ function SoundAlerter:IsFinderOpen()
 end
 
 function SoundAlerter:PrepareSearchExtras()
+    self:EnsureSpellDatabase()
     local findSpell = self:GetFinderSettings()
     if findSpell.fuzzy then
         self:EnsureFuzzyIndex()
@@ -541,6 +534,7 @@ end
 local databaseStats = {}
 
 function SoundAlerter:GetDatabaseStats()
+    self:EnsureSpellDatabase()
     local db = self.spellDatabase
     local stats = databaseStats
     stats.isBuilding = db.isBuilding
@@ -551,7 +545,6 @@ function SoundAlerter:GetDatabaseStats()
     stats.totalSpells = db.totalSpells or 0
     stats.uniqueNames = #db.names
     stats.rankedSpells = db.rankedSpells or 0
-    stats.prefixBuckets = db.prefixBuckets or 0
     stats.lastUpdate = db.lastUpdate or 0
     stats.builtOnVersion = db.builtOnVersion
     stats.currentVersion = GetBuildInfo()
@@ -720,6 +713,7 @@ local function FuzzyMatchNames(db, term)
 end
 
 function SoundAlerter:SearchSpells(searchTerm, rankFilter)
+    self:EnsureSpellDatabase()
     local db = self.spellDatabase
 
     if not searchTerm or searchTerm == "" then
@@ -729,7 +723,8 @@ function SoundAlerter:SearchSpells(searchTerm, rankFilter)
     local findSpell = self:GetFinderSettings()
     local scope = self:GetSearchScope()
     local descriptionsOnly = scope == "descriptions"
-    local fuzzy = findSpell.fuzzy and not descriptionsOnly and #searchTerm >= 2
+    local idQuery = string_match(searchTerm, "^%s*#?(%d+)%s*$")
+    local fuzzy = findSpell.fuzzy and not descriptionsOnly and not idQuery and #searchTerm >= 2
     local descSearch = scope ~= "names" and db.descriptions and #searchTerm >= 3
 
     local cacheKey = searchTerm .. "\0" .. (rankFilter or "") .. "\0" ..
@@ -743,27 +738,15 @@ function SoundAlerter:SearchSpells(searchTerm, rankFilter)
 
     local searchStartTime = debugprofilestop()
 
-    local searchLower = string_lower(searchTerm)
-    local searchLen = #searchLower
+    local tokens = FinderFormat.Tokens(string_lower(searchTerm))
+    if #tokens == 0 then
+        return {}
+    end
+    local searchLower = table.concat(tokens, " ")
     local results = {}
-    local candidateSpells
 
     local byID = db.byID
     local names = db.names
-    local prefixIndex = db.prefixIndex
-    local searchIndex = db.searchIndex
-
-    if fuzzy then
-        candidateSpells = {}
-    elseif searchLen >= 3 then
-        local prefix = string_sub(searchLower, 1, 3)
-        candidateSpells = prefixIndex[prefix] or {}
-    elseif searchLen >= 1 then
-        local firstChar = string_sub(searchLower, 1, 1)
-        candidateSpells = searchIndex[firstChar] or {}
-    else
-        return {}
-    end
 
     local rankFilterNum = rankFilter and rankFilter ~= "" and tonumber(rankFilter) or nil
 
@@ -794,23 +777,40 @@ function SoundAlerter:SearchSpells(searchTerm, rankFilter)
         }
     end
 
+    if idQuery then
+        local idNumber = tonumber(idQuery)
+        local data = byID[idNumber]
+        if data then
+            AddResult(idNumber, data, -1)
+            if results[resultCount] and results[resultCount].spellID == idNumber then
+                results[resultCount].idMatch = true
+            end
+        end
+    end
+
     if fuzzy then
         local matchedNames = FuzzyMatchNames(db, searchLower)
         if next(matchedNames) then
             for spellID, data in pairs(byID) do
                 local score = matchedNames[data.nameIdx]
-                if score then
+                if score and not seen[spellID] then
                     AddResult(spellID, data, score)
                 end
             end
         end
     elseif not descriptionsOnly then
-        for spellID in pairs(candidateSpells) do
-            local data = byID[spellID]
-            if data then
-                local baseNameLower = namesLower[data.nameIdx] or string_lower(names[data.nameIdx])
-                if string_find(baseNameLower, searchLower, 1, true) then
-                    AddResult(spellID, data, 0)
+        local matchedNames = {}
+        for nameIdx = 1, #namesLower do
+            local score = FinderFormat.NameScore(namesLower[nameIdx], searchLower, tokens)
+            if score then
+                matchedNames[nameIdx] = score
+            end
+        end
+        if next(matchedNames) then
+            for spellID, data in pairs(byID) do
+                local score = matchedNames[data.nameIdx]
+                if score and not seen[spellID] then
+                    AddResult(spellID, data, score)
                 end
             end
         end
@@ -828,7 +828,7 @@ function SoundAlerter:SearchSpells(searchTerm, rankFilter)
         end
     end
 
-    table_sort(results, (fuzzy or scanDescriptions) and SORT_COMPARATORS.relevance or SORT_COMPARATORS.name)
+    table_sort(results, SORT_COMPARATORS.relevance)
 
     local elapsedMs = debugprofilestop() - searchStartTime
     self:CacheSearchResult(cacheKey, results)
@@ -923,6 +923,7 @@ function SoundAlerter:StopDescriptionIndex()
 end
 
 function SoundAlerter:StartDescriptionIndex()
+    self:EnsureSpellDatabase()
     local db = self.spellDatabase
     if db.descIndexTimer then
         return
@@ -1050,6 +1051,8 @@ local FINDER_KEYS = {
     rankFilter = true,
     sortMode = true,
     sortDesc = true,
+    kindFilter = true,
+    knownFilter = true,
 }
 
 function SoundAlerter:GetFinderSettings()
@@ -1119,6 +1122,7 @@ function SoundAlerter:GetDescriptionStatus()
 end
 
 function SoundAlerter:SuggestSpellNames(prefix, limit)
+    self:EnsureSpellDatabase()
     local db = self.spellDatabase
     local suggestions = {}
     if not prefix or #prefix < 2 then
@@ -1145,13 +1149,44 @@ function SoundAlerter:SuggestSpellNames(prefix, limit)
 
     local max = limit or 8
     local index = low
+    local taken = {}
     while #suggestions < max and index <= #sortedNames do
         local nameIdx = sortedNames[index]
         if string_sub(namesLower[nameIdx], 1, prefixLen) ~= lowerPrefix then
             break
         end
         suggestions[#suggestions + 1] = names[nameIdx]
+        taken[nameIdx] = true
         index = index + 1
+    end
+
+    local remaining = max - #suggestions
+    if remaining > 0 and prefixLen >= MIN_INNER_SUGGEST_CHARS then
+        local tokens = FinderFormat.Tokens(lowerPrefix)
+        local buckets = { {}, {}, {} }
+        local firstToken = tokens[1]
+        for position = 1, #sortedNames do
+            local nameIdx = sortedNames[position]
+            if not taken[nameIdx] and string_find(namesLower[nameIdx], firstToken, 1, true) then
+                local score = FinderFormat.NameScore(namesLower[nameIdx], lowerPrefix, tokens)
+                if score then
+                    local bucket = buckets[score == 0 and 1 or score]
+                    if #bucket < remaining then
+                        bucket[#bucket + 1] = nameIdx
+                    end
+                    if score <= 1 and #bucket >= remaining then
+                        break
+                    end
+                end
+            end
+        end
+        for _, bucket in ipairs(buckets) do
+            for _, nameIdx in ipairs(bucket) do
+                if #suggestions < max then
+                    suggestions[#suggestions + 1] = names[nameIdx]
+                end
+            end
+        end
     end
 
     RecordSearchTiming(debugprofilestop() - startMs, "autocomplete")
@@ -1254,23 +1289,45 @@ function SoundAlerter:InsertSpellText(spell, description, widget)
     ShowFinderToast(widget, shortened and "Inserted into chat (description shortened to fit)" or "Inserted into chat!", 0, 1, 0)
 end
 
-function SoundAlerter:UpdateFinderStatus(frame, count)
+function SoundAlerter:FilterResults(results, kind, known)
+    if kind == "all" and known == "all" then
+        return
+    end
+    local kept = 0
+    for index = 1, #results do
+        local spell = results[index]
+        local props = {
+            passive = kind ~= "all" and SafeRead(IsSpellPassive, spell.spellID) or nil,
+            known = known ~= "all" and SafeRead(IsSpellKnown, spell.spellID) or nil,
+        }
+        if FinderFormat.PassesFilters(props, kind, known) then
+            kept = kept + 1
+            results[kept] = spell
+        end
+    end
+    for index = #results, kept + 1, -1 do
+        results[index] = nil
+    end
+end
+
+function SoundAlerter:UpdateFinderStatus(frame, count, unfiltered)
     local descriptionStatus
     if self:GetSearchScope() ~= "names" or self.spellDatabase.descriptions then
         descriptionStatus = self:GetDescriptionStatus()
     end
-    frame.statusLabel:SetText(FinderFormat.Status(count, self:GetDatabaseStatus(), descriptionStatus))
+    frame.statusLabel:SetText(FinderFormat.Status(count, self:GetDatabaseStatus(), descriptionStatus, unfiltered))
     frame.toolbar:DoLayout()
     frame:DoLayout()
 end
 
-function SoundAlerter:ShowFinderEmpty(frame, term)
+function SoundAlerter:ShowFinderEmpty(frame, term, hiddenByFilters)
     local label = AceGUI:Create("Label")
     label:SetText(FinderFormat.Empty({
         building = self.spellDatabase.isBuilding,
         term = term,
         scope = self:GetSearchScope(),
         fuzzy = self:GetFinderSettings().fuzzy,
+        hiddenByFilters = hiddenByFilters,
     }))
     label:SetFullWidth(true)
     frame.scrollFrame:AddChild(label)
@@ -1287,6 +1344,8 @@ function SoundAlerter:ShowSpellDetail(frame, spell, retried)
     if not spell then
         detail.title:SetText(" ")
         detail.subtitle:SetText(" ")
+        detail.facts:SetText(" ")
+        detail.props:SetText(" ")
         detail.idBox:SetText("")
         detail.idBox:SetDisabled(true)
         detail.description:SetText(FinderFormat.NoSelection())
@@ -1296,10 +1355,12 @@ function SoundAlerter:ShowSpellDetail(frame, spell, retried)
         return
     end
 
-    local texture = select(3, GetSpellInfo(spell.spellID))
+    local _, _, texture, castTime, minRange, maxRange = GetSpellInfo(spell.spellID)
     local description = RowDescription(spell.spellID)
     detail.title:SetText(FinderFormat.Title(spell, texture))
     detail.subtitle:SetText(FinderFormat.Subtitle(spell))
+    detail.facts:SetText(FinderFormat.Facts({ iconID = texture, castTime = castTime, minRange = minRange, maxRange = maxRange }))
+    detail.props:SetText(FinderFormat.Properties(ReadSpellProps(spell.spellID)))
     detail.idBox:SetDisabled(false)
     detail.idBox:SetText(tostring(spell.spellID))
     detail.description:SetText(FinderFormat.Description(description, not description and not retried))
@@ -1423,8 +1484,16 @@ function SoundAlerter:RunSearch(frame, searchTerm)
     end
 
     local findSpell = self:GetFinderSettings()
+    local unfiltered = #results
+    self:FilterResults(results, findSpell.kindFilter or "all", findSpell.knownFilter or "all")
     local mode = SORT_COMPARATORS[findSpell.sortMode] and findSpell.sortMode or "name"
     table_sort(results, (findSpell.sortDesc and REVERSED_COMPARATORS or SORT_COMPARATORS)[mode])
+    for index = 2, #results do
+        if results[index].idMatch then
+            table_insert(results, 1, table_remove(results, index))
+            break
+        end
+    end
 
     frame.selectedRow = nil
     frame.scrollFrame:ReleaseChildren()
@@ -1432,12 +1501,12 @@ function SoundAlerter:RunSearch(frame, searchTerm)
 
     local resultCount = #results
     if resultCount == 0 then
-        self:ShowFinderEmpty(frame, searchTerm)
-        self:UpdateFinderStatus(frame, 0)
+        self:ShowFinderEmpty(frame, searchTerm, unfiltered)
+        self:UpdateFinderStatus(frame, 0, unfiltered)
         return
     end
 
-    self:UpdateFinderStatus(frame, resultCount)
+    self:UpdateFinderStatus(frame, resultCount, unfiltered)
     self:RenderSpellRows(frame, results, ROW_CAP)
 end
 
@@ -1585,6 +1654,7 @@ function SoundAlerter:RenderSearchPane(container, frame)
     scopeDropdown:SetValue(self:GetSearchScope())
     toolbar:AddChild(scopeDropdown)
 
+    self:EnsureSpellDatabase()
     local rankList = {all = "All ranks", none = "No rank"}
     local rankOrder = {"all", "none"}
     for rank = 1, math_max(self.spellDatabase.maxRank or 0, 1) do
@@ -1600,6 +1670,22 @@ function SoundAlerter:RenderSearchPane(container, frame)
     local savedRank = self:GetFinderSettings().rankFilter or "all"
     rankDropdown:SetValue(rankList[savedRank] and savedRank or "all")
     toolbar:AddChild(rankDropdown)
+
+    local kindDropdown = AceGUI:Create("Dropdown")
+    kindDropdown:SetLabel("Type:")
+    kindDropdown:SetRelativeWidth(0.24)
+    kindDropdown:SetList({all = "All spells", active = "Active only", passive = "Passive only"}, {"all", "active", "passive"})
+    local savedKind = self:GetFinderSettings().kindFilter
+    kindDropdown:SetValue((savedKind == "active" or savedKind == "passive") and savedKind or "all")
+    toolbar:AddChild(kindDropdown)
+
+    local knownDropdown = AceGUI:Create("Dropdown")
+    knownDropdown:SetLabel("Known:")
+    knownDropdown:SetRelativeWidth(0.28)
+    knownDropdown:SetList({all = "Any", known = "Known by you", unknown = "Not known by you"}, {"all", "known", "unknown"})
+    local savedKnown = self:GetFinderSettings().knownFilter
+    knownDropdown:SetValue((savedKnown == "known" or savedKnown == "unknown") and savedKnown or "all")
+    toolbar:AddChild(knownDropdown)
 
     local sortDropdown = AceGUI:Create("Dropdown")
     sortDropdown:SetLabel("Sort By:")
@@ -1653,6 +1739,14 @@ function SoundAlerter:RenderSearchPane(container, frame)
 
     rankDropdown:SetCallback("OnValueChanged", function(widget, event, value)
         SetFindSpellOption("rankFilter", value)
+    end)
+
+    kindDropdown:SetCallback("OnValueChanged", function(widget, event, value)
+        SetFindSpellOption("kindFilter", value)
+    end)
+
+    knownDropdown:SetCallback("OnValueChanged", function(widget, event, value)
+        SetFindSpellOption("knownFilter", value)
     end)
 
     descendingBox:SetCallback("OnValueChanged", function(widget, event, value)
@@ -1747,6 +1841,14 @@ function SoundAlerter:RenderSearchPane(container, frame)
     detail.subtitle = AceGUI:Create("Label")
     detail.subtitle:SetFullWidth(true)
     detailGroup:AddChild(detail.subtitle)
+
+    detail.facts = AceGUI:Create("Label")
+    detail.facts:SetFullWidth(true)
+    detailGroup:AddChild(detail.facts)
+
+    detail.props = AceGUI:Create("Label")
+    detail.props:SetFullWidth(true)
+    detailGroup:AddChild(detail.props)
 
     detail.idBox = AceGUI:Create("EditBox")
     detail.idBox:SetLabel("Spell ID (click, then Ctrl+C)")
