@@ -519,6 +519,8 @@ function SoundAlerter:OnEnable()
     self:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
     self:RegisterEvent("PLAYER_TARGET_CHANGED")
     self:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
+    self:RegisterEvent("UNIT_NAME_UPDATE")
+    self:RegisterEvent("UNIT_FACTION")
     self:RegisterEvent("PLAYER_LOGOUT")
 
     self:RefreshZoneState()
@@ -529,6 +531,7 @@ function SoundAlerter:OnEnable()
 
     self.proximityAlertCache = {}
     self.proximityRecentGUIDs = {}
+    self.identityRetryAt = {}
     self.guidToClassCache = {}
     self.trackedNameplates = {}
     self.enterWorldTime = 0
@@ -929,6 +932,12 @@ function SoundAlerter:CleanupProximityCaches()
     for guid, timestamp in pairs(self.proximityAlertCache) do
         if currentTime - timestamp > cooldown then
             self.proximityAlertCache[guid] = nil
+        end
+    end
+
+    for guid, timestamp in pairs(self.identityRetryAt) do
+        if currentTime - timestamp > 60 then
+            self.identityRetryAt[guid] = nil
         end
     end
 
@@ -1655,6 +1664,30 @@ function SoundAlerter:GetApproxRange(unit)
     return nil
 end
 
+local IDENTITY_RETRY_DELAY = 0.1
+local IDENTITY_RETRY_SPACING = 5
+
+function SoundAlerter:ScheduleIdentityRetry(unit, guid)
+    local now = GetTime()
+    local last = self.identityRetryAt[guid]
+    if last and now - last < IDENTITY_RETRY_SPACING then return end
+    self.identityRetryAt[guid] = now
+    self:Debug("Proximity", "%s identity unreadable, retrying in %.1fs", unit, IDENTITY_RETRY_DELAY)
+    C_Timer.After(IDENTITY_RETRY_DELAY, function()
+        if Plain(UnitGUID(unit)) == guid then
+            self:CheckProximityAlert(unit)
+        end
+    end)
+end
+
+function SoundAlerter:UNIT_NAME_UPDATE(event, unit)
+    if not sadb.proximityEnabled then return end
+    if UnitKind(unit) ~= "nameplate" then return end
+    self:CheckProximityAlert(unit)
+end
+
+SoundAlerter.UNIT_FACTION = SoundAlerter.UNIT_NAME_UPDATE
+
 function SoundAlerter:CheckProximityAlert(unit)
     if not sadb.proximityEnabled then return end
 
@@ -1694,8 +1727,10 @@ function SoundAlerter:CheckProximityAlert(unit)
     local _, unitClass = UnitClass(unit)
     local unitLevel = UnitLevel(unit)
 
-    if not Plain(unitName) then return end
-    if not Plain(unitClass) then return end
+    if not (Plain(unitName) and Plain(unitClass)) then
+        self:ScheduleIdentityRetry(unit, guid)
+        return
+    end
     if issecretvalue(unitLevel) then return end
 
     self.guidToClassCache[guid] = unitClass
