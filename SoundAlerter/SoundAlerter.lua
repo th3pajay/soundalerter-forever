@@ -75,6 +75,7 @@ end
 function SoundAlerter:ChangeProfile()
 	sadb = self.db1.profile
 	self:InvalidateTrackedAuraIDs()
+	self:UpdateScoreboardTracking()
 	self:OnOptionsProfileChanged()
 
 	for _,v in SoundAlerter:IterateModules() do
@@ -522,6 +523,7 @@ function SoundAlerter:OnEnable()
     self:RegisterEvent("UNIT_NAME_UPDATE")
     self:RegisterEvent("UNIT_FACTION")
     self:RegisterEvent("UNIT_TARGET")
+    self:RegisterEvent("UPDATE_BATTLEFIELD_SCORE")
     self:RegisterEvent("PLAYER_LOGOUT")
 
     self:RefreshZoneState()
@@ -701,9 +703,50 @@ function SoundAlerter:spellOptions(order, spellID, ...)
     end
 end
 
+SoundAlerter.scoreboardClasses = {}
+local lastScoreboardRefresh = 0
+
+local function ScoreboardRow(index)
+    local ok, info = pcall(C_PvP.GetScoreInfo, index)
+    if not ok or type(info) ~= "table" then return nil end
+    return Plain(info.name), Plain(info.classToken)
+end
+
+function SoundAlerter:RefreshScoreboard()
+    if not (C_PvP and C_PvP.GetScoreInfo) then return end
+    local count = GetNumBattlefieldScores and GetNumBattlefieldScores() or 80
+    local filled = SA_Scoreboard.Fill(self.scoreboardClasses, count, ScoreboardRow)
+    self:Debug("Scoreboard", "%d of %d rows mapped to a class", filled, count)
+end
+
+function SoundAlerter:RequestScoreboard()
+    if RequestBattlefieldScoreData then pcall(RequestBattlefieldScoreData) end
+end
+
+function SoundAlerter:UPDATE_BATTLEFIELD_SCORE()
+    if not (sadb.scoreboardClassFallback and self.cachedInstanceType == "pvp") then return end
+    local now = GetTime()
+    if now - lastScoreboardRefresh < 5 then return end
+    lastScoreboardRefresh = now
+    self:RefreshScoreboard()
+end
+
+function SoundAlerter:UpdateScoreboardTracking()
+    local active = sadb.scoreboardClassFallback and self.cachedInstanceType == "pvp"
+    if active and not self.scoreboardTimer then
+        self.scoreboardTimer = self:ScheduleRepeatingTimer("RequestScoreboard", 20)
+        self:RequestScoreboard()
+    elseif not active and self.scoreboardTimer then
+        self:CancelTimer(self.scoreboardTimer)
+        self.scoreboardTimer = nil
+        SA_Scoreboard.Clear(self.scoreboardClasses)
+    end
+end
+
 function SoundAlerter:RefreshZoneState()
     self.cachedInInstance, self.cachedInstanceType = IsInInstance()
     self.cachedZonePvpType = GetZonePVPInfo()
+    self:UpdateScoreboardTracking()
 
     local zoneName = GetRealZoneText() or GetZoneText() or "Unknown"
     self.zonePvpTypeLog = self.zonePvpTypeLog or {}
@@ -1813,6 +1856,14 @@ function SoundAlerter:CheckProximityAlert(unit)
     local unitName = UnitName(unit)
     local _, unitClass = UnitClass(unit)
     local unitLevel = UnitLevel(unit)
+
+    if not Plain(unitClass) and sadb.scoreboardClassFallback then
+        local mapped = SA_Scoreboard.ClassFor(self.scoreboardClasses, Plain(unitName))
+        if mapped then
+            self:Debug("Scoreboard", "%s class taken from the scoreboard: %s", unit, mapped)
+            unitClass = mapped
+        end
+    end
 
     if not (Plain(unitName) and Plain(unitClass)) then
         self:ScheduleIdentityRetry(unit, guid)

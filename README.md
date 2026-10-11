@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.50-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.51-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-purple.svg"/>
@@ -95,6 +95,7 @@ Instant audio callouts for enemy cooldowns, crowd control and interrupts, for yo
 * **Enemy awareness (off by default):** a voice alert when a nearby enemy player starts targeting you, and another when an enemy who is targeting you starts a cast. Both need the client to reveal the enemy's target and stay silent when it does not. `/sa` -> Proximity Alerts -> Enemy Awareness; add `targetingyou.mp3` and `castingonyou.mp3` to `Voice/` for sound
 * **Quiet rules:** proximity and enemy awareness alerts stay silent on flight paths and while dead (both on by default), optionally while you are not PvP flagged, and for a set time after `/sa snooze [minutes]` (`/sa unsnooze` cancels). Interrupt, crowd control and aura voice alerts are never silenced. `/sa` -> Proximity Alerts -> Quiet Rules
 * **Double-voice warning:** when the game's own combat audio alerts are on, the General options page says so, because both voices may speak. SoundAlerter never changes the game's settings
+* **Scoreboard class fallback:** in battlegrounds, when the client hides an enemy's class on the nameplate but the name is readable, the class comes from the scoreboard so the class voice and toast still work. `/sa` -> Proximity Alerts -> Identification
 * **Flag tracking:** class identification, team-aware pickup, drop and capture toasts
 
 **Configuration**: `/sa` -> Proximity Alerts, Battleground Alerts

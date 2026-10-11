@@ -827,6 +827,28 @@ function SoundAlerter:BuildProximityOptions()
 				},
 			},
 
+			identification = {
+				type = 'group',
+				inline = true,
+				name = "8. Identification",
+				desc = "How enemy classes are found when the client hides them",
+				order = 9,
+				args = {
+					scoreboardClassFallback = {
+						type = 'toggle',
+						name = "Use Battleground Scoreboard For Class",
+						desc = "In battlegrounds, when an enemy's class is hidden on the nameplate but the name is readable, take the class from the scoreboard so the class voice and toast still work.",
+						get = function() return sadb.scoreboardClassFallback end,
+						set = function(info, value)
+							sadb.scoreboardClassFallback = value
+							SoundAlerter:UpdateScoreboardTracking()
+						end,
+						width = "full",
+						order = 1,
+					},
+				},
+			},
+
 			clickInteractions = {
 				type = 'group',
 				inline = true,

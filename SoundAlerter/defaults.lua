@@ -131,6 +131,7 @@ dbDefaults = {
 		quietWhenDead = true,
 		quietOutsidePvPFlag = false,
 		snoozeMinutes = 15,
+		scoreboardClassFallback = true,
 
 		proximityToasts = {
 			enabled = false,
