@@ -568,6 +568,8 @@ function SoundAlerter:OnEnable()
         end
     end
 
+    self:StartAuraSounds()
+
     self:ScheduleRepeatingTimer("CleanupProximityCaches", 30)
     self:ScheduleRepeatingTimer("RescanTrackedNameplates", 1)
     self:ScheduleRepeatingTimer("SaveLearnedClasses", 60)
@@ -816,6 +818,7 @@ function SoundAlerter:ZONE_CHANGED_NEW_AREA()
 end
 
 function SoundAlerter:PLAYER_LOGOUT()
+    self:RemoveAllAuraSounds()
     self:SaveLearnedClasses()
 
     if sadb.statistics and sadb.statistics.enabled then
@@ -837,6 +840,7 @@ function SoundAlerter:HandleCommand(input)
         self:Print("  |cffFFFFFF/sa stats|r - Show class detection performance stats")
         self:Print("  |cffFFFFFF/sa probe|r - Print what the client lets the addon read (turn on Debug Mode first to record events)")
         self:Print("  |cffFFFFFF/sa snooze [minutes]|r / |cffFFFFFF/sa unsnooze|r - Silence proximity and enemy awareness alerts for a while")
+        self:Print("  |cffFFFFFF/sa aurasound|r - Test which units the game's engine aura sounds accept")
         self:Print("  |cffFFFFFF/sa help|r - Show this command list")
         if self.ProximityToasts then
             self.ProximityToasts:PrintHelp()
@@ -871,6 +875,8 @@ function SoundAlerter:HandleCommand(input)
         self:PrintZoneLog()
     elseif command == "probe" then
         self:PrintProbeReport()
+    elseif command == "aurasound" then
+        self:AuraSoundSelfTest()
     elseif command == "snooze" then
         self:Snooze(tonumber(rest))
     elseif command == "unsnooze" then
@@ -1487,8 +1493,12 @@ function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFoc
     end
 
     if isPlayer then
-        if not sadb.dSelfDebuff and self:PlaySpell(self.spellList.selfDebuff, spellID) then
-            lossOfControlState.lastSelfDebuffAt = GetTime()
+        if not sadb.dSelfDebuff then
+            if self:HasEngineAuraSound(spellID) then
+                lossOfControlState.lastSelfDebuffAt = GetTime()
+            elseif self:PlaySpell(self.spellList.selfDebuff, spellID) then
+                lossOfControlState.lastSelfDebuffAt = GetTime()
+            end
         end
         if not sadb.chatalerts then
             if ((spellID == 450600 and sadb.hexselffriend) or

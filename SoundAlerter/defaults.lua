@@ -137,6 +137,7 @@ dbDefaults = {
 		interruptMinCast = 0,
 		interruptPets = false,
 		interruptReadyVoice = false,
+		engineAuraSounds = false,
 		lossOfControlVoice = false,
 		lossOfControlDedupe = true,
 		lossOfControlStun = true,

@@ -462,6 +462,30 @@ function SoundAlerter:BuildGeneralOptions()
 					},
 				},
 			},
+			engineAuraSounds = {
+				type = 'group',
+				inline = true,
+				name = "Engine Aura Sounds (experimental)",
+				desc = "Let the game itself play the self debuff voice alerts",
+				order = 220,
+				args = {
+					engineAuraSoundsNote = {
+						type = 'description',
+						name = "Registers your enabled self debuff voice alerts with the game's own aura sound system, which plays them even when the addon cannot read the aura. A spell registered this way is no longer announced by the addon itself, and its alerts are not counted in Statistics. /sa aurasound shows which units the game accepts.\n",
+						fontSize = "medium",
+						order = 1,
+					},
+					engineAuraSounds = {
+						type = 'toggle',
+						name = "Use Engine Aura Sounds",
+						get = function() return sadb.engineAuraSounds end,
+						set = function(info, value) sadb.engineAuraSounds = value end,
+						disabled = function() return not SoundAlerter:EngineAuraSoundSupported() end,
+						width = "full",
+						order = 2,
+					},
+				},
+			},
 		}
 	}
 end
