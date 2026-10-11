@@ -1516,6 +1516,13 @@ function SoundAlerter:PrintProbeReport()
         end
     end
 
+    if self.AuraSoundSummary then
+        local summary, enemyTarget, enemyFocus = self:AuraSoundSummary()
+        line("engine aura sounds on", sadb and sadb.engineAuraSounds or false)
+        line("engine registered", summary)
+        line("engine enemy target/focus", enemyTarget, enemyFocus)
+    end
+
     if UnitExists("target") then
         local _, class = UnitClass("target")
         line("target name/class/guid", UnitName("target"), class, UnitGUID("target"))

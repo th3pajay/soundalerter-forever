@@ -75,7 +75,7 @@ function SoundAlerter:SyncAuraSounds()
             throttleSeconds = 1,
         })
         if ok and type(id) == "number" then
-            registered[key] = { id = id, file = entry.file }
+            registered[key] = { id = id, file = entry.file, unit = entry.unit, trigger = entry.trigger }
             ids[key] = id
         else
             self:Debug("AuraSound", "%s not registered: %s", key, tostring(id))
@@ -84,6 +84,23 @@ function SoundAlerter:SyncAuraSounds()
     if #add > 0 or #remove > 0 then
         self:Debug("AuraSound", "synced: %d added, %d removed", #add, #remove)
     end
+end
+
+function SoundAlerter:AuraSoundSummary()
+    local counts = {}
+    for _, entry in pairs(registered) do
+        local label = entry.unit .. " " .. entry.trigger
+        counts[label] = (counts[label] or 0) + 1
+    end
+    local labels = {}
+    for label in pairs(counts) do labels[#labels + 1] = label end
+    table.sort(labels)
+    local parts = {}
+    for index, label in ipairs(labels) do
+        parts[index] = label .. " " .. counts[label]
+    end
+    return #parts > 0 and table.concat(parts, ", ") or "none",
+        enemyUnits.target and true or false, enemyUnits.focus and true or false
 end
 
 function SoundAlerter:RefreshEnemyAuraUnits()
