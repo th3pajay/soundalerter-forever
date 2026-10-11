@@ -89,7 +89,9 @@ end
 function SoundAlerter:RefreshEnemyAuraUnits()
     local changed = false
     for _, unit in ipairs(ENEMY_TOKENS) do
-        local isEnemy = UnitExists(unit) and Plain(UnitIsPlayer(unit)) == true and Plain(UnitIsEnemy("player", unit)) == true
+        local profile = self.db1.profile
+        local isEnemy = UnitExists(unit) and Plain(UnitIsEnemy("player", unit)) == true
+            and (profile.debugmode or Plain(UnitIsPlayer(unit)) == true)
         if isEnemy ~= enemyUnits[unit] then
             enemyUnits[unit] = isEnemy
             changed = true
@@ -102,6 +104,7 @@ end
 
 function SoundAlerter:RunAuraSoundSync()
     self.auraSoundSyncTimer = nil
+    self:RefreshEnemyAuraUnits()
     self:SyncAuraSounds()
 end
 

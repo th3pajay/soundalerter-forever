@@ -303,6 +303,7 @@ SoundAlerterSpells = {
         [12826] = "enemypollied",
         [118] = "enemypollied",
         [450600] = "enemyhexxed",
+        [339] = "roots",
     },
     enemyDebuffdown = {
         [2094] = "blinddown",
@@ -310,6 +311,7 @@ SoundAlerterSpells = {
         [118] = "polydown",
         [12826] = "polydown",
         [450600] = "hexdown",
+        [339] = "roots",
     },
     interruptFriend = {
         [2139] = "friendcountered",
