@@ -1064,6 +1064,11 @@ local lastPlayerInterrupt = nil
 local pendingEnemyInterrupt = nil
 local INTERRUPT_CORRELATION_WINDOW = 0.6
 
+local function InterrupterIsPlayer(interruptedBy)
+    if interruptedBy == nil or issecretvalue(interruptedBy) then return nil end
+    return interruptedBy == UnitGUID("player")
+end
+
 function SoundAlerter:AnnounceEnemyInterrupt(enemyName, interruptedSpellID, abilitySpellID)
     self:Debug("Interrupt", "paired: %s interrupted with spell %s (interrupted spell %s); sound=%s chat=%s emote=%s",
         enemyName, tostring(abilitySpellID), tostring(interruptedSpellID or "unknown"),
@@ -1081,7 +1086,7 @@ function SoundAlerter:AnnounceEnemyInterrupt(enemyName, interruptedSpellID, abil
     SoundAlerter:PlayVoice(sadb.sapath.."lockout.mp3");
     if sadb.chatalerts or not sadb.interruptenemy then return end
 
-    local abilityText = GetSpellLink(abilitySpellID) or GetSpellInfo(abilitySpellID) or ""
+    local abilityText = abilitySpellID and (GetSpellLink(abilitySpellID) or GetSpellInfo(abilitySpellID)) or ""
     local interruptedText = interruptedSpellID and (GetSpellLink(interruptedSpellID) or GetSpellInfo(interruptedSpellID)) or "spell"
     local it = gsub(sadb.InterruptEnemyText, "(#spell#)", abilityText)
     it = gsub(it, "#interruptedspellname#", interruptedText)
@@ -1961,7 +1966,17 @@ function SoundAlerter:UNIT_SPELLCAST_INTERRUPTED(event, unit, castGUID, spellID,
 
     local now = GetTime()
     local mine = lastPlayerInterrupt
-    if mine and (now - mine.time) <= INTERRUPT_CORRELATION_WINDOW then
+    local byPlayer = InterrupterIsPlayer(interruptedBy)
+    if byPlayer == false then
+        self:Debug("Interrupt", "%s (%s) was interrupted by someone else", name, unit)
+        return
+    end
+    if byPlayer then
+        local ability = mine and (now - mine.time) <= INTERRUPT_CORRELATION_WINDOW and mine.spellID or nil
+        lastPlayerInterrupt = nil
+        pendingEnemyInterrupt = nil
+        self:AnnounceEnemyInterrupt(name, spellID, ability)
+    elseif mine and (now - mine.time) <= INTERRUPT_CORRELATION_WINDOW then
         lastPlayerInterrupt = nil
         pendingEnemyInterrupt = nil
         self:AnnounceEnemyInterrupt(name, spellID, mine.spellID)
