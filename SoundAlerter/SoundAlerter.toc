@@ -3,7 +3,7 @@
 ## Title: SoundAlerter
 ## Notes: Voice alerts and chat announcements for critical PvP spells (CC, interrupts, cooldowns).
 ## Author: th3pajay
-## Version: 0.2.57
+## Version: 0.2.58
 ## IconTexture: Interface\AddOns\SoundAlerter\Textures\circle.tga
 ## SavedVariables: SoundAlerterDB, SoundAlerterSpellDB, SoundAlerterSpellDescDB
 ## X-License: MIT
@@ -21,8 +21,10 @@ lossofcontrolmodel.lua
 distancemodel.lua
 interruptmodel.lua
 aurasoundmodel.lua
+watchlistmodel.lua
 SoundAlerter.lua
 aurasound.lua
+watchlist.lua
 spellist.lua
 voicealertmodel.lua
 voicealertoptions.lua

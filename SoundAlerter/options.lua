@@ -1020,6 +1020,50 @@ function SoundAlerter:BuildProximityOptions()
 				},
 			},
 
+			watchlist = {
+				type = 'group',
+				inline = true,
+				name = "10. Watchlist",
+				desc = "Alert when a specific enemy player or guild shows up nearby",
+				order = 11,
+				args = {
+					watchlistNote = {
+						type = 'description',
+						name = "Separate names or guilds with commas. Works only where the client lets the addon read the enemy's name or guild. Voice file: watchlist.mp3. Also: /sa watch [guild] <name>.\n",
+						fontSize = "medium",
+						order = 1,
+					},
+					watchlistEnabled = {
+						type = 'toggle',
+						name = "Enable Watchlist",
+						get = function() return sadb.watchlistEnabled end,
+						set = function(info, value) sadb.watchlistEnabled = value end,
+						width = "full",
+						order = 2,
+					},
+					watchNamesText = {
+						type = 'input',
+						name = "Watched Players",
+						multiline = 4,
+						get = function() return sadb.watchNamesText end,
+						set = function(info, value) sadb.watchNamesText = value or "" end,
+						disabled = function() return not sadb.watchlistEnabled end,
+						width = "full",
+						order = 3,
+					},
+					watchGuildsText = {
+						type = 'input',
+						name = "Watched Guilds",
+						multiline = 4,
+						get = function() return sadb.watchGuildsText end,
+						set = function(info, value) sadb.watchGuildsText = value or "" end,
+						disabled = function() return not sadb.watchlistEnabled end,
+						width = "full",
+						order = 4,
+					},
+				},
+			},
+
 			identification = {
 				type = 'group',
 				inline = true,

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.57-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.58-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-purple.svg"/>
@@ -96,6 +96,7 @@ Instant audio callouts for enemy cooldowns, crowd control and interrupts, for yo
 
 * **Proximity toasts:** nearby enemies via nameplate, target or mouseover; Close / Nearby / Medium / Detected (an optional distance limit alerts only inside the band you pick, `/sa` -> Proximity Alerts -> Distance Limit), group size, up to 3 buff icons with timers, one-click targeting, smooth stacking. When a nameplate's name or class is hidden at first, the alert retries after 0.1 s and again on name and faction updates instead of staying silent
 * **Enemy awareness (off by default):** a voice alert when a nearby enemy player starts targeting you, and another when an enemy who is targeting you starts a cast. Both need the client to reveal the enemy's target and stay silent when it does not. `/sa` -> Proximity Alerts -> Enemy Awareness; add `targetingyou.mp3` and `castingonyou.mp3` to `Voice/` for sound
+* **Watchlist (off by default):** a voice alert and a local chat line when a watched enemy player, or a player from a watched guild, comes into view. It works only where the client lets the addon read the name or guild, so it can stay silent in some zones. Manage it under `/sa` -> Proximity Alerts -> Watchlist, or with `/sa watch [guild] <name>`, `/sa unwatch [guild] <name>` and `/sa watchlist`. Add `watchlist.mp3` to `Voice/` for sound
 * **Totem nameplates (off by default):** turns on the game's enemy and friendly player totem nameplates so totems show as plates. The two game settings it changes are saved first and restored when you turn it off or log out. `/sa` -> Proximity Alerts -> Identification
 * **Quiet rules:** proximity and enemy awareness alerts stay silent on flight paths and while dead (both on by default), optionally while you are not PvP flagged, and for a set time after `/sa snooze [minutes]` (`/sa unsnooze` cancels). Interrupt, crowd control and aura voice alerts are never silenced. `/sa` -> Proximity Alerts -> Quiet Rules
 * **Double-voice warning:** when the game's own combat audio alerts are on, the General options page says so, because both voices may speak. SoundAlerter never changes the game's settings

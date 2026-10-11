@@ -887,6 +887,7 @@ function SoundAlerter:HandleCommand(input)
         self:Print("  |cffFFFFFF/sa stats|r - Show class detection performance stats")
         self:Print("  |cffFFFFFF/sa probe|r - Print what the client lets the addon read (turn on Debug Mode first to record events)")
         self:Print("  |cffFFFFFF/sa snooze [minutes]|r / |cffFFFFFF/sa unsnooze|r - Silence proximity and enemy awareness alerts for a while")
+        self:Print("  |cffFFFFFF/sa watch [guild] <name>|r / |cffFFFFFF/sa unwatch [guild] <name>|r / |cffFFFFFF/sa watchlist|r - Manage the watchlist")
         self:Print("  |cffFFFFFF/sa aurasound|r - Test which units the game's engine aura sounds accept")
         self:Print("  |cffFFFFFF/sa help|r - Show this command list")
         if self.ProximityToasts then
@@ -922,6 +923,8 @@ function SoundAlerter:HandleCommand(input)
         self:PrintZoneLog()
     elseif command == "probe" then
         self:PrintProbeReport()
+    elseif command == "watch" or command == "unwatch" or command == "watchlist" then
+        self:HandleWatchCommand(command, rest)
     elseif command == "aurasound" then
         self:AuraSoundSelfTest()
     elseif command == "snooze" then
@@ -1061,6 +1064,8 @@ function SoundAlerter:CleanupProximityCaches()
             self.enemyOnYouAt[key] = nil
         end
     end
+
+    self:PruneWatchlist(currentTime)
 
     local cacheSize = 0
     for _ in pairs(self.guidToClassCache) do
@@ -1927,9 +1932,12 @@ function SoundAlerter:UNIT_TARGET(event, unit)
 end
 
 function SoundAlerter:UNIT_NAME_UPDATE(event, unit)
-    if not sadb.proximityEnabled then return end
+    if not (sadb.proximityEnabled or sadb.watchlistEnabled) then return end
     if UnitKind(unit) ~= "nameplate" then return end
-    self:CheckProximityAlert(unit)
+    self:CheckWatchlist(unit)
+    if sadb.proximityEnabled then
+        self:CheckProximityAlert(unit)
+    end
 end
 
 SoundAlerter.UNIT_FACTION = SoundAlerter.UNIT_NAME_UPDATE
@@ -2029,6 +2037,7 @@ end
 
 function SoundAlerter:PLAYER_TARGET_CHANGED()
     self:ClearAuraTracking("target")
+    self:CheckWatchlist("target")
     self:CheckProximityAlert("target")
 end
 
@@ -2037,6 +2046,7 @@ function SoundAlerter:PLAYER_FOCUS_CHANGED()
 end
 
 function SoundAlerter:UPDATE_MOUSEOVER_UNIT()
+    self:CheckWatchlist("mouseover")
     self:CheckProximityAlert("mouseover")
 end
 
@@ -2049,6 +2059,7 @@ function SoundAlerter:NAME_PLATE_UNIT_ADDED(event, unit)
 
     self.trackedNameplates[guid] = unit
 
+    self:CheckWatchlist(unit)
     self:CheckProximityAlert(unit)
 end
 
