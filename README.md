@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.48-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.49-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-purple.svg"/>
@@ -93,6 +93,7 @@ Instant audio callouts for enemy cooldowns, crowd control and interrupts, for yo
 
 * **Proximity toasts:** nearby enemies via nameplate, target or mouseover; Close / Nearby / Detected, group size, up to 3 buff icons with timers, one-click targeting, smooth stacking. When a nameplate's name or class is hidden at first, the alert retries after 0.1 s and again on name and faction updates instead of staying silent
 * **Enemy awareness (off by default):** a voice alert when a nearby enemy player starts targeting you, and another when an enemy who is targeting you starts a cast. Both need the client to reveal the enemy's target and stay silent when it does not. `/sa` -> Proximity Alerts -> Enemy Awareness; add `targetingyou.mp3` and `castingonyou.mp3` to `Voice/` for sound
+* **Quiet rules:** proximity and enemy awareness alerts stay silent on flight paths and while dead (both on by default), optionally while you are not PvP flagged, and for a set time after `/sa snooze [minutes]` (`/sa unsnooze` cancels). Interrupt, crowd control and aura voice alerts are never silenced. `/sa` -> Proximity Alerts -> Quiet Rules
 * **Flag tracking:** class identification, team-aware pickup, drop and capture toasts
 
 **Configuration**: `/sa` -> Proximity Alerts, Battleground Alerts

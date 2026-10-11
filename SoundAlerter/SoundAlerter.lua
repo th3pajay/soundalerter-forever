@@ -781,6 +781,7 @@ function SoundAlerter:HandleCommand(input)
         self:Print("  |cffFFFFFF/sa|r - Open options panel")
         self:Print("  |cffFFFFFF/sa stats|r - Show class detection performance stats")
         self:Print("  |cffFFFFFF/sa probe|r - Print what the client lets the addon read (turn on Debug Mode first to record events)")
+        self:Print("  |cffFFFFFF/sa snooze [minutes]|r / |cffFFFFFF/sa unsnooze|r - Silence proximity and enemy awareness alerts for a while")
         self:Print("  |cffFFFFFF/sa help|r - Show this command list")
         if self.ProximityToasts then
             self.ProximityToasts:PrintHelp()
@@ -815,6 +816,10 @@ function SoundAlerter:HandleCommand(input)
         self:PrintZoneLog()
     elseif command == "probe" then
         self:PrintProbeReport()
+    elseif command == "snooze" then
+        self:Snooze(tonumber(rest))
+    elseif command == "unsnooze" then
+        self:Unsnooze()
     else
         self:ShowConfig()
     end
@@ -1693,6 +1698,26 @@ function SoundAlerter:ScheduleIdentityRetry(unit, guid)
     end)
 end
 
+local quietState = {}
+
+function SoundAlerter:IsQuiet()
+    quietState.onTaxi = UnitOnTaxi("player") and true or false
+    quietState.dead = UnitIsDeadOrGhost("player") and true or false
+    quietState.pvpFlagged = not UnitIsPVP or UnitIsPVP("player") or (UnitIsPVPFreeForAll and UnitIsPVPFreeForAll("player")) or false
+    quietState.snoozeUntil = self.snoozeUntil
+    return SA_QuietRules.Reason(sadb, quietState, GetTime()) ~= nil
+end
+
+function SoundAlerter:Snooze(minutes)
+    self.snoozeUntil = SA_QuietRules.SnoozeUntil(GetTime(), minutes or sadb.snoozeMinutes)
+    self:Print(string.format("Proximity and enemy awareness alerts snoozed for %d minutes. /sa unsnooze to cancel.", math.floor((self.snoozeUntil - GetTime()) / 60 + 0.5)))
+end
+
+function SoundAlerter:Unsnooze()
+    self.snoozeUntil = nil
+    self:Print("Snooze cancelled.")
+end
+
 local ENEMY_ON_YOU = {
     targeting = { setting = "enemyTargetsYou", voice = "targetingyou.mp3" },
     casting = { setting = "enemyCastingAtYou", voice = "castingonyou.mp3", spacing = 3 },
@@ -1713,7 +1738,7 @@ function SoundAlerter:AlertEnemyOnYou(unit, kind)
     local rule = ENEMY_ON_YOU[kind]
     if not sadb[rule.setting] then return end
     if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
-    if not self:IsAlertZoneAllowed() then return end
+    if not self:IsAlertZoneAllowed() or self:IsQuiet() then return end
     local guid = Plain(UnitGUID(unit))
     if not guid then return end
     local key = kind .. guid
@@ -1761,6 +1786,7 @@ function SoundAlerter:CheckProximityAlert(unit)
     end
 
     if currentTime - self.enterWorldTime < 10 then return end
+    if self:IsQuiet() then return end
 
     local currentZoneType, pvpType = self.cachedInstanceType, self.cachedZonePvpType
 

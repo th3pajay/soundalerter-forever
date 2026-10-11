@@ -127,6 +127,10 @@ dbDefaults = {
 		enemyTargetsYou = false,
 		enemyTargetsYouCooldown = 8,
 		enemyCastingAtYou = false,
+		quietOnTaxi = true,
+		quietWhenDead = true,
+		quietOutsidePvPFlag = false,
+		snoozeMinutes = 15,
 
 		proximityToasts = {
 			enabled = false,
