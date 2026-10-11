@@ -411,6 +411,53 @@ function CastingBars:UpdateLatency(b)
 	latency:Show()
 end
 
+function CastingBars:ApplySecretTimer(b, unit, channeling)
+	local getDuration
+	if channeling then
+		getDuration = UnitChannelDuration
+	else
+		getDuration = UnitCastingDuration
+	end
+	if not getDuration or not b.bar.SetTimerDuration then return false end
+	local ok, duration = pcall(getDuration, unit)
+	if not ok or duration == nil then return false end
+	local direction = Enum and Enum.StatusBarTimerDirection
+	direction = direction and (channeling and direction.RemainingTime or direction.ElapsedTime)
+	return pcall(b.bar.SetTimerDuration, b.bar, duration, nil, direction)
+end
+
+function CastingBars:BeginSecretCast(b, unit, channeling, spellName, texture)
+	if not self:ApplySecretTimer(b, unit, channeling) then return end
+
+	b.casting = not channeling
+	b.channeling = channeling
+	b.secretTimer = true
+	b.spellName = spellName
+	b.finishing = nil
+	b.bounceActive = false
+	b.lastTick = nil
+	b.frame:SetAlpha(1)
+
+	if channeling then
+		b.bar:SetStatusBarColor(0.7, 0.3, 1.0, 1)
+	else
+		b.bar:SetStatusBarColor(0.2, 0.5, 1.0, 1)
+	end
+
+	b.spellText:SetText(spellName)
+	b.timeText:SetText("")
+
+	if self.db.showSpellIcon and texture then
+		pcall(b.icon.SetTexture, b.icon, texture)
+		b.icon:Show()
+	else
+		b.icon:Hide()
+	end
+
+	b.frame:Show()
+	self:Attach()
+end
+
 function CastingBars:BeginCast(unit, channeling)
 	local b = self.bars[unit]
 	if not b or not self.db[unit].enabled then return end
@@ -423,7 +470,11 @@ function CastingBars:BeginCast(unit, channeling)
 	end
 
 	if not spellName then return end
-	if issecretvalue(startTime) or issecretvalue(endTime) then return end
+	if issecretvalue(startTime) or issecretvalue(endTime) then
+		self:BeginSecretCast(b, unit, channeling, spellName, texture)
+		return
+	end
+	b.secretTimer = nil
 
 	local now = self:SetTimes(b, startTime, endTime)
 
@@ -465,6 +516,7 @@ function CastingBars:BeginCast(unit, channeling)
 end
 
 function CastingBars:ResetState(b)
+	b.secretTimer = nil
 	b.casting = false
 	b.channeling = false
 	b.startTime = 0
@@ -483,6 +535,11 @@ end
 function CastingBars:Finish(b, kind)
 	local style = FINISH_STYLES[kind]
 
+	if b.secretTimer then
+		b.bar:SetValue(1)
+		b.lastFill = 1
+	end
+	b.secretTimer = nil
 	b.casting = false
 	b.channeling = false
 	b.bounceActive = false
@@ -525,6 +582,8 @@ function CastingBars:OnStopEvent(unit, interrupted)
 
 	if interrupted then
 		self:Finish(b, "interrupt")
+	elseif b.secretTimer then
+		self:OnCastStop(unit)
 	elseif GetTime() >= b.endTime - FINISH_NEAR_END then
 		self:Finish(b, "success")
 	else
@@ -560,7 +619,12 @@ function CastingBars:Retime(unit, channeling)
 	end
 
 	if not spellName then return end
-	if issecretvalue(startTime) or issecretvalue(endTime) then return end
+	if issecretvalue(startTime) or issecretvalue(endTime) then
+		if b.secretTimer and ((channeling and b.channeling) or (not channeling and b.casting)) then
+			self:ApplySecretTimer(b, unit, channeling)
+		end
+		return
+	end
 
 	if (channeling and b.channeling) or (not channeling and b.casting) then
 		self:SetTimes(b, startTime, endTime)
@@ -598,6 +662,8 @@ function CastingBars:OnUpdate()
 		if b.finishing then
 			self:UpdateFinish(b, now)
 			busy = busy or b.finishing ~= nil
+		elseif b.secretTimer then
+			busy = true
 		elseif b.casting or b.channeling then
 			self:UpdateBar(b, now)
 			if b.casting or b.channeling or b.finishing then
