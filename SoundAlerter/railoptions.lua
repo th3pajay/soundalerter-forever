@@ -251,9 +251,9 @@ function SoundAlerter:RailChat(options)
     end)
     options.args.livePreview = description(0.1, chatPreviewText)
     return Rail.Tree(options, {
-        { key = "channels", name = "Channels", from = { "caonlyTF", "chatgroup" }, icon = ICONS.chat, order = 1 },
-        { key = "events", name = "What to announce", from = { "spells", "stealthalerttextg", "prowlalerttextg", "vanishalerttextg" }, icon = ICONS.alert, order = 2 },
-        { key = "texts", name = "Message text", from = { "livePreview", "general", "saptextfriendg", "trinketalerttextg", "InterruptTextg" }, icon = ICONS.look, order = 3 },
+        { key = "channels", name = "Channels", from = { "caonlyTF", "chatgroup" }, icon = ICONS.chat, order = 2 },
+        { key = "events", name = "What to announce", from = { "spells", "stealthalerttextg", "prowlalerttextg", "vanishalerttextg" }, icon = ICONS.alert, order = 3 },
+        { key = "texts", name = "Message text", from = { "livePreview", "general", "saptextfriendg", "trinketalerttextg", "InterruptTextg" }, icon = ICONS.look, order = 4 },
     })
 end
 
