@@ -775,6 +775,7 @@ function SoundAlerter:HandleCommand(input)
         self:Print("|cff00FFFF[General]|r")
         self:Print("  |cffFFFFFF/sa|r - Open options panel")
         self:Print("  |cffFFFFFF/sa stats|r - Show class detection performance stats")
+        self:Print("  |cffFFFFFF/sa probe|r - Print what the client lets the addon read (turn on Debug Mode first to record events)")
         self:Print("  |cffFFFFFF/sa help|r - Show this command list")
         if self.ProximityToasts then
             self.ProximityToasts:PrintHelp()
@@ -807,6 +808,8 @@ function SoundAlerter:HandleCommand(input)
         self:RunApiCheck()
     elseif command == "zonelog" then
         self:PrintZoneLog()
+    elseif command == "probe" then
+        self:PrintProbeReport()
     else
         self:ShowConfig()
     end
@@ -1255,6 +1258,105 @@ function SoundAlerter:ProbeAuraUpdate(unit, kind, updateInfo, path)
         unit, kind, combat, path or "?", info, full, added, removed, firstSpell)
 end
 
+local probeLog = SA_DebugLog.NewProbe(function(value) return issecretvalue(value) end)
+
+function SoundAlerter:ProbeValue(tag, ...)
+    if not (sadb and sadb.debugmode) then return end
+    local zone = self.cachedInstanceType or "none"
+    local combat = InCombatLockdown() and "combat" or "idle"
+    local fresh, key = probeLog.Record(tag .. " [" .. zone .. "," .. combat .. "]", ...)
+    if fresh then
+        self:Debug("Probe", "%s", key)
+    end
+end
+
+function SoundAlerter:ProbeNameplate(unit)
+    local _, class = UnitClass(unit)
+    self:ProbeValue("plate name/class/guid", UnitName(unit), class, UnitGUID(unit))
+    if Plain(UnitIsPlayer(unit)) then
+        self:ProbeValue("plate guild", (GetGuildInfo(unit)))
+    end
+    local ok, same = pcall(UnitIsUnit, unit .. "target", "player")
+    if ok then
+        self:ProbeValue("plate targets player", same)
+    else
+        self:ProbeValue("plate targets player (error)")
+    end
+end
+
+function SoundAlerter:PrintProbeReport()
+    local function describe(value)
+        return SA_DebugLog.Describe(value, function(v) return issecretvalue(v) end)
+    end
+    local function line(label, ...)
+        local parts = {}
+        for index = 1, select("#", ...) do
+            parts[index] = describe((select(index, ...)))
+        end
+        self:Print("  " .. label .. ": " .. table.concat(parts, " "))
+    end
+
+    self:Print("|cffFFD700=== SoundAlerter probe report ===|r")
+    if not (sadb and sadb.debugmode) then
+        self:Print("Debug mode is off: event probes record nothing until it is on. Snapshot below still works.")
+    end
+    line("zone", self.cachedInstanceType, self.cachedZonePvpType)
+    line("combat lockdown", InCombatLockdown())
+
+    if Enum and Enum.AddOnRestrictionType and C_RestrictedActions and C_RestrictedActions.GetAddOnRestrictionState then
+        for name, value in pairs(Enum.AddOnRestrictionType) do
+            local ok, state = pcall(C_RestrictedActions.GetAddOnRestrictionState, value)
+            line("restriction " .. name, ok and state or "error")
+        end
+    end
+
+    if C_CombatAudioAlert and C_CombatAudioAlert.IsEnabled then
+        line("Blizzard combat audio alerts", pcall(C_CombatAudioAlert.IsEnabled))
+    else
+        line("Blizzard combat audio alerts", nil)
+    end
+
+    if C_LossOfControl and C_LossOfControl.GetActiveLossOfControlDataCount then
+        local ok, count = pcall(C_LossOfControl.GetActiveLossOfControlDataCount)
+        line("loss of control active", ok and count or "error")
+        if ok and type(count) == "number" and count > 0 and C_LossOfControl.GetActiveLossOfControlData then
+            local okData, data = pcall(C_LossOfControl.GetActiveLossOfControlData, 1)
+            if okData and type(data) == "table" then
+                line("loss of control #1", data.locType, data.spellID, data.displayText, data.lockoutSchool, data.duration)
+            end
+        end
+    end
+
+    if C_PvP and C_PvP.GetScoreInfo then
+        local ok, info = pcall(C_PvP.GetScoreInfo, 1)
+        if ok and type(info) == "table" then
+            line("scoreboard #1 name/class/guid", info.name, info.classToken, info.guid)
+        else
+            line("scoreboard #1", ok and info or "error")
+        end
+    end
+
+    if UnitExists("target") then
+        local _, class = UnitClass("target")
+        line("target name/class/guid", UnitName("target"), class, UnitGUID("target"))
+        line("target guild", GetGuildInfo("target"))
+        line("target spell target name/class", UnitSpellTargetName and UnitSpellTargetName("target"), UnitSpellTargetClass and UnitSpellTargetClass("target"))
+        line("target distance squared", UnitDistanceSquared and UnitDistanceSquared("target"))
+        line("target interact distance 4", pcall(CheckInteractDistance, "target", 4))
+        if C_Secrets and C_Secrets.ShouldUnitComparisonBeSecret then
+            line("comparison secret target/player", pcall(C_Secrets.ShouldUnitComparisonBeSecret, "target", "player"))
+        end
+    else
+        self:Print("  No target: select an enemy player to include the target lines.")
+    end
+
+    local rows = probeLog.Report()
+    self:Print(string.format("|cffFFD700=== Recorded event probes (%d) ===|r", #rows))
+    for _, row in ipairs(rows) do
+        self:Print("  " .. row)
+    end
+end
+
 function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFocus, isTracked, sourceUnit, isAlly)
     self:CheckCustomAlerts("SPELL_AURA_APPLIED", sourceUnit, unit, spellID)
 
@@ -1645,6 +1747,7 @@ function SoundAlerter:UPDATE_MOUSEOVER_UNIT()
 end
 
 function SoundAlerter:NAME_PLATE_UNIT_ADDED(event, unit)
+    if sadb.debugmode then self:ProbeNameplate(unit) end
     if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
 
     local guid = UnitGUID(unit)
@@ -1776,9 +1879,15 @@ function SoundAlerter:UNIT_SPELLCAST_SUCCEEDED(event, unit, castGUID, spellID)
     end
 end
 
-function SoundAlerter:UNIT_SPELLCAST_INTERRUPTED(event, unit, castGUID, spellID)
+function SoundAlerter:UNIT_SPELLCAST_INTERRUPTED(event, unit, castGUID, spellID, interruptedBy)
     if unit ~= "player" and unit ~= "target" and unit ~= "focus" and unit ~= "mouseover" then return end
     if not self:IsAlertZoneAllowed() then return end
+    if sadb.debugmode then
+        self:ProbeValue("interrupted " .. unit .. " spell/by", spellID, interruptedBy)
+        if interruptedBy ~= nil and not issecretvalue(interruptedBy) then
+            self:ProbeValue("interrupted " .. unit .. " by is player", interruptedBy == UnitGUID("player"))
+        end
+    end
     if issecretvalue(spellID) then
         if unit == "player" then return end
         spellID = lastEnemyCast[unit]

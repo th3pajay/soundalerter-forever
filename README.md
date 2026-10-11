@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.43-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.44-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-purple.svg"/>
@@ -176,6 +176,7 @@ Handlers filter on unit identity before touching any API. Aura alerts read the `
 | `/sa` | Main options panel |
 | `/sa help` | Full command list |
 | `/sa stats` | Class detection statistics |
+| `/sa probe` | What the client lets the addon read right now (name, class, guild, distance, loss of control, scoreboard, restriction state), plus the readable-or-secret counts recorded while Debug Mode is on |
 | `/sa toast status` | Proximity metrics |
 | `/sa flag myteam` / `metrics` | BG team check and flag metrics |
 
