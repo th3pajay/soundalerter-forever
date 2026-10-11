@@ -1796,7 +1796,7 @@ function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
         local currentZoneType, pvpType = self.cachedInstanceType, self.cachedZonePvpType
         if not ((currentZoneType == "arena") or (pvpType == "arena")) then return end
         for i = 1, 5 do
-            if playerName == UnitName("arena"..i.."target") then return end
+            if playerName == SafeUnitName("arena"..i.."target") then return end
         end
         self:PlaySpell(self.spellList.friendCCs, spellID)
         return
