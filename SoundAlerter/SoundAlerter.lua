@@ -1520,7 +1520,7 @@ function SoundAlerter:PrintProbeReport()
         line("target name/class/guid", UnitName("target"), class, UnitGUID("target"))
         line("target guild", GetGuildInfo("target"))
         line("target spell target name/class", UnitSpellTargetName and UnitSpellTargetName("target"), UnitSpellTargetClass and UnitSpellTargetClass("target"))
-        line("target distance squared", UnitDistanceSquared and UnitDistanceSquared("target"))
+        line("target distance squared/checked", UnitDistanceSquared and select(2, pcall(UnitDistanceSquared, "target")), UnitDistanceSquared and select(3, pcall(UnitDistanceSquared, "target")))
         line("target interact distance 4", pcall(CheckInteractDistance, "target", 4))
         if C_Secrets and C_Secrets.ShouldUnitComparisonBeSecret then
             line("comparison secret target/player", pcall(C_Secrets.ShouldUnitComparisonBeSecret, "target", "player"))
