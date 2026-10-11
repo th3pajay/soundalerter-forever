@@ -31,6 +31,7 @@ end
 
 function SoundAlerter:RemoveAllAuraSounds()
     if not self:EngineAuraSoundSupported() then return end
+    self:StopAuraSoundPlay()
     local ids = SavedIDs(self)
     for spellID, entry in pairs(registered) do
         pcall(C_UnitAuras.RemoveAuraSound, entry.id)
@@ -84,6 +85,63 @@ function SoundAlerter:StartAuraSounds()
     self:ClearStaleAuraSounds()
     LibStub("AceConfigRegistry-3.0").RegisterCallback(self, "ConfigTableChange", "OnConfigTableChange")
     self:SyncAuraSounds()
+end
+
+local PLAY_SECONDS = 30
+local playIDs = {}
+
+function SoundAlerter:StopAuraSoundPlay()
+    if self.auraSoundPlayTimer then
+        self:CancelTimer(self.auraSoundPlayTimer)
+        self.auraSoundPlayTimer = nil
+    end
+    for index, id in ipairs(playIDs) do
+        pcall(C_UnitAuras.RemoveAuraSound, id)
+        playIDs[index] = nil
+    end
+end
+
+function SoundAlerter:AuraSoundPlay(spellID, unit)
+    if not self:EngineAuraSoundSupported() then
+        self:Print("C_UnitAuras.AddAuraSound is not available on this client.")
+        return
+    end
+    if not spellID then
+        self:Print("Usage: /sa aurasound play <spellID> [unit]. Example: /sa aurasound play 1459 player, then gain that buff.")
+        return
+    end
+    unit = unit or "player"
+    self:StopAuraSoundPlay()
+    local base = self.db1.profile.sapath
+    local triggers = Enum.UnitAuraSoundTrigger
+    local sounds = { { triggers.Added, "detected.mp3", "gained" }, { triggers.Removed, "lockout.mp3", "lost" } }
+    for _, entry in ipairs(sounds) do
+        local ok, id = pcall(C_UnitAuras.AddAuraSound, entry[1], {
+            unitToken = unit,
+            spellID = spellID,
+            soundFileName = base .. entry[2],
+            throttleSeconds = 0,
+        })
+        if ok and type(id) == "number" then
+            playIDs[#playIDs + 1] = id
+            self:Print(string.format("  %s %s: %s plays when the aura is %s", unit, spellID, entry[2], entry[3]))
+        else
+            self:Print(string.format("  %s %s: %s not registered (%s)", unit, spellID, entry[2], tostring(ok and "no id returned" or id)))
+        end
+    end
+    if #playIDs > 0 then
+        self.auraSoundPlayTimer = self:ScheduleTimer("StopAuraSoundPlay", PLAY_SECONDS)
+        self:Print(string.format("Listening for %d seconds. Gain and lose the aura now.", PLAY_SECONDS))
+    end
+end
+
+function SoundAlerter:AuraSoundCommand(rest)
+    local action, spellText, unit = (rest or ""):match("^(%S*)%s*(%S*)%s*(%S*)$")
+    if action == "play" then
+        self:AuraSoundPlay(tonumber(spellText), unit ~= "" and unit or nil)
+    else
+        self:AuraSoundSelfTest()
+    end
 end
 
 function SoundAlerter:AuraSoundSelfTest()

@@ -888,7 +888,7 @@ function SoundAlerter:HandleCommand(input)
         self:Print("  |cffFFFFFF/sa probe|r - Print what the client lets the addon read (turn on Debug Mode first to record events)")
         self:Print("  |cffFFFFFF/sa snooze [minutes]|r / |cffFFFFFF/sa unsnooze|r - Silence proximity and enemy awareness alerts for a while")
         self:Print("  |cffFFFFFF/sa watch [guild] <name>|r / |cffFFFFFF/sa unwatch [guild] <name>|r / |cffFFFFFF/sa watchlist|r - Manage the watchlist")
-        self:Print("  |cffFFFFFF/sa aurasound|r - Test which units the game's engine aura sounds accept")
+        self:Print("  |cffFFFFFF/sa aurasound|r - Test engine aura sounds; |cffFFFFFF/sa aurasound play <spellID> [unit]|r listens for 30 s")
         self:Print("  |cffFFFFFF/sa help|r - Show this command list")
         if self.ProximityToasts then
             self.ProximityToasts:PrintHelp()
@@ -926,7 +926,7 @@ function SoundAlerter:HandleCommand(input)
     elseif command == "watch" or command == "unwatch" or command == "watchlist" then
         self:HandleWatchCommand(command, rest)
     elseif command == "aurasound" then
-        self:AuraSoundSelfTest()
+        self:AuraSoundCommand(rest)
     elseif command == "snooze" then
         self:Snooze(tonumber(rest))
     elseif command == "unsnooze" then
