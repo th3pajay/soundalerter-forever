@@ -569,6 +569,7 @@ function SoundAlerter:OnEnable()
     end
 
     self:ScheduleRepeatingTimer("CleanupProximityCaches", 30)
+    self:ScheduleRepeatingTimer("RescanTrackedNameplates", 1)
     self:ScheduleRepeatingTimer("SaveLearnedClasses", 60)
 
 end
@@ -1734,23 +1735,41 @@ local CLASS_AUDIO_MAP = {
 }
 SoundAlerter.CLASS_AUDIO_MAP = CLASS_AUDIO_MAP
 
+local MEDIUM_RANGE_ITEM = 18904
+
+local function WithinMediumRange(unit)
+    local check = (C_Item and C_Item.IsItemInRange) or IsItemInRange
+    if not check then return false end
+    local ok, inRange = pcall(check, MEDIUM_RANGE_ITEM, unit)
+    return ok and Plain(inRange) == true
+end
+
 function SoundAlerter:GetApproxRange(unit)
     if not UnitExists(unit) then return nil end
 
     local function withinInteractRange(index)
         local ok, inRange = pcall(CheckInteractDistance, unit, index)
-        return ok and inRange
+        return ok and Plain(inRange) == true
     end
 
     if withinInteractRange(3) then
         return "Close"
     elseif withinInteractRange(1) then
         return "Nearby"
+    elseif WithinMediumRange(unit) then
+        return "Medium"
     elseif UnitIsVisible(unit) then
         return "Detected"
     end
 
     return nil
+end
+
+function SoundAlerter:RescanTrackedNameplates()
+    if not (sadb.proximityEnabled and SA_Distance.IsRestricted(sadb.proximityMaxBand)) then return end
+    for _, unit in pairs(self.trackedNameplates) do
+        self:CheckProximityAlert(unit)
+    end
 end
 
 local IDENTITY_RETRY_DELAY = 0.1
@@ -1889,6 +1908,10 @@ function SoundAlerter:CheckProximityAlert(unit)
         return
     end
     if issecretvalue(unitLevel) then return end
+
+    if SA_Distance.IsRestricted(sadb.proximityMaxBand) and not SA_Distance.Allows(sadb.proximityMaxBand, self:GetApproxRange(unit)) then
+        return
+    end
 
     self.guidToClassCache[guid] = unitClass
     self.proximityAlertCache[guid] = currentTime

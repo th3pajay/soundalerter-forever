@@ -916,6 +916,32 @@ function SoundAlerter:BuildProximityOptions()
 				},
 			},
 
+			distanceLimit = {
+				type = 'group',
+				inline = true,
+				name = "9. Distance Limit",
+				desc = "Only alert when the enemy is within a chosen distance band",
+				order = 10,
+				args = {
+					proximityMaxBand = {
+						type = 'select',
+						name = "Alert Only Within",
+						desc = "Close is about 10 yards, Nearby about 28, Medium about 35 (needs the client to answer range checks), Detected is anything with a nameplate. With a limit set, enemies are rechecked every second so they alert when they come into the band.",
+						values = {
+							Close = "Close (about 10 yd)",
+							Nearby = "Nearby (about 28 yd)",
+							Medium = "Medium (about 35 yd)",
+							Detected = "Detected (any nameplate)",
+						},
+						get = function() return sadb.proximityMaxBand end,
+						set = function(info, value) sadb.proximityMaxBand = value end,
+						disabled = function() return not sadb.proximityEnabled end,
+						width = "double",
+						order = 1,
+					},
+				},
+			},
+
 			identification = {
 				type = 'group',
 				inline = true,

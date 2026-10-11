@@ -132,6 +132,7 @@ dbDefaults = {
 		quietOutsidePvPFlag = false,
 		snoozeMinutes = 15,
 		scoreboardClassFallback = true,
+		proximityMaxBand = "Detected",
 		lossOfControlVoice = false,
 		lossOfControlDedupe = true,
 		lossOfControlStun = true,
