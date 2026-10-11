@@ -711,6 +711,53 @@ function SoundAlerter:BuildProximityOptions()
 				},
 			},
 
+			enemyAwareness = {
+				type = 'group',
+				inline = true,
+				name = "6. Enemy Awareness",
+				desc = "Voice alerts when a nearby enemy player targets you or casts while targeting you",
+				order = 7,
+				args = {
+					awarenessNote = {
+						type = 'description',
+						name = "Needs the client to reveal who an enemy is targeting. When it hides that, these alerts stay silent. Voice files: targetingyou.mp3, castingonyou.mp3.\n",
+						fontSize = "medium",
+						order = 1,
+					},
+					enemyTargetsYou = {
+						type = 'toggle',
+						name = "Enemy Targets You",
+						desc = "Play an alert when an enemy player with a visible nameplate starts targeting you.",
+						get = function() return sadb.enemyTargetsYou end,
+						set = function(info, value) sadb.enemyTargetsYou = value end,
+						width = "full",
+						order = 2,
+					},
+					enemyTargetsYouCooldown = {
+						type = 'range',
+						name = "Targeting Alert Cooldown (seconds)",
+						desc = "Minimum time before the same enemy can trigger another targeting alert.",
+						min = 2,
+						max = 30,
+						step = 1,
+						get = function() return sadb.enemyTargetsYouCooldown end,
+						set = function(info, value) sadb.enemyTargetsYouCooldown = value end,
+						disabled = function() return not sadb.enemyTargetsYou end,
+						width = "full",
+						order = 3,
+					},
+					enemyCastingAtYou = {
+						type = 'toggle',
+						name = "Enemy Casts While Targeting You",
+						desc = "Play an alert when an enemy player who is targeting you starts a cast (target, focus and nameplates).",
+						get = function() return sadb.enemyCastingAtYou end,
+						set = function(info, value) sadb.enemyCastingAtYou = value end,
+						width = "full",
+						order = 4,
+					},
+				},
+			},
+
 			clickInteractions = {
 				type = 'group',
 				inline = true,

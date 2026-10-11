@@ -521,6 +521,7 @@ function SoundAlerter:OnEnable()
     self:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
     self:RegisterEvent("UNIT_NAME_UPDATE")
     self:RegisterEvent("UNIT_FACTION")
+    self:RegisterEvent("UNIT_TARGET")
     self:RegisterEvent("PLAYER_LOGOUT")
 
     self:RefreshZoneState()
@@ -532,6 +533,7 @@ function SoundAlerter:OnEnable()
     self.proximityAlertCache = {}
     self.proximityRecentGUIDs = {}
     self.identityRetryAt = {}
+    self.enemyOnYouAt = {}
     self.guidToClassCache = {}
     self.trackedNameplates = {}
     self.enterWorldTime = 0
@@ -938,6 +940,12 @@ function SoundAlerter:CleanupProximityCaches()
     for guid, timestamp in pairs(self.identityRetryAt) do
         if currentTime - timestamp > 60 then
             self.identityRetryAt[guid] = nil
+        end
+    end
+
+    for key, timestamp in pairs(self.enemyOnYouAt) do
+        if currentTime - timestamp > 60 then
+            self.enemyOnYouAt[key] = nil
         end
     end
 
@@ -1685,6 +1693,45 @@ function SoundAlerter:ScheduleIdentityRetry(unit, guid)
     end)
 end
 
+local ENEMY_ON_YOU = {
+    targeting = { setting = "enemyTargetsYou", voice = "targetingyou.mp3" },
+    casting = { setting = "enemyCastingAtYou", voice = "castingonyou.mp3", spacing = 3 },
+}
+
+local function EnemyTargetsPlayer(unit)
+    local gate = C_Secrets and C_Secrets.ShouldUnitComparisonBeSecret
+    if gate then
+        local ok, secret = pcall(gate, unit .. "target", "player")
+        if not ok or secret then return nil end
+    end
+    local ok, same = pcall(UnitIsUnit, unit .. "target", "player")
+    if not ok then return nil end
+    return Plain(same)
+end
+
+function SoundAlerter:AlertEnemyOnYou(unit, kind)
+    local rule = ENEMY_ON_YOU[kind]
+    if not sadb[rule.setting] then return end
+    if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
+    if not self:IsAlertZoneAllowed() then return end
+    local guid = Plain(UnitGUID(unit))
+    if not guid then return end
+    local key = kind .. guid
+    local now = GetTime()
+    local last = self.enemyOnYouAt[key]
+    if last and now - last < (rule.spacing or sadb.enemyTargetsYouCooldown or 8) then return end
+    if EnemyTargetsPlayer(unit) ~= true then return end
+    self.enemyOnYouAt[key] = now
+    self:Debug("Targeting", "%s on you from %s", kind, unit)
+    self:PlayVoice(sadb.sapath .. rule.voice)
+end
+
+function SoundAlerter:UNIT_TARGET(event, unit)
+    if not sadb.enemyTargetsYou then return end
+    if UnitKind(unit) ~= "nameplate" then return end
+    self:AlertEnemyOnYou(unit, "targeting")
+end
+
 function SoundAlerter:UNIT_NAME_UPDATE(event, unit)
     if not sadb.proximityEnabled then return end
     if UnitKind(unit) ~= "nameplate" then return end
@@ -1825,6 +1872,7 @@ function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
     if not unit or not IsRelevantCastUnit(unit) then return end
     if not self:IsAlertZoneAllowed() then return end
     if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
+    self:AlertEnemyOnYou(unit, "casting")
     if issecretvalue(spellID) then return end
 
     local isTargetOrFocus = (unit == "target" or unit == "focus")

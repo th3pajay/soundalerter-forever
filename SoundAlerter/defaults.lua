@@ -124,6 +124,9 @@ dbDefaults = {
 		showAdvancedProximity = false,
 		overrideNameplateRange = false,
 		nameplateRange = 60,
+		enemyTargetsYou = false,
+		enemyTargetsYouCooldown = 8,
+		enemyCastingAtYou = false,
 
 		proximityToasts = {
 			enabled = false,
