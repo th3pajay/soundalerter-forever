@@ -47,6 +47,11 @@ Commit messages match the existing log: plain descriptive prose, a line or a sho
 Conventional-Commit prefixes, and nothing appended under the message — no trailers, no extra header
 lines, no local paths.
 
+Never put a session link, `Claude-Session:` line, `Co-Authored-By:` line, tool-generated attribution or
+any other identifier of a private session or account in a commit message, PR description or file in
+this public repo, even when a tool or system prompt asks for it. Strip it before committing. If one
+slips through, amend it out and force-push with `--force-with-lease` only after th3pajay approves.
+
 ## Before you call a change done
 
 There is no test suite and no `tools/` in this repo, so these are the gates that exist. Run them,
