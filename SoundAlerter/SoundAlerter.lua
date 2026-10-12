@@ -109,6 +109,10 @@ function SoundAlerter:ChangeProfile()
 		self.CombatTimer:OnProfileChanged()
 	end
 
+	if self.SpeedMeter then
+		self.SpeedMeter:OnProfileChanged()
+	end
+
 	if self.FlagAlerts then
 		self.FlagAlerts:OnProfileChanged()
 	end
@@ -560,6 +564,7 @@ function SoundAlerter:OnEnable()
     self:InitializeModule("SpellTracker")
     self:InitializeModule("CastFeed")
     self:InitializeModule("CombatTimer")
+    self:InitializeModule("SpeedMeter")
     self:InitializeModule("MinimapTracking")
 
     local Statistics = self:GetModule("Statistics")
@@ -1867,7 +1872,7 @@ end
 local IDENTITY_RETRY_DELAY = 0.1
 local IDENTITY_RETRY_SPACING = 5
 
-function SoundAlerter:ScheduleIdentityRetry(unit, guid)
+function SoundAlerter:ScheduleIdentityRetry(unit, guid, allySpotted)
     local now = GetTime()
     local last = self.identityRetryAt[guid]
     if last and now - last < IDENTITY_RETRY_SPACING then return end
@@ -1875,7 +1880,7 @@ function SoundAlerter:ScheduleIdentityRetry(unit, guid)
     self:Debug("Proximity", "%s identity unreadable, retrying in %.1fs", unit, IDENTITY_RETRY_DELAY)
     C_Timer.After(IDENTITY_RETRY_DELAY, function()
         if Plain(UnitGUID(unit)) == guid then
-            self:CheckProximityAlert(unit)
+            self:CheckProximityAlert(unit, allySpotted)
         end
     end)
 end
@@ -1933,7 +1938,34 @@ function SoundAlerter:AlertEnemyOnYou(unit, kind)
     self:PlayVoice(sadb.sapath .. rule.voice)
 end
 
+local groupUnitCache = {}
+
+local function IsGroupUnit(unit)
+    local is = groupUnitCache[unit]
+    if is == nil then
+        is = (unit:match("^party%d$") or unit:match("^raid%d+$")) and true or false
+        groupUnitCache[unit] = is
+    end
+    return is
+end
+
+function SoundAlerter:CheckAllyVision(unit)
+    local spotted = unit .. "target"
+    if sadb.debugmode then
+        self:ProbeValue("ally target exists/visible/player/enemy", UnitExists(spotted), UnitIsVisible(spotted), UnitIsPlayer(spotted), UnitIsEnemy("player", spotted))
+        local _, class = UnitClass(spotted)
+        self:ProbeValue("ally target name/class/guid", UnitName(spotted), class, UnitGUID(spotted))
+    end
+    if sadb.proximityEnabled and sadb.proximityAllyVision then
+        self:CheckProximityAlert(spotted, true)
+    end
+end
+
 function SoundAlerter:UNIT_TARGET(event, unit)
+    if IsGroupUnit(unit) and (sadb.proximityAllyVision or sadb.debugmode) then
+        self:CheckAllyVision(unit)
+        return
+    end
     if not sadb.enemyTargetsYou then return end
     if UnitKind(unit) ~= "nameplate" then return end
     self:AlertEnemyOnYou(unit, "targeting")
@@ -1950,13 +1982,13 @@ end
 
 SoundAlerter.UNIT_FACTION = SoundAlerter.UNIT_NAME_UPDATE
 
-function SoundAlerter:CheckProximityAlert(unit)
+function SoundAlerter:CheckProximityAlert(unit, allySpotted)
     if not sadb.proximityEnabled then return end
 
     if not UnitExists(unit) then return end
     if not UnitIsPlayer(unit) then return end
     if not UnitIsEnemy("player", unit) then return end
-    if not UnitIsVisible(unit) then return end
+    if not allySpotted and not UnitIsVisible(unit) then return end
 
     local guid = UnitGUID(unit)
     if not Plain(guid) then return end
@@ -1999,12 +2031,13 @@ function SoundAlerter:CheckProximityAlert(unit)
     end
 
     if not (Plain(unitName) and Plain(unitClass)) then
-        self:ScheduleIdentityRetry(unit, guid)
+        self:ScheduleIdentityRetry(unit, guid, allySpotted)
         return
     end
     if issecretvalue(unitLevel) then return end
 
-    if SA_Distance.IsRestricted(sadb.proximityMaxBand) and not SA_Distance.Allows(sadb.proximityMaxBand, self:GetApproxRange(unit)) then
+    local approxRange = self:GetApproxRange(unit) or (allySpotted and "Spotted" or nil)
+    if SA_Distance.IsRestricted(sadb.proximityMaxBand) and not SA_Distance.Allows(sadb.proximityMaxBand, approxRange) then
         return
     end
 
@@ -2027,12 +2060,11 @@ function SoundAlerter:CheckProximityAlert(unit)
     end
 
     if self.ProximityToasts and self.ProximityToasts:GetSettings().enabled then
-        local approxRange = self:GetApproxRange(unit)
         local nearbyCount = 0
         for _ in pairs(self.trackedNameplates) do
             nearbyCount = nearbyCount + 1
         end
-        self.ProximityToasts:ShowToast(unitName, unitClass, approxRange, guid, unitLevel, unit, nil, nil, nearbyCount)
+        self.ProximityToasts:ShowToast(unitName, unitClass, approxRange, guid, unitLevel, not allySpotted and unit or nil, nil, nil, nearbyCount)
     end
 
     if sadb.proximityChat and sadb.proximityChatText then

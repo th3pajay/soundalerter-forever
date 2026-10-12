@@ -282,6 +282,38 @@ function SoundAlerter:RailCastFeed(options)
     return Rail.Tree(options, sections)
 end
 
+local function speedSettings()
+    return SoundAlerter.SpeedMeter and SoundAlerter.SpeedMeter:GetSettings()
+end
+
+local function speedPreview()
+    local s = speedSettings()
+    if not s then return "" end
+    local function hex(key, fallback)
+        local r, g, b = colorOf(s, key, fallback)
+        return string.format("|cff%02x%02x%02x", r * 255, g * 255, b * 255)
+    end
+    return "|cff8a93a3Live preview|r\n" ..
+        hex("boostColor", { 0.3, 1, 0.4 }) .. "130%|r    " ..
+        hex("baseColor", { 1, 1, 1 }) .. "100%|r    " ..
+        hex("slowColor", { 1, 0.3, 0.3 }) .. "60%|r"
+end
+
+function SoundAlerter:RailSpeedMeter(options)
+    addSummary(options, function()
+        local s = speedSettings()
+        if not s then return "" end
+        return Rail.Status("Speed Meter", { { "on", s.enabled } }, "off") .. "\n" ..
+            Rail.Status("At base speed", { { "hidden", s.hideAtBaseline }, { "shown", not s.hideAtBaseline } }) .. "\n" ..
+            Rail.Status("Position", { { "unlocked, drag to move", not s.locked } }, "locked")
+    end)
+    addPreview(options.args.appearanceGroup, speedPreview)
+    return Rail.Tree(options, {
+        { key = "generalGroup", promote = "generalGroup", name = "General", icon = ICONS.general, order = 2 },
+        { key = "appearanceGroup", promote = "appearanceGroup", name = "Appearance", icon = ICONS.appearance, order = 3 },
+    })
+end
+
 local function timerSettings()
     return SoundAlerter.CombatTimer and SoundAlerter.CombatTimer:GetSettings()
 end

@@ -477,6 +477,16 @@ function SoundAlerter:BuildProximityOptions()
 						width = "full",
 						order = 15,
 					},
+					proximityAllyVision = {
+						type = 'toggle',
+						name = "Alert On Enemies Your Group Targets",
+						desc = "Also alert for enemy players your party or raid members are targeting, even far outside your own nameplate range. They show as Spotted with no distance. Whether the game shares those units with the addon is still being tested: turn on Debug Mode and run /sa probe.",
+						get = function() return sadb.proximityAllyVision end,
+						set = function(info, value) sadb.proximityAllyVision = value end,
+						disabled = function() return not sadb.proximityEnabled end,
+						width = "full",
+						order = 15.5,
+					},
 					proximityMaxBand = {
 						type = 'select',
 						name = "Alert Only Within",
@@ -3553,6 +3563,8 @@ function SoundAlerter:OnOptionsCreate()
 	self:AddOption('CastFeed', self:BuildCastFeedOptions())
 
 	self:AddOption('CombatTimer', self:BuildCombatTimerOptions())
+
+	self:AddOption('SpeedMeter', self:BuildSpeedMeterOptions())
 
 	self:AddOption('SpellTracker', self:BuildSpellTrackerOptions())
 

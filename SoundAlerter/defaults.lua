@@ -124,6 +124,7 @@ dbDefaults = {
 		showAdvancedProximity = false,
 		overrideNameplateRange = false,
 		nameplateRange = 60,
+		proximityAllyVision = false,
 		enemyTargetsYou = false,
 		enemyTargetsYouCooldown = 8,
 		enemyCastingAtYou = false,
@@ -289,6 +290,19 @@ dbDefaults = {
 			warmColor = { r = 1, g = 0.69, b = 0.13 },
 			coolColor = { r = 0.61, g = 0.9, b = 0.4 },
 			freeColor = { r = 0.24, g = 0.86, b = 0.52 },
+		},
+
+		speedMeter = {
+			enabled = false,
+			locked = true,
+			PositionX = 0,
+			PositionY = -150,
+			scale = 1,
+			fontSize = 18,
+			hideAtBaseline = false,
+			boostColor = { r = 0.3, g = 1, b = 0.4 },
+			slowColor = { r = 1, g = 0.3, b = 0.3 },
+			baseColor = { r = 1, g = 1, b = 1 },
 		},
 
 		castFeed = {

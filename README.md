@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.60-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.62-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-purple.svg"/>
@@ -47,6 +47,7 @@ Built on the legacy of SoundAlerter: voice callouts, proximity toasts, cast bars
 | **Casting Bars** | Player, target and focus bars with finish animations |
 | **Cast Feed** | Scrolling cast history per unit |
 | **Combat Drop Timer** | A thin line and digits counting down to the moment you leave combat |
+| **Speed Meter** | Your live movement speed as a percent, green when boosted and red when slowed |
 | **Spell Tracker** | Buff, debuff and cooldown icons that keep working in combat |
 | **Minimap Tracking** | Target and focus kept on the minimap across loading screens |
 | **Spell Finder** | Search spell IDs and descriptions |
@@ -96,6 +97,7 @@ Instant audio callouts for enemy cooldowns, crowd control and interrupts, for yo
 
 * **Proximity toasts:** nearby enemies via nameplate, target or mouseover; Close / Nearby / Medium / Detected (an optional limit alerts only inside the band you pick, next to Nearby Range under Where it works), group size, up to 3 buff icons with timers, one-click targeting, smooth stacking. When a nameplate's name or class is hidden at first, the alert retries after 0.1 s and again on name and faction updates instead of staying silent
 * **Enemy awareness (off by default):** a voice alert when a nearby enemy player starts targeting you, and another when an enemy who is targeting you starts a cast. Both need the client to reveal the enemy's target and stay silent when it does not. `/sa` -> Proximity Alerts -> Enemy targeting; add `targetingyou.mp3` and `castingonyou.mp3` to `Voice/` for sound
+* **Group vision (off by default):** also alerts for enemy players your party or raid members are targeting, far beyond your own nameplate range. They show as Spotted, with no distance. It depends on the game sharing those units with the addon, which is still being tested.
 * **Watchlist (off by default):** a voice alert and a local chat line when a watched enemy player, or a player from a watched guild, comes into view. It works only where the client lets the addon read the name or guild, so it can stay silent in some zones. Manage it under `/sa` -> Proximity Alerts -> Watchlist card, or with `/sa watch [guild] <name>`, `/sa unwatch [guild] <name>` and `/sa watchlist`. Add `watchlist.mp3` to `Voice/` for sound
 * **Totem nameplates (off by default):** turns on the game's enemy and friendly player totem nameplates so totems show as plates. The two game settings it changes are saved first and restored when you turn it off or log out. `/sa` -> Proximity Alerts -> Identification card
 * **Quiet rules:** proximity and enemy awareness alerts stay silent on flight paths and while dead (both on by default), optionally while you are not PvP flagged, and for a set time after `/sa snooze [minutes]` (`/sa unsnooze` cancels). Interrupt, crowd control and aura voice alerts are never silenced. `/sa` -> Proximity Alerts -> Quiet rules card
@@ -124,11 +126,12 @@ Instant audio callouts for enemy cooldowns, crowd control and interrupts, for yo
 
 * **Casting bars:** player, target and focus, channeled and mid-cast support, finish animations, configurable direction. When the game hides an enemy cast's timing, the bar is still filled by the game's own timer (without time text)
 * **Combat drop timer:** a hairline bar with millisecond digits that drains toward the moment you leave combat (off by default, PvP only by default). The game does not report every hit to addons, so the countdown is an estimate that snaps to the real drop. It resyncs with the game's real combat state (death, loading screens, a reload or the option being switched mid-fight no longer leave a stuck countdown, and a reload shows `--` until the first hit), counts auto attacks and pet activity, and keeps the Test button out of the measurements. Draggable, with saved size and position, a pulse in the last second, and a fade when you are free. `/sa ctprobe on` (debug mode) logs the combat events so the real window can be measured on your client
+* **Speed meter:** your live movement speed as a percent of base run speed (off by default), counting talents, buffs, slows and gear. Green above 100%, red below, plain when mounted or flying. Follows running, swimming and flying. Optional hide at base speed, draggable
 * **Cast feed:** one icon row per unit with hover details and time between casts (off by default). The client hides other units' casts, so some are shown generically
 
 The options window is a flat left-hand list grouped under Setup, Alerts, Displays, Tools and Profile, with no sub-menus to open. Each module is one page of collapsible section cards (open or closed state is remembered, and the last page you used reopens), with live previews for bars, toasts, chat lines and the cast feed. Proximity, Battleground and Chat alert pages have a search box that finds any setting across those three modules; type and press Enter.
 
-**Configuration**: `/sa` -> Resource Management, Casting Bars, Cast Feed, Combat Drop Timer
+**Configuration**: `/sa` -> Resource Management, Casting Bars, Cast Feed, Combat Drop Timer, Speed Meter
 
 ---
 
