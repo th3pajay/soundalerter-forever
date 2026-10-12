@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.59-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.60-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-purple.svg"/>
@@ -123,7 +123,7 @@ Instant audio callouts for enemy cooldowns, crowd control and interrupts, for yo
 </p>
 
 * **Casting bars:** player, target and focus, channeled and mid-cast support, finish animations, configurable direction. When the game hides an enemy cast's timing, the bar is still filled by the game's own timer (without time text)
-* **Combat drop timer:** a hairline bar with millisecond digits that drains toward the moment you leave combat (off by default, PvP only by default). The game does not report every hit to addons, so the countdown is an estimate that snaps to the real drop. Draggable, with saved size and position, a pulse in the last second, and a fade when you are free. `/sa ctprobe on` (debug mode) logs the combat events so the real window can be measured on your client
+* **Combat drop timer:** a hairline bar with millisecond digits that drains toward the moment you leave combat (off by default, PvP only by default). The game does not report every hit to addons, so the countdown is an estimate that snaps to the real drop. It resyncs with the game's real combat state (death, loading screens, a reload or the option being switched mid-fight no longer leave a stuck countdown, and a reload shows `--` until the first hit), counts auto attacks and pet activity, and keeps the Test button out of the measurements. Draggable, with saved size and position, a pulse in the last second, and a fade when you are free. `/sa ctprobe on` (debug mode) logs the combat events so the real window can be measured on your client
 * **Cast feed:** one icon row per unit with hover details and time between casts (off by default). The client hides other units' casts, so some are shown generically
 
 The options window is a flat left-hand list grouped under Setup, Alerts, Displays, Tools and Profile, with no sub-menus to open. Each module is one page of collapsible section cards (open or closed state is remembered, and the last page you used reopens), with live previews for bars, toasts, chat lines and the cast feed. Proximity, Battleground and Chat alert pages have a search box that finds any setting across those three modules; type and press Enter.
