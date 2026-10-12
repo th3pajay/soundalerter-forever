@@ -2022,7 +2022,7 @@ function SoundAlerter:CheckProximityAlert(unit)
     do
         local Statistics = self:GetModule("Statistics")
         if Statistics and Statistics:GetSettings().enabled then
-            Statistics:RecordAlert("proximityAlerts", nil, guid, unitName)
+            Statistics:RecordAlert("proximityAlerts", nil, guid, unitName, nil, unitClass)
         end
     end
 

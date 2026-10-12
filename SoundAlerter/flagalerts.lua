@@ -11,8 +11,10 @@ local UnitExists = UnitExists
 local UnitName = UnitName
 local UnitClass = UnitClass
 local GetNumRaidMembers = SA_COMPAT.GetNumRaidMembers
-local GetNumPartyMembers = GetNumPartyMembers
+local GetNumPartyMembers = SA_COMPAT.GetNumPartyMembers
 local debugprofilestop = debugprofilestop
+
+local OBJECTIVE_AUDIO_DELAY = 0.8
 
 local string_match = string.match
 local string_gsub = string.gsub
@@ -706,7 +708,6 @@ function FlagAlerts:ProcessAudioQueue()
         end
     end
 
-    local delay = (audioEvent.class and audioEvent.class ~= "UNKNOWN") and 0.8 or 0.8
     local objectiveFile = self:GetObjectiveAudioFile(audioEvent.action)
 
     self:ScheduleTimer(function()
@@ -716,7 +717,7 @@ function FlagAlerts:ProcessAudioQueue()
             self.audioInProgress = false
             self:ProcessAudioQueue()
         end, 2.0)
-    end, delay)
+    end, OBJECTIVE_AUDIO_DELAY)
 end
 
 function FlagAlerts:GetObjectiveAudioFile(eventType)

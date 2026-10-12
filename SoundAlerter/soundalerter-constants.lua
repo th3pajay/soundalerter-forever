@@ -75,7 +75,15 @@ SA_COMPAT.GetSpellLink = function(spellID)
     return C_Spell.GetSpellLink(spellID)
 end
 
-SA_COMPAT.GetNumRaidMembers = GetNumGroupMembers
+SA_COMPAT.GetNumRaidMembers = function()
+    if not (IsInRaid and GetNumGroupMembers and IsInRaid()) then return 0 end
+    return GetNumGroupMembers() or 0
+end
+
+SA_COMPAT.GetNumPartyMembers = function()
+    if not GetNumGroupMembers or (IsInRaid and IsInRaid()) then return 0 end
+    return math.max((GetNumGroupMembers() or 0) - 1, 0)
+end
 
 SA_COMPAT.GetZonePVPInfo = function()
     return C_PvP.GetZonePVPInfo()

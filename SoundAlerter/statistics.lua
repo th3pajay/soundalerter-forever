@@ -8,6 +8,12 @@ local function GetDB()
 	return SoundAlerter.db1 and SoundAlerter.db1.profile
 end
 
+local function resolveClass(guid, name)
+	local _, class = GetPlayerInfoByGUID(guid)
+	if class then return class end
+	return SA_Scoreboard.ClassFor(SoundAlerter.scoreboardClasses, name)
+end
+
 local STATISTICS_KEYS = {
 	enabled = true,
 }
@@ -438,7 +444,7 @@ function Statistics:ResetAllTime()
 	dataVersion = dataVersion + 1
 end
 
-function Statistics:RecordAlert(category, spellID, sourceGUID, sourceName, spellSchool)
+function Statistics:RecordAlert(category, spellID, sourceGUID, sourceName, spellSchool, sourceClass)
 	local sadb = GetDB()
 	if not sadb or not sadb.statistics or not sadb.statistics.enabled then return end
 
@@ -459,7 +465,7 @@ function Statistics:RecordAlert(category, spellID, sourceGUID, sourceName, spell
 	end
 
 	if sourceGUID and sourceName then
-		self:TrackEnemyPlayer(sourceGUID, sourceName, spellID)
+		self:TrackEnemyPlayer(sourceGUID, sourceName, spellID, sourceClass)
 	end
 end
 
@@ -472,16 +478,7 @@ function Statistics:UpdateTopSpells(spellID, sourceGUID, sourceName, spellSchool
 	local currentTime = time()
 	local zoneType = self:GetCurrentZoneType()
 
-	local sourceClass = nil
-	if sourceGUID then
-		local _, class = GetPlayerInfoByGUID(sourceGUID)
-		if not class and sourceName then
-
-			sourceClass = SoundAlerter:ArenaClass(sourceGUID)
-		else
-			sourceClass = class
-		end
-	end
+	local sourceClass = sourceGUID and resolveClass(sourceGUID, sourceName) or nil
 
 	if topSpells[spellID] then
 		local spell = topSpells[spellID]
@@ -547,7 +544,7 @@ function Statistics:UpdateTopSpells(spellID, sourceGUID, sourceName, spellSchool
 	end
 end
 
-function Statistics:TrackEnemyPlayer(sourceGUID, sourceName, spellID)
+function Statistics:TrackEnemyPlayer(sourceGUID, sourceName, spellID, knownClass)
 	local sadb = GetDB()
 	if not sourceGUID or not sourceName then return end
 	if not sadb or not sadb.statistics or not sadb.statistics.enabled then return end
@@ -564,10 +561,7 @@ function Statistics:TrackEnemyPlayer(sourceGUID, sourceName, spellID)
 	local currentTime = time()
 	local zoneType = self:GetCurrentZoneType()
 
-	local _, sourceClass = GetPlayerInfoByGUID(sourceGUID)
-	if not sourceClass then
-		sourceClass = SoundAlerter:ArenaClass(sourceGUID) or "UNKNOWN"
-	end
+	local sourceClass = knownClass or resolveClass(sourceGUID, sourceName) or "UNKNOWN"
 
 	if enemies[sourceName] then
 		local enemy = enemies[sourceName]
