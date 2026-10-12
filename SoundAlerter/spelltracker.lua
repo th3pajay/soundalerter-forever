@@ -27,6 +27,8 @@ local trackedSpellsByUnit = { player = {}, target = {} }
 
 local cooldownThrottle = 0
 local COOLDOWN_UPDATE_INTERVAL = 0.1
+local FINISHER_CHECK_DELAY = 0.5
+local FINISHER_DROP_LEEWAY = 0.3
 
 local cooldownEnabledTrackers = {}
 
@@ -334,6 +336,7 @@ function SpellTracker:RegisterEvents()
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     pcall(eventFrame.RegisterEvent, eventFrame, "UPDATE_SHAPESHIFT_FORM")
     pcall(eventFrame.RegisterUnitEvent, eventFrame, "UNIT_SPELLCAST_SUCCEEDED", "player")
+    pcall(eventFrame.RegisterUnitEvent, eventFrame, "UNIT_POWER_FREQUENT", "player")
 
     eventFrame:SetScript("OnEvent", function(self, event, ...)
         SpellTracker:OnEvent(event, ...)
@@ -349,6 +352,11 @@ function SpellTracker:OnEvent(event, ...)
         local unit = ...
         if unit == "player" or unit == "target" then
             self:ScanAuras(unit)
+        end
+    elseif event == "UNIT_POWER_FREQUENT" then
+        local _, powerType = ...
+        if powerType == "COMBO_POINTS" then
+            self:OnComboPoints()
         end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, _, spellID = ...
@@ -366,6 +374,26 @@ function SpellTracker:OnEvent(event, ...)
     end
 end
 
+function SpellTracker:OnComboPoints()
+    local points = Game.ComboPoints()
+    if points == nil then return end
+    if self.comboPoints and points < self.comboPoints then
+        self.comboDropTime = GetTime()
+    end
+    self.comboPoints = points
+end
+
+function SpellTracker:CheckFinisher(trackerIndex, spellID, castTime)
+    local frame = iconFrames[trackerIndex]
+    if not frame or frame.spellID ~= spellID or not self.state:IsActive(trackerIndex) then return end
+    if self.comboDropTime and self.comboDropTime >= castTime - FINISHER_DROP_LEEWAY then
+        self.addon:Debug("SpellTracker", "finisher %d spent its combo points, timer kept", spellID)
+        return
+    end
+    self.addon:Debug("SpellTracker", "finisher %d kept its combo points, timer cancelled", spellID)
+    self:HideTracker(trackerIndex)
+end
+
 function SpellTracker:OnTrackedCast(spellID)
     if not InCombatLockdown() then return end
 
@@ -377,6 +405,12 @@ function SpellTracker:OnTrackedCast(spellID)
             local decision = self.state:Predict(config.trackerIndex, spellID, manual, GetTime())
             if decision then
                 self:UpdateTracker(config.trackerIndex, spellID, decision)
+                if unit == "target" and self.comboPoints ~= nil and Game.IsFinisher(spellID) then
+                    local trackerIndex, castTime = config.trackerIndex, GetTime()
+                    C_Timer.After(FINISHER_CHECK_DELAY, function()
+                        self:CheckFinisher(trackerIndex, spellID, castTime)
+                    end)
+                end
             end
         end
     end

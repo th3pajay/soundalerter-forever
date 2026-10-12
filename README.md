@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.58-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.59-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-purple.svg"/>
@@ -140,6 +140,7 @@ The options window is a flat left-hand list grouped under Setup, Alerts, Display
 
 * Player and target buffs, debuffs and cooldowns, working in combat
 * Aura spiral, duration numbers and an optional depleting border timer
+* Finishers (Rip, Rupture, Kidney Shot, Ferocious Bite): if the combo points are still there half a second after the cast, the cast missed or was dodged and the timer is cancelled
 * "Ready!" when a spell is off cooldown, with state borders and glows (idle, buff, debuff, expiring, ready)
 * Stays correct through druid form swaps (auras are matched by spell ID)
 * **By class:** pick a class on the left, switch what each spell tracks with chips, and preview every icon state live. Presets with undo

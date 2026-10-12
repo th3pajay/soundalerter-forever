@@ -39,6 +39,28 @@ function Game.LookupAura(unit, spellID, auraType)
     }, data.auraInstanceID
 end
 
+local FINISHER_SPELLS = { 1079, 1943, 408, 22568, 8647, 2098, 26679, 22570 }
+local finisherNames
+
+function Game.ComboPoints()
+    if not GetComboPoints then return nil end
+    local ok, points = pcall(GetComboPoints, "player", "target")
+    if not ok or points == nil or issecretvalue(points) then return nil end
+    return points
+end
+
+function Game.IsFinisher(spellID)
+    if not finisherNames then
+        finisherNames = {}
+        for _, id in ipairs(FINISHER_SPELLS) do
+            local name = SA_COMPAT.GetSpellInfo(id)
+            if name then finisherNames[name] = true end
+        end
+    end
+    local name = SA_COMPAT.GetSpellInfo(spellID)
+    return name ~= nil and finisherNames[name] == true
+end
+
 function Game.ReadSpellCooldown(spellID, reading)
     local info = C_Spell.GetSpellCooldown(spellID)
     if not info or info.startTime == nil or info.duration == nil then
