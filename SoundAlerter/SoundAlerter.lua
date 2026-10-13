@@ -1613,7 +1613,7 @@ function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFoc
         end
     end
 
-    if ((sadb.myself and isTargetOrFocus) or (sadb.enemyinrange and isTracked)) and not sadb.castSuccess and not sadb.aruaApplied then
+    if ((sadb.myself and isTargetOrFocus) or (sadb.enemyinrange and isTracked)) and not sadb.aruaApplied then
         self:PlaySpell(self.spellList.auraApplied, spellID)
         if not sadb.chatalerts and sadb.chatauraApplied and self.spellList.auraApplied[spellID] then
             local buffMsg = gsub(sadb.enemybuffchat, "(#spell#)", (GetSpellLink(spellID) or ""))
@@ -2251,7 +2251,10 @@ function SoundAlerter:UNIT_SPELLCAST_INTERRUPTED(event, unit, castGUID, spellID,
         self:CheckCustomAlerts("SPELL_INTERRUPT", nil, unit, spellID)
 
         if not sadb.interrupt then
-            SoundAlerter:PlayVoice(sadb.sapath.."lockout.mp3");
+            local interruptKey = self.spellList.interruptFriend[lastInterruptCast.spellID]
+            if not interruptKey or sadb[interruptKey] then
+                SoundAlerter:PlayVoice(sadb.sapath.."lockout.mp3");
+            end
             if not sadb.chatalerts and sadb.interruptself then
                 local it = gsub(sadb.InterruptSelfText, "(#spell#)", (GetSpellLink(lastInterruptCast.spellID) or GetSpellInfo(lastInterruptCast.spellID) or ""))
                 it = gsub(it, "#interruptedspellname#", replacementText)
