@@ -289,6 +289,20 @@ dbDefaults = {
 			baseColor = { r = 1, g = 1, b = 1 },
 		},
 
+		notices = {
+			enabled = false,
+			flash = true,
+			chat = true,
+			duel = true,
+			summon = true,
+			resurrect = true,
+			invite = true,
+			queue = true,
+			readyCheck = true,
+			durability = true,
+			durabilityThreshold = 20,
+		},
+
 		footsteps = {
 			enabled = false,
 			showMinimap = true,
@@ -394,6 +408,7 @@ dbDefaults = {
 					lossOfControlAlerts = 0,
 					watchlistAlerts = 0,
 					chatAlerts = 0,
+					noticeAlerts = 0,
 				},
 				byClass = {},
 				enemiesEncountered = {},
@@ -416,6 +431,7 @@ dbDefaults = {
 					lossOfControlAlerts = 0,
 					watchlistAlerts = 0,
 					chatAlerts = 0,
+					noticeAlerts = 0,
 				},
 
 				byZone = {

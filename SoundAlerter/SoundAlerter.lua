@@ -125,6 +125,10 @@ function SoundAlerter:ChangeProfile()
 		self.Footsteps:OnProfileChanged()
 	end
 
+	if self.Notices then
+		self.Notices:OnProfileChanged()
+	end
+
 	if sadb.statistics and sadb.statistics.enabled then
 		local Statistics = self:GetModule("Statistics")
 		if Statistics then
@@ -573,6 +577,7 @@ function SoundAlerter:OnEnable()
     self:InitializeModule("MinimapTracking")
     self:InitializeModule("Footsteps")
     self:InitializeModule("SpellTest")
+    self:InitializeModule("Notices")
 
     local Statistics = self:GetModule("Statistics")
     if Statistics then
@@ -928,6 +933,9 @@ function SoundAlerter:HandleCommand(input)
         if self.SpellTest then
             self.SpellTest:PrintHelp()
         end
+        if self.Notices then
+            self.Notices:PrintHelp()
+        end
     elseif command == "toast" then
         if self.ProximityToasts then
             self.ProximityToasts:HandleCommand(rest)
@@ -957,6 +965,12 @@ function SoundAlerter:HandleCommand(input)
             self.SpellTest:HandleCommand(rest)
         else
             self:Print("|cffFF0000SpellTest module not loaded.|r")
+        end
+    elseif command == "notices" then
+        if self.Notices then
+            self.Notices:HandleCommand(rest)
+        else
+            self:Print("|cffFF0000Notices module not loaded.|r")
         end
     elseif command == "apicheck" then
         self:RunApiCheck()

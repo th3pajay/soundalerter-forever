@@ -400,6 +400,7 @@ local function newSession(number)
 			lossOfControlAlerts = 0,
 			watchlistAlerts = 0,
 			chatAlerts = 0,
+			noticeAlerts = 0,
 		},
 		byClass = {},
 		enemiesEncountered = {},
@@ -422,6 +423,7 @@ local function newAllTime()
 			lossOfControlAlerts = 0,
 			watchlistAlerts = 0,
 			chatAlerts = 0,
+			noticeAlerts = 0,
 		},
 		byZone = {
 			arena = 0,

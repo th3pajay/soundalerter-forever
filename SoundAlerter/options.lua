@@ -3556,6 +3556,8 @@ function SoundAlerter:OnOptionsCreate()
 
 	self:AddOption('BattlegroundAlerts', self:RailFlag(self:BuildFlagOptions()))
 
+	self:AddOption('Notices', self:BuildNoticesOptions())
+
 	self:AddOption('ResourceBar', self:RailResourceBars(self:BuildResourceBarOptions()))
 
 	self:AddOption('CastingBars', self:RailCastingBars(self:BuildCastingBarOptions()))

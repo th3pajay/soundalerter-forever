@@ -8,7 +8,7 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.66-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.67-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Status" src="https://img.shields.io/badge/status-beta-yellow.svg"/>
@@ -59,6 +59,7 @@ Extract `SoundAlerter` to `World of Warcraft/Interface/AddOns/`, type `/sa`, ope
 | Totem nameplates | 🧪 | Turns on the game's totem plates, restores your settings after |
 | Quiet rules | ✅ | Silent on flight paths, while dead, optionally while unflagged, `/sa snooze` |
 | Scoreboard class fallback | ✅ | Battleground class comes from the scoreboard when the nameplate hides it |
+| Notices | 🧪 | Short cues for duel requests, summons, resurrections, group invites, queue pops, ready checks and low durability, each with an optional voice line, taskbar flash and chat line. A notice stays silent until its voice file exists (`/sa notices files` lists them). Off by default and not yet confirmed in game |
 | Flag tracking | ✅ | Team-aware pickup, drop and capture toasts for WSG and Eye of the Storm. Returns are announced too when you turn them on, from the game's "returned to its base" message, which is not yet confirmed in game |
 
 ### Bars and meters

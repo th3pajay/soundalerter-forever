@@ -33,6 +33,7 @@ Format.CATEGORIES = {
     { key = "lossOfControlAlerts", label = "Loss of control", color = { 120, 190, 255 } },
     { key = "watchlistAlerts", label = "Watchlist", color = { 255, 214, 102 } },
     { key = "chatAlerts", label = "Chat", color = { 160, 160, 190 } },
+    { key = "noticeAlerts", label = "Notices", color = { 140, 220, 200 } },
 }
 
 Format.ZONES = {
