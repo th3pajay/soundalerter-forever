@@ -122,6 +122,17 @@ function Page.Text(key, label, hint, advanced, group, lines)
     return row
 end
 
+function Page.Visible(predicate, row)
+    row.visible = predicate
+    return row
+end
+
+function Page.Selectable(row, onSelect, selected)
+    row.onSelect = onSelect
+    row.selected = selected
+    return row
+end
+
 function Page.When(key, row)
     row.requires = key
     return row
@@ -506,7 +517,9 @@ function Methods:SetInfo(row)
         self.infoBody:SetText("Its description shows here, next to the preview, so you never have to leave the page to understand it.")
         return
     end
-    self.infoTitle:SetText(row.label)
+    local title = row.label
+    if type(title) == "function" then title = title(self.settings or {}) end
+    self.infoTitle:SetText(title)
     local body = row.hint ~= "" and row.hint or "No extra description for this one."
     if row.advanced then body = body .. "\n\n|cff96a0b2Advanced setting|r" end
     self.infoBody:SetText(body)
@@ -531,9 +544,74 @@ function Methods:Reset()
     self:Refresh()
 end
 
+function Methods:Visibility(settings)
+    local bits = {}
+    for index = 1, #self.rows do
+        local entry = self.rows[index]
+        local row = entry.spec
+        entry.visible = not row.visible or (row.visible(settings) and true or false)
+        bits[index] = entry.visible and "1" or "0"
+    end
+    return table.concat(bits)
+end
+
+function Methods:Layout(settings)
+    local signature = self:Visibility(settings)
+    if signature == self.layoutSignature then return end
+    self.layoutSignature = signature
+
+    local y = 0
+    for _, item in ipairs(self.layout) do
+        if item.kind == "heading" then
+            local show = false
+            for _, entry in ipairs(item.members) do
+                if entry.visible then show = true break end
+            end
+            item.frame:SetShown(show)
+            if show then
+                if y > 0 then y = y + 10 end
+                item.frame:ClearAllPoints()
+                item.frame:SetPoint("TOPLEFT", self.child, "TOPLEFT", 4, -y)
+                y = y + 18
+            end
+        elseif item.kind == "divider" then
+            local show = false
+            for _, entry in ipairs(item.members) do
+                if entry.visible then show = true break end
+            end
+            item.line:SetShown(show)
+            item.caption:SetShown(show)
+            if show then
+                y = y + 14
+                item.line:ClearAllPoints()
+                item.line:SetPoint("TOPLEFT", self.child, "TOPLEFT", 0, -y)
+                item.line:SetPoint("TOPRIGHT", self.child, "TOPRIGHT", 0, -y)
+                y = y + 6
+                item.caption:ClearAllPoints()
+                item.caption:SetPoint("TOPLEFT", self.child, "TOPLEFT", 4, -y)
+                y = y + 20
+            end
+        else
+            local entry = item.entry
+            entry.frame:SetShown(entry.visible)
+            if entry.visible then
+                entry.frame:ClearAllPoints()
+                entry.frame:SetPoint("TOPLEFT", self.child, "TOPLEFT", 0, -y)
+                entry.frame:SetPoint("TOPRIGHT", self.child, "TOPRIGHT", 0, -y)
+                y = y + entry.height
+            end
+        end
+    end
+    self.child:SetHeight(y + 12)
+    self.contentHeight = y + 12
+    if self.scroll then self:UpdateScroll() end
+end
+
 function Methods:Refresh()
     local settings = self.spec.get()
     if not settings then return end
+    self.settings = settings
+    self:Layout(settings)
 
     local hasMaster = self.spec.master ~= false
     local enabled = true
@@ -556,6 +634,15 @@ function Methods:Refresh()
             local value = Resolve(settings, row.key)
             if value ~= nil then entry.control:Set(value) end
         end
+        if type(row.label) == "function" then
+            if entry.labelText then
+                entry.labelText:SetText(row.label(settings))
+            elseif row.kind == "action" and not entry.control.armed then
+                entry.control.label:SetText(row.label(settings))
+                entry.control.frame:SetWidth(math.max(70, entry.control.label:GetStringWidth() + 24))
+            end
+        end
+        if entry.highlight then entry.highlight:SetShown(row.selected and row.selected(settings) and true or false) end
         local met = true
         if row.requires then
             local negate = row.requires:sub(1, 1) == "!"
@@ -570,15 +657,16 @@ function Methods:Refresh()
     if self.spec.preview then self.spec.preview.update(self.previewState, settings) end
 end
 
-function Methods:AddRow(row, y, advanced)
+function Methods:AddRow(row, advanced)
     local multiline = row.kind == "text" and (row.lines or 1) > 1
     local height = row.hint ~= "" and ROW_WITH_HINT or ROW_PLAIN
     if multiline then height = 30 + row.lines * 15 + 14 end
     local frame = CreateFrame("Frame", nil, self.child)
-    frame:SetPoint("TOPLEFT", self.child, "TOPLEFT", 0, -y)
-    frame:SetPoint("TOPRIGHT", self.child, "TOPRIGHT", 0, -y)
     frame:SetHeight(height)
     frame:EnableMouse(true)
+    local highlight = Paint(frame, COLOR.accent, 0.12)
+    highlight:SetAllPoints(frame)
+    highlight:Hide()
     local rule = Paint(frame, COLOR.line, 0.55)
     rule:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
     rule:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
@@ -605,16 +693,24 @@ function Methods:AddRow(row, y, advanced)
         end
     else
         local armed = false
-        control = MakeButton(frame, row.label, function()
-            if row.confirm and not armed then
+        local function labelNow()
+            if type(row.label) == "function" then return row.label(page.settings or {}) end
+            return row.label
+        end
+        control = MakeButton(frame, type(row.label) == "function" and "" or row.label, function()
+            local question = row.confirm
+            if type(question) == "function" then question = question(page.settings or {}) end
+            if question and not armed then
                 armed = true
-                control.label:SetText(row.confirm)
+                control.armed = true
+                control.label:SetText(question)
                 control.frame:SetWidth(math.max(control.frame:GetWidth(), control.label:GetStringWidth() + 24))
                 if C_Timer and C_Timer.After then
                     C_Timer.After(5, function()
                         if armed then
                             armed = false
-                            control.label:SetText(row.label)
+                            control.armed = false
+                            control.label:SetText(labelNow())
                         end
                     end)
                 end
@@ -622,14 +718,15 @@ function Methods:AddRow(row, y, advanced)
             end
             if armed then
                 armed = false
-                control.label:SetText(row.label)
+                control.armed = false
+                control.label:SetText(labelNow())
             end
             if row.onClick then row.onClick() end
             page:Refresh()
         end)
     end
 
-    local entry = { spec = row, frame = frame, control = control }
+    local entry = { spec = row, frame = frame, control = control, height = height, highlight = highlight }
     if row.kind == "action" then
         control.frame:SetPoint("LEFT", frame, "LEFT", 4, 0)
         local hint = Text(frame, 10.5, COLOR.muted)
@@ -640,14 +737,16 @@ function Methods:AddRow(row, y, advanced)
         local label = Text(frame, 12.5, advanced and COLOR.muted or COLOR.text)
         label:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -4)
         label:SetPoint("RIGHT", frame, "RIGHT", -4, 0)
-        label:SetText(row.label)
+        label:SetText(type(row.label) == "function" and "" or row.label)
+        entry.labelText = label
         control.frame:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -6)
     else
         control.frame:SetPoint("RIGHT", frame, "RIGHT", -4, 0)
         local label = Text(frame, 12.5, advanced and COLOR.muted or COLOR.text)
         label:SetPoint("LEFT", frame, "LEFT", 4, row.hint ~= "" and 7 or 0)
         label:SetPoint("RIGHT", control.frame, "LEFT", -10, 0)
-        label:SetText(row.label)
+        label:SetText(type(row.label) == "function" and "" or row.label)
+        entry.labelText = label
         if row.hint ~= "" then
             local hint = Text(frame, 10.5, COLOR.muted)
             hint:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -2)
@@ -659,31 +758,18 @@ function Methods:AddRow(row, y, advanced)
     local function hover() page:SetInfo(row) end
     frame:SetScript("OnEnter", hover)
     control.frame:HookScript("OnEnter", hover)
+    if row.onSelect then
+        frame:SetScript("OnMouseUp", function()
+            row.onSelect()
+            page:Refresh()
+        end)
+    end
     self.rows[#self.rows + 1] = entry
-    return height
+    return entry
 end
 
 function Methods:Populate()
-    local y = 0
-    local function section(title, first)
-        if not first then y = y + 10 end
-        local heading = Text(self.child, 11, COLOR.accent)
-        heading:SetPoint("TOPLEFT", self.child, "TOPLEFT", 4, -y)
-        heading:SetText(title)
-        y = y + 18
-    end
-    local function divider()
-        y = y + 14
-        local line = Paint(self.child, COLOR.line)
-        line:SetPoint("TOPLEFT", self.child, "TOPLEFT", 0, -y)
-        line:SetPoint("TOPRIGHT", self.child, "TOPRIGHT", 0, -y)
-        line:SetHeight(1)
-        y = y + 6
-        local caption = Text(self.child, 10.5, COLOR.muted)
-        caption:SetPoint("TOPLEFT", self.child, "TOPLEFT", 4, -y)
-        caption:SetText("MORE OPTIONS")
-        y = y + 20
-    end
+    self.layout = {}
     local function block(advanced)
         local order, seen = {}, {}
         for index = 1, #self.spec.rows do
@@ -694,14 +780,21 @@ function Methods:Populate()
                 list[#list + 1] = row
             end
         end
+        local members = {}
         for index = 1, #order do
-            section(order[index], index == 1 and y == 0)
+            local heading = Text(self.child, 11, COLOR.accent)
+            heading:SetText(order[index])
+            local item = { kind = "heading", frame = heading, members = {} }
+            self.layout[#self.layout + 1] = item
             local list = seen[order[index]]
-            for item = 1, #list do
-                y = y + self:AddRow(list[item], y, advanced)
+            for position = 1, #list do
+                local entry = self:AddRow(list[position], advanced)
+                item.members[#item.members + 1] = entry
+                members[#members + 1] = entry
+                self.layout[#self.layout + 1] = { kind = "row", entry = entry }
             end
         end
-        return #order > 0
+        return members
     end
     block(false)
     local hasAdvanced = false
@@ -709,11 +802,17 @@ function Methods:Populate()
         if self.spec.rows[index].advanced then hasAdvanced = true break end
     end
     if hasAdvanced then
-        divider()
-        block(true)
+        local line = Paint(self.child, COLOR.line)
+        line:SetHeight(1)
+        local caption = Text(self.child, 10.5, COLOR.muted)
+        caption:SetText("MORE OPTIONS")
+        local divider = { kind = "divider", line = line, caption = caption, members = {} }
+        self.layout[#self.layout + 1] = divider
+        local members = block(true)
+        for _, entry in ipairs(members) do divider.members[#divider.members + 1] = entry end
     end
-    self.child:SetHeight(y + 12)
-    self.contentHeight = y + 12
+    self.contentHeight = 0
+    self.child:SetHeight(12)
 end
 
 function Methods:UpdateScroll()
