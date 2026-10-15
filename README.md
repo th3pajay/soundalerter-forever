@@ -8,7 +8,7 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.64-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.65-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Status" src="https://img.shields.io/badge/status-beta-yellow.svg"/>
@@ -59,7 +59,7 @@ Extract `SoundAlerter` to `World of Warcraft/Interface/AddOns/`, type `/sa`, ope
 | Totem nameplates | 🧪 | Turns on the game's totem plates, restores your settings after |
 | Quiet rules | ✅ | Silent on flight paths, while dead, optionally while unflagged, `/sa snooze` |
 | Scoreboard class fallback | ✅ | Battleground class comes from the scoreboard when the nameplate hides it |
-| Flag tracking | ✅ | Team-aware pickup, drop and capture toasts for WSG and Eye of the Storm |
+| Flag tracking | ✅ | Team-aware pickup, drop and capture toasts for WSG and Eye of the Storm. Returns are announced too when you turn them on, from the game's "returned to its base" message, which is not yet confirmed in game |
 
 ### Bars and meters
 
@@ -79,7 +79,7 @@ Extract `SoundAlerter` to `World of Warcraft/Interface/AddOns/`, type `/sa`, ope
 | Spell tracker | ✅ | Buff, debuff and cooldown icons that work in combat, spiral and border timers, "Ready!" glows, survives druid form swaps. A landed hit cannot be confirmed in combat, so the timer starts on cast. Finishers cancel on a miss or dodge |
 | Minimap tracking | ✅ | Keeps target and focus on the minimap across loading screens |
 | Spell Finder | ✅ | Search spell IDs, names and descriptions with fuzzy match, filters and full spell details |
-| Statistics | ✅ | Session and all-time alerts: which fired, from whom, where |
+| Statistics | ✅ | Session and all-time alerts: which fired, from whom, where. Counts spell, proximity, trinket, flag, interrupt, awareness, loss of control, watchlist and chat alerts |
 | Developer Tools | ✅ | Database status, performance timings, Debug Mode traces |
 
 ## Commands

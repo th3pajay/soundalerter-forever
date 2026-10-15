@@ -468,6 +468,7 @@ function SoundAlerter:OnInitialize()
     end
 
     self.db1 = LibStub("AceDB-3.0"):New("SoundAlerterDB", dbDefaults, "Default");
+    SA_ProfileCleanup.Run(SoundAlerterDB)
     sadb = self.db1.profile
 
     self.db1.RegisterCallback(self, "OnProfileChanged", "ChangeProfile")
@@ -642,6 +643,12 @@ function SoundAlerter:PlayVoice(path, channel)
     return ok
 end
 
+function SoundAlerter:RecordStat(category)
+    if not (sadb.statistics and sadb.statistics.enabled) then return end
+    local statistics = self:GetModule("Statistics")
+    if statistics then statistics:RecordAlert(category) end
+end
+
 function SoundAlerter:SendChat(message, channels)
     if IsChatBlocked() then
         self:Debug("Chat", "not sent, chat is locked down: %s", message)
@@ -660,6 +667,7 @@ function SoundAlerter:SendChat(message, channels)
             self:Debug("Chat", "%s send failed", target)
         end
     end
+    if sent then self:RecordStat("chatAlerts") end
     return sent
 end
 
@@ -1068,7 +1076,7 @@ end
 
 function SoundAlerter:CleanupProximityCaches()
     local currentTime = GetTime()
-    local cooldown = sadb.proximityCooldown or 30
+    local cooldown = sadb.proximityCooldown or 60
 
     for guid, timestamp in pairs(self.proximityAlertCache) do
         if currentTime - timestamp > cooldown then
@@ -1456,6 +1464,7 @@ function SoundAlerter:LOSS_OF_CONTROL_ADDED(event, index)
     lossOfControlState.lastSpoken[category] = now
     self:Debug("LossOfControl", "%s (%s)", category, tostring(Plain(data.locType)))
     self:PlayVoice(sadb.sapath .. SA_LossOfControl.Voice(category))
+    self:RecordStat("lossOfControlAlerts")
 end
 
 local probeLog = SA_DebugLog.NewProbe(function(value) return issecretvalue(value) end)
@@ -1953,6 +1962,7 @@ function SoundAlerter:AlertEnemyOnYou(unit, kind)
     self.enemyOnYouAt[key] = now
     self:Debug("Targeting", "%s on you from %s", kind, unit)
     self:PlayVoice(sadb.sapath .. rule.voice)
+    self:RecordStat("awarenessAlerts")
 end
 
 local groupUnitCache = {}
@@ -2013,7 +2023,7 @@ function SoundAlerter:CheckProximityAlert(unit, allySpotted)
     if guid:sub(1, 7) ~= "Player-" then return end
 
     local currentTime = GetTime()
-    local cooldown = sadb.proximityCooldown or 30
+    local cooldown = sadb.proximityCooldown or 60
     if self.proximityAlertCache[guid] then
         local timeElapsed = currentTime - self.proximityAlertCache[guid]
         if timeElapsed < cooldown then return end

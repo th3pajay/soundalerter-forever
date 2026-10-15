@@ -4,8 +4,6 @@ dbDefaults = {
 		debugmode = false,
 		spelldebug = false,
 
-		objectiveAlertsEnabled = false,
-
 		findSpell = {
 			autocomplete = false,
 			fuzzy = false,
@@ -29,7 +27,6 @@ dbDefaults = {
 		field = true,
 
 		myself = true,
-		ArenaPartner = false,
 		enemyinrange = false,
 
 		chatalerts = false,
@@ -52,13 +49,8 @@ dbDefaults = {
 
 		bubbleenemy = true,
 		stealthenemy = true,
-		prowlhenemy = true,
-		vanishalert = true,
-
 		interruptenemy = true,
 		interruptemote = false,
-		enemyinterrupts = true,
-
 		blindselffriend = true,
 		fearselffriend = true,
 		hexselffriend = true,
@@ -75,15 +67,11 @@ dbDefaults = {
 		castSuccess = false,
 		interrupt = false,
 
-		PresenceofMind = false,
 		starfire = false,
-		lavaburst = false,
-
 		chatdownfriend = false,
 		chatdownself = true,
 		interruptself = false,
 		trinketalert = false,
-		sayspell = true,
 		chatgroups = {["SAY"] = false, ["PARTY"] = true, ["RAID"] = false, ["BATTLEGROUND"] = true, ["NONE"] = false,},
 
 		chatauraApplied = false,
@@ -101,11 +89,7 @@ dbDefaults = {
 		castStartChat = "#enemy# is casting #spell#",
 
 		sapselftext = "I'm Sapped!",
-		saptextself = "I'm Sapped!",
 		sapfriendtext = "#friend# is Sapped!",
-
-		blindtext = "#enemy# blinded me!",
-		blindtextfriend = "#friend# Is Blinded!",
 
 		bubbleenemytext = "#enemy# bubbled!",
 		trinketalerttext = "[#enemy#] Trinketted!",
@@ -367,8 +351,6 @@ dbDefaults = {
 			maxConcurrent = 3,
 		},
 
-		flagRainbowBorder = true,
-
 		flagTeamBackgroundColors = true,
 		flagEnemyRedBackground = true,
 		flagFriendlyGreenBackground = true,
@@ -383,8 +365,6 @@ dbDefaults = {
 		flagOnlyEnemyTeam = true,
 		flagOnlyFriendlyTeam = false,
 		flagAllActions = false,
-
-		persistentTeamCache = {},
 
 		learnedClasses = {},
 		learnedClassesEnabled = true,
@@ -410,6 +390,10 @@ dbDefaults = {
 					trinketAlerts = 0,
 					interruptAlerts = 0,
 					flagAlerts = 0,
+					awarenessAlerts = 0,
+					lossOfControlAlerts = 0,
+					watchlistAlerts = 0,
+					chatAlerts = 0,
 				},
 				byClass = {},
 				enemiesEncountered = {},
@@ -428,6 +412,10 @@ dbDefaults = {
 					trinketAlerts = 0,
 					interruptAlerts = 0,
 					flagAlerts = 0,
+					awarenessAlerts = 0,
+					lossOfControlAlerts = 0,
+					watchlistAlerts = 0,
+					chatAlerts = 0,
 				},
 
 				byZone = {

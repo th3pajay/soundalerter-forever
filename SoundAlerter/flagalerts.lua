@@ -63,6 +63,8 @@ local LOCALE_PATTERNS = {
         { pattern = "^The ([Aa]lliance) [Ff]lag was dropped by (.+)!$", action = "DROP", flagName = "Alliance" },
         { pattern = "^(.+) captured the (.+) flag!$", action = "CAPTURE" },
         { pattern = "^The .+ [Ff]lag was captured by (.+)!$", action = "CAPTURE" },
+        { pattern = "^The ([Hh]orde) [Ff]lag was returned to its base by (.+)!$", action = "RETURN", flagName = "Horde" },
+        { pattern = "^The ([Aa]lliance) [Ff]lag was returned to its base by (.+)!$", action = "RETURN", flagName = "Alliance" },
     },
     ["enGB"] = {
         { pattern = "^(.+) has taken the flag!$", action = "PICKUP" },
@@ -73,6 +75,8 @@ local LOCALE_PATTERNS = {
         { pattern = "^The ([Aa]lliance) [Ff]lag was dropped by (.+)!$", action = "DROP", flagName = "Alliance" },
         { pattern = "^(.+) captured the (.+) flag!$", action = "CAPTURE" },
         { pattern = "^The .+ [Ff]lag was captured by (.+)!$", action = "CAPTURE" },
+        { pattern = "^The ([Hh]orde) [Ff]lag was returned to its base by (.+)!$", action = "RETURN", flagName = "Horde" },
+        { pattern = "^The ([Aa]lliance) [Ff]lag was returned to its base by (.+)!$", action = "RETURN", flagName = "Alliance" },
     },
 }
 
@@ -163,6 +167,7 @@ function FlagAlerts:OnInitialize()
         chatPickups = 0,
         chatDrops = 0,
         chatCaptures = 0,
+        chatReturns = 0,
         dedupeBlocked = 0,
 
         eventsInCombat = 0,
@@ -416,6 +421,10 @@ function FlagAlerts:ProcessFlagEvent(message)
                 elseif flagName:lower():find("alliance") then
                     carrierTeam = "HORDE_TEAM"
                 end
+
+                if eventType == "RETURN" then
+                    carrierTeam = flagName:lower():find("horde") and "HORDE_TEAM" or "ALLIANCE_TEAM"
+                end
             else
                 playerName = match1
             end
@@ -434,6 +443,7 @@ function FlagAlerts:ProcessFlagEvent(message)
     if eventType == "PICKUP" and not sadb.flagPickupAudio then return end
     if eventType == "DROP" and not sadb.flagDropAudio then return end
     if eventType == "CAPTURE" and not sadb.flagCaptureAudio then return end
+    if eventType == "RETURN" and not sadb.flagReturnAudio then return end
 
     if eventType ~= "CAPTURE" then
         if not self:ShouldProcessFlagEvent(playerName, eventType) then
@@ -454,6 +464,8 @@ function FlagAlerts:ProcessFlagEvent(message)
         self.performanceMetrics.chatDrops = self.performanceMetrics.chatDrops + 1
     elseif eventType == "CAPTURE" then
         self.performanceMetrics.chatCaptures = self.performanceMetrics.chatCaptures + 1
+    elseif eventType == "RETURN" then
+        self.performanceMetrics.chatReturns = self.performanceMetrics.chatReturns + 1
     end
 
     self:TriggerFlagAlert(playerName, playerClass, eventType, carrierTeam)
@@ -724,6 +736,7 @@ function FlagAlerts:GetObjectiveAudioFile(eventType)
     if eventType == "PICKUP" then return "FlagPickup" end
     if eventType == "DROP" then return "FlagDropped" end
     if eventType == "CAPTURE" then return "FlagCaptured" end
+    if eventType == "RETURN" then return "FlagReturned" end
     return "FlagPickup"
 end
 
@@ -731,6 +744,7 @@ function FlagAlerts:GetToastTitle(eventType)
     if eventType == "PICKUP" then return "FLAG CARRIER!" end
     if eventType == "DROP" then return "FLAG DROPPED!" end
     if eventType == "CAPTURE" then return "FLAG CAPTURED!" end
+    if eventType == "RETURN" then return "FLAG RETURNED!" end
     return "OBJECTIVE ALERT!"
 end
 
@@ -749,6 +763,7 @@ function FlagAlerts:SendFlagChatAlert(playerName, playerClass, eventType)
     if eventType == "PICKUP" then actionText = "picked up flag"
     elseif eventType == "DROP" then actionText = "dropped flag"
     elseif eventType == "CAPTURE" then actionText = "captured flag"
+    elseif eventType == "RETURN" then actionText = "returned flag"
     end
 
     local safePlayerName = SanitizeMacroText(playerName)
@@ -881,6 +896,7 @@ function FlagAlerts:ResetMetrics()
         chatPickups = 0,
         chatDrops = 0,
         chatCaptures = 0,
+        chatReturns = 0,
         dedupeBlocked = 0,
 
         eventsInCombat = 0,
@@ -924,7 +940,7 @@ function SoundAlerter.FlagAlerts:HandleCommand(msg)
         local eventType = msg:match("^testtoast%s+(.+)") or "pickup"
         eventType = eventType:upper()
 
-        if eventType ~= "PICKUP" and eventType ~= "DROP" and eventType ~= "CAPTURE" then
+        if eventType ~= "PICKUP" and eventType ~= "DROP" and eventType ~= "CAPTURE" and eventType ~= "RETURN" then
             eventType = "PICKUP"
         end
 
@@ -1438,6 +1454,8 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
         titleText = "FLAG DROPPED!"
     elseif eventType == "CAPTURE" then
         titleText = "FLAG CAPTURED!"
+    elseif eventType == "RETURN" then
+        titleText = "FLAG RETURNED!"
     else
         titleText = "FLAG EVENT"
     end

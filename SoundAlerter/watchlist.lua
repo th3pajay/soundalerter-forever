@@ -40,6 +40,7 @@ function SoundAlerter:CheckWatchlist(unit)
     watchAlertAt[guid] = now
     self:Debug("Watchlist", "%s matched by %s (guild %s)", tostring(name), kind, tostring(guild))
     self:PlayVoice(profile.sapath .. "watchlist.mp3")
+    self:RecordStat("watchlistAlerts")
     self:Print(string.format("|cffFF7D0AWatchlist:|r %s%s is nearby", tostring(name or "A watched player"), guild and (" <" .. guild .. ">") or ""))
 end
 

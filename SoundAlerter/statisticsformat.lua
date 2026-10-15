@@ -29,6 +29,10 @@ Format.CATEGORIES = {
     { key = "trinketAlerts", label = "Trinkets", color = { 255, 176, 32 } },
     { key = "flagAlerts", label = "Flags", color = { 199, 139, 255 } },
     { key = "interruptAlerts", label = "Interrupts", color = { 255, 107, 107 } },
+    { key = "awarenessAlerts", label = "Awareness", color = { 255, 120, 120 } },
+    { key = "lossOfControlAlerts", label = "Loss of control", color = { 120, 190, 255 } },
+    { key = "watchlistAlerts", label = "Watchlist", color = { 255, 214, 102 } },
+    { key = "chatAlerts", label = "Chat", color = { 160, 160, 190 } },
 }
 
 Format.ZONES = {
