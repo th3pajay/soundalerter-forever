@@ -153,6 +153,7 @@ dbDefaults = {
 			enableClickToTarget = true,
 			enableFocusTarget = true,
 			rainbowBorder = false,
+			toastStyle = "intel",
 		},
 
 		resourceBar = {

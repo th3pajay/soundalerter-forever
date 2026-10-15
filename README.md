@@ -8,7 +8,7 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.71-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.72-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Status" src="https://img.shields.io/badge/status-beta-yellow.svg"/>
@@ -52,7 +52,7 @@ Extract `SoundAlerter` to `World of Warcraft/Interface/AddOns/`, type `/sa`, ope
 
 | Feature | | What it does, and the catch |
 | :--- | :---: | :--- |
-| Proximity toasts | ✅ | Sticky toasts via nameplate, target or mouseover. Close, Nearby, Medium, Detected bands, group size, 3 buff icons, click-to-target |
+| Proximity toasts | ✅ | Sticky toasts via nameplate, target or mouseover. Choose an Intel card (level, distance meter, group size) or a Threat card (how worried to be and why). 3 buff icons, click-to-target |
 | Enemy awareness | 🟡 | Voice when an enemy targets you or casts on you. Silent when the client hides their target |
 | Watchlist | 🟡 | Alert for watched players or guilds. Silent where names or guilds are hidden |
 | Group vision | 🧪 | Enemies your party targets, far beyond nameplate range. Depends on the game sharing those units |

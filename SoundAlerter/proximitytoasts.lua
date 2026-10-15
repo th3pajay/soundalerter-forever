@@ -11,8 +11,8 @@ local UnitAura = SA_COMPAT.UnitAura
 ProximityToasts.inCombat = false
 
 local MAX_TOASTS = 5
-local TOAST_WIDTH = 300
-local TOAST_HEIGHT = 90
+local TOAST_WIDTH = 340
+local TOAST_HEIGHT = 96
 local VERTICAL_SPACING = 8
 local FADE_IN_DURATION = 0.2
 local FADE_OUT_DURATION = 0.5
@@ -55,6 +55,7 @@ local PROXIMITY_TOAST_KEYS = {
     showAuraIcons = true,
     useClassColors = true,
     rainbowBorder = true,
+    toastStyle = true,
     positionX = true,
     positionY = true,
     clickEnabled = true,
@@ -232,6 +233,117 @@ local function FlushDeferredHides()
     end
 end
 
+local ACCENT = {1, 0.49, 0.04}
+local THREAT_COLORS = {HIGH = {1, 0.3, 0.3}, MEDIUM = {1, 0.65, 0.2}, LOW = {0.7, 0.7, 0.7}}
+local CELL_X = {10, 70, 190}
+
+local function ClassTextColor(className)
+    local color = className and RAID_CLASS_COLORS[className]
+    if color then return color.r, color.g, color.b end
+    return 1, 1, 1
+end
+
+local function ApplyView(toast, view)
+    local r, g, b = ClassTextColor(view.className)
+    local threatStyle = view.style == "threat"
+
+    toast.icon:SetTexture(view.iconTexture)
+    toast.icon:ClearAllPoints()
+    toast.icon:SetSize(36, 36)
+    toast.titleText:ClearAllPoints()
+    toast.detailText:ClearAllPoints()
+    toast.levelText:ClearAllPoints()
+    toast.tagText:ClearAllPoints()
+    toast.auraIcons[1]:ClearAllPoints()
+
+    toast.tagText:SetText(view.tag or "")
+    toast.titleText:SetFontObject(GameFontNormalSmall)
+    toast.titleText:SetTextColor(0.72, 0.74, 0.8)
+    toast.titleText:SetText(view.title or "")
+    toast.detailText:SetFontObject(GameFontNormalLarge)
+    toast.detailText:SetTextColor(r, g, b)
+    toast.detailText:SetText(view.primary or "")
+
+    if threatStyle then
+        toast.sideBlock:ClearAllPoints()
+        toast.sideBlock:SetPoint("TOPLEFT", toast, "TOPLEFT", 4, -4)
+        toast.sideBlock:SetPoint("BOTTOMLEFT", toast, "BOTTOMLEFT", 4, 4)
+        toast.sideBlock:SetWidth(70)
+        toast.sideBlock:SetVertexColor(r, g, b, 0.95)
+        toast.sideBlock:Show()
+        toast.icon:SetPoint("TOP", toast.sideBlock, "TOP", 0, -12)
+        toast.levelText:SetPoint("BOTTOM", toast.sideBlock, "BOTTOM", 0, 12)
+        toast.levelText:SetTextColor(0.08, 0.09, 0.1)
+        toast.levelText:SetText(view.sideLabel or "")
+        toast.detailText:SetPoint("TOPLEFT", toast, "TOPLEFT", 86, -12)
+        toast.detailText:SetPoint("RIGHT", toast, "RIGHT", -120, 0)
+        toast.titleText:SetPoint("TOPLEFT", toast.detailText, "BOTTOMLEFT", 0, -4)
+        toast.titleText:SetPoint("RIGHT", toast, "RIGHT", -10, 0)
+        toast.tagText:SetPoint("TOPRIGHT", toast, "TOPRIGHT", -10, -14)
+        local tint = THREAT_COLORS[view.threatLevel] or THREAT_COLORS.LOW
+        toast.tagText:SetTextColor(tint[1], tint[2], tint[3])
+        toast.auraIcons[1]:SetPoint("TOPLEFT", toast, "TOPLEFT", 86, -54)
+        for i = 1, 3 do
+            toast.cellLabels[i]:Hide()
+            toast.cellValues[i]:Hide()
+        end
+        for i = 1, 4 do toast.meterBars[i]:Hide() end
+    else
+        toast.sideBlock:Hide()
+        toast.icon:SetPoint("TOPLEFT", toast, "TOPLEFT", 10, -10)
+        toast.levelText:SetText("")
+        toast.titleText:SetPoint("TOPLEFT", toast.icon, "TOPRIGHT", 8, 0)
+        toast.titleText:SetPoint("RIGHT", toast, "RIGHT", -100, 0)
+        toast.detailText:SetPoint("TOPLEFT", toast.titleText, "BOTTOMLEFT", 0, -2)
+        toast.detailText:SetPoint("RIGHT", toast, "RIGHT", -10, 0)
+        toast.tagText:SetPoint("TOPRIGHT", toast, "TOPRIGHT", -10, -12)
+        toast.tagText:SetTextColor(0.85, 0.87, 0.92)
+        toast.auraIcons[1]:SetPoint("TOPLEFT", toast, "TOPLEFT", 262, -52)
+        local labels = {"Level", "Distance", "Group"}
+        local values = {view.levelShort or "-", view.band or "-", view.groupText or "-"}
+        for i = 1, 3 do
+            toast.cellLabels[i]:ClearAllPoints()
+            toast.cellLabels[i]:SetPoint("TOPLEFT", toast, "TOPLEFT", CELL_X[i], -52)
+            toast.cellLabels[i]:SetText(labels[i])
+            toast.cellLabels[i]:Show()
+            toast.cellValues[i]:ClearAllPoints()
+            toast.cellValues[i]:SetPoint("TOPLEFT", toast.cellLabels[i], "BOTTOMLEFT", 0, -1)
+            toast.cellValues[i]:SetText(values[i])
+            toast.cellValues[i]:Show()
+        end
+        local rank = view.bandRank or 0
+        for i = 1, 4 do
+            local bar = toast.meterBars[i]
+            bar:ClearAllPoints()
+            bar:SetPoint("TOPLEFT", toast.cellValues[2], "BOTTOMLEFT", (i - 1) * 17, -3)
+            if i <= rank then
+                bar:SetVertexColor(ACCENT[1], ACCENT[2], ACCENT[3], 1)
+            else
+                bar:SetVertexColor(1, 1, 1, 0.2)
+            end
+            bar:SetShown(view.band ~= nil)
+        end
+    end
+
+    local auras = view.auras or {}
+    for i = 1, MAX_AURA_ICONS do
+        local aura = auras[i]
+        if aura then
+            toast.auraIcons[i]:SetTexture(aura.icon)
+            toast.auraIcons[i]:Show()
+            if aura.text then
+                toast.auraDurationTexts[i]:SetText(aura.text)
+                toast.auraDurationTexts[i]:Show()
+            else
+                toast.auraDurationTexts[i]:Hide()
+            end
+        else
+            toast.auraIcons[i]:Hide()
+            toast.auraDurationTexts[i]:Hide()
+        end
+    end
+end
+
 local function CreateToastFrame(index, isSecure)
     local frameName = isSecure and "SoundAlerterSecureToast"..index or "SoundAlerterInsecureToast"..index
     local toast = CreateFrame("Button", frameName, UIParent, "BackdropTemplate")
@@ -271,6 +383,26 @@ local function CreateToastFrame(index, isSecure)
     toast.levelText:SetTextColor(1, 0.82, 0)
     toast.levelText:SetShadowOffset(1, -1)
     toast.levelText:SetShadowColor(0, 0, 0, 1)
+
+    toast.tagText = toast:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    toast.sideBlock = toast:CreateTexture(nil, "BACKGROUND", nil, 1)
+    toast.sideBlock:SetTexture("Interface\\Buttons\\WHITE8X8")
+    toast.sideBlock:Hide()
+
+    toast.cellLabels = {}
+    toast.cellValues = {}
+    for i = 1, 3 do
+        toast.cellLabels[i] = toast:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        toast.cellLabels[i]:SetTextColor(0.6, 0.63, 0.7)
+        toast.cellValues[i] = toast:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    end
+    toast.meterBars = {}
+    for i = 1, 4 do
+        local bar = toast:CreateTexture(nil, "ARTWORK")
+        bar:SetTexture("Interface\\Buttons\\WHITE8X8")
+        bar:SetSize(14, 3)
+        toast.meterBars[i] = bar
+    end
 
     toast.auraIcons = {}
     toast.auraDurationTexts = {}
@@ -571,9 +703,12 @@ function ProximityToasts:ReleaseToast(toast)
         end
     end
 
+    toast.view = nil
     toast.titleText:SetText("")
     toast.levelText:SetText("")
     toast.detailText:SetText("")
+    toast.tagText:SetText("")
+    toast.sideBlock:Hide()
     toast.icon:SetTexture(nil)
     toast:SetBackdropColor(0, 0, 0, 0.85)
     toast:SetBackdropBorderColor(0.8, 0.2, 0.2, 1)
@@ -648,13 +783,10 @@ function ProximityToasts:CopyToastData(oldFrame, newFrame)
         end
     end
 
-    if oldFrame.icon:GetTexture() then
-        newFrame.icon:SetTexture(oldFrame.icon:GetTexture())
+    newFrame.view = oldFrame.view
+    if newFrame.view then
+        ApplyView(newFrame, newFrame.view)
     end
-
-    newFrame.titleText:SetText(oldFrame.titleText:GetText() or "")
-    newFrame.levelText:SetText(oldFrame.levelText:GetText() or "")
-    newFrame.detailText:SetText(oldFrame.detailText:GetText() or "")
 
     local r, g, b, a = oldFrame:GetBackdropColor()
     newFrame:SetBackdropColor(r, g, b, a)
@@ -757,33 +889,24 @@ local function FormatAuraDuration(remaining)
     return tostring(math.ceil(remaining))
 end
 
-local function UpdateAuraIcons(toast, unitToken)
-    local shown = 0
+local function CollectAuras(unitToken)
+    local list = {}
     if unitToken and UnitExists(unitToken) then
         for _, filter in ipairs(AURA_FILTERS) do
             for i = 1, AURA_SCAN_MAX do
                 local name, _, icon, _, _, duration, expirationTime = UnitAura(unitToken, i, filter)
                 if not name then break end
-                if shown < MAX_AURA_ICONS then
-                    shown = shown + 1
-                    toast.auraIcons[shown]:SetTexture(icon)
-                    toast.auraIcons[shown]:Show()
-
+                if #list < MAX_AURA_ICONS then
                     local remaining = duration and duration > 0 and expirationTime and (expirationTime - GetTime())
-                    if remaining and remaining > 0 then
-                        toast.auraDurationTexts[shown]:SetText(FormatAuraDuration(remaining))
-                        toast.auraDurationTexts[shown]:Show()
-                    else
-                        toast.auraDurationTexts[shown]:Hide()
-                    end
+                    list[#list + 1] = {
+                        icon = icon,
+                        text = remaining and remaining > 0 and FormatAuraDuration(remaining) or nil,
+                    }
                 end
             end
         end
     end
-    for i = shown + 1, MAX_AURA_ICONS do
-        toast.auraIcons[i]:Hide()
-        toast.auraDurationTexts[i]:Hide()
-    end
+    return list
 end
 
 function ProximityToasts:ShowToast(unitName, className, distance, guid, level, unitToken, customTitle, alertType, nearbyCount)
@@ -823,8 +946,6 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
 
     SoundAlerter:Debug("ProximityToasts", "showing toast for %s (%s, %s), %d/%d active", unitName, className or "UNKNOWN", tostring(alertType), #self.activeToasts, maxConcurrent)
 
-    toast.icon:SetTexture(CLASS_ICONS[className] or "Interface\\Icons\\Ability_Rogue_Ambush")
-
     local backdropConfig = GetBackdropConfig(alertType)
     toast:SetBackdrop(backdropConfig)
 
@@ -847,49 +968,40 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
         toast:SetBackdropBorderColor(0.8, 0.2, 0.2, 1)
     end
 
-    if customTitle then
-        toast.titleText:SetText(customTitle)
-    else
-        toast.titleText:SetText(className and (className .. " NEARBY!") or "ENEMY NEARBY!")
-    end
-
-    if level then
-        if level == -1 then
-            toast.levelText:SetText("High Level")
+    local Style = SA_ToastStyle
+    local style = Style.Normalize(sadb.proximityToasts.toastStyle)
+    local classLabel = className and (className:sub(1, 1) .. className:sub(2):lower()) or "Enemy"
+    local isFlag = Style.IsFlag(alertType)
+    local view = {
+        style = style,
+        className = className,
+        iconTexture = CLASS_ICONS[className] or "Interface\\Icons\\Ability_Rogue_Ambush",
+        primary = (sadb.proximityToasts.showPlayerName and unitName) or classLabel,
+        band = distance,
+        bandRank = Style.BandRank(distance),
+        levelShort = Style.LevelText(level),
+        groupText = Style.GroupText(nearbyCount),
+        tag = Style.Tag(alertType),
+        sideLabel = className and className:upper() or "ENEMY",
+        auras = sadb.proximityToasts.showAuraIcons and CollectAuras(unitToken) or {},
+    }
+    if style == "threat" then
+        local threatLevel, _, why = Style.Threat(className, distance, nearbyCount)
+        view.threatLevel = threatLevel
+        if not isFlag then view.tag = threatLevel .. " THREAT" end
+        if customTitle then
+            view.title = customTitle
         else
-            toast.levelText:SetText("Level " .. level)
+            local lead = level and (level == -1 and "Lv ??" or ("Lv " .. level)) or nil
+            if why == "" then why = "Enemy player nearby" end
+            view.title = lead and (lead .. "  " .. why) or why
         end
+        view.high = threatLevel == "HIGH" and not isFlag
     else
-        toast.levelText:SetText("")
+        view.title = customTitle or (className and (className .. " NEARBY!") or "ENEMY NEARBY!")
     end
-
-    local detailText = ""
-    if sadb.proximityToasts.showPlayerName and unitName then
-        detailText = unitName
-    end
-
-    local extras = {}
-    if distance then table.insert(extras, distance) end
-    if nearbyCount and nearbyCount > 1 then
-        table.insert(extras, nearbyCount .. " nearby")
-    elseif nearbyCount == 1 then
-        table.insert(extras, "Solo")
-    end
-    if #extras > 0 then
-        local extraText = table.concat(extras, ", ")
-        detailText = (detailText ~= "") and (detailText .. " (" .. extraText .. ")") or extraText
-    end
-
-    toast.detailText:SetText(detailText)
-
-    if sadb.proximityToasts.showAuraIcons then
-        UpdateAuraIcons(toast, unitToken)
-    else
-        for i = 1, MAX_AURA_ICONS do
-            toast.auraIcons[i]:Hide()
-            toast.auraDurationTexts[i]:Hide()
-        end
-    end
+    toast.view = view
+    ApplyView(toast, view)
 
     if toast.userData then
         toast.userData.unitName = unitName
@@ -982,6 +1094,9 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
         if sadb.proximityToasts.rainbowBorder then
             local r, g, b = GetRainbowColor(now)
             self:SetBackdropBorderColor(r, g, b, 1)
+        elseif self.view and self.view.high then
+            local pulse = 0.55 + 0.45 * math.abs(math.sin(now * 3))
+            self:SetBackdropBorderColor(1, 0.25 * pulse, 0.2 * pulse, 1)
         end
 
         if elapsed < FADE_IN_DURATION then

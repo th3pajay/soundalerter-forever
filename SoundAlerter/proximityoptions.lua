@@ -8,6 +8,9 @@ local BANDS = {
     { "Close", "Close (about 10 yd)" }, { "Nearby", "Nearby (about 28 yd)" },
     { "Medium", "Medium (about 35 yd)" }, { "Detected", "Detected (any nameplate)" },
 }
+local TOAST_STYLES = {
+    { "intel", "Intel card" }, { "threat", "Threat card" },
+}
 local SIDE_EFFECTS = {
     overrideNameplateRange = "ApplyNameplateRange",
     nameplateRange = "ApplyNameplateRange",
@@ -15,8 +18,8 @@ local SIDE_EFFECTS = {
     showTotemPlates = "ApplyTotemPlates",
 }
 local SAMPLES = {
-    { "Shadowstep", "Rogue", "Group of 3 - 12 yd", { 1, 0.96, 0.41 }, "Interface\\Icons\\Ability_Stealth" },
-    { "Moonfang", "Druid", "Nearby - 28 yd", { 1, 0.49, 0.04 }, "Interface\\Icons\\Ability_Druid_CatForm" },
+    { "Shadowstep", "Rogue", "Group of 3 - 12 yd", { 1, 0.96, 0.41 }, "Interface\\Icons\\Ability_Stealth", "ROGUE", "Close", 3 },
+    { "Moonfang", "Druid", "Nearby - 28 yd", { 1, 0.49, 0.04 }, "Interface\\Icons\\Ability_Druid_CatForm", "DRUID", "Nearby", 1 },
 }
 
 local function profile()
@@ -80,10 +83,15 @@ function ProximityPreview.update(state, settings)
     for index, toast in ipairs(state.toasts) do
         local sample = SAMPLES[index]
         local color = sample[4]
+        local sub = sample[2] .. " - " .. sample[3]
+        if t.toastStyle == "threat" then
+            local level, _, why = SA_ToastStyle.Threat(sample[6], sample[7], sample[8])
+            sub = level .. " THREAT - " .. why
+        end
         Page.Toast.Update(toast, {
             shown = t.enabled and index <= math.max(1, t.maxConcurrent or 1),
             name = t.showPlayerName and sample[1] or (sample[2] .. " nearby"),
-            sub = sample[2] .. " - " .. sample[3],
+            sub = sub,
             nameColor = classColors and color or nil,
             background = classColors and { color[1] * 0.28, color[2] * 0.28, color[3] * 0.28, 0.95 } or nil,
             showIcon = t.showAuraIcons,
@@ -127,7 +135,7 @@ function SoundAlerter:BuildProximityOptions()
             Page.Toggle("t.enabled", "Show toast notifications", "Show visual pop-up toasts when enemies are detected nearby. The toast options below apply when this is on.", false, "How it alerts"),
             Page.When("t.enabled", Page.Action("Test toast", "Show a test toast to preview the current settings (position, appearance, duration).", function()
                 local active = toasts()
-                if active then active:ShowToast("TestEnemy", "ROGUE", nil, nil) end
+                if active then active:ShowToast("TestEnemy", "ROGUE", "Close", nil, 60, nil, nil, nil, 3) end
             end, false, "How it alerts")),
             Page.Toggle("p.proximitySanctuary", "Sanctuary", "Enable proximity alerts in sanctuary zones (e.g. Moonglade) where PvP-flagged enemies can still attack you despite guards.", true, "Where it works"),
             Page.Range("p.proximityCooldown", "Cooldown duration", "Time before the same player can trigger another proximity alert. Prevents spam while still alerting to threats.", 5, 120, 5, true, "Detection", " s"),
@@ -138,6 +146,7 @@ function SoundAlerter:BuildProximityOptions()
             Page.When("p.proximityChat", Page.Text("p.proximityChatText", "Chat message template", "Customize the chat message. Placeholders: #class# is the enemy class name, #player# is the enemy player name. Example: [#class#] #player# detected nearby!", true, "How it alerts")),
             Page.When("t.enabled", Page.Range("t.displayDuration", "Display duration", "How long the toast remains visible on screen.", 2, 8, 0.5, true, "How it alerts", " s")),
             Page.When("t.enabled", Page.Range("t.maxConcurrent", "Max concurrent toasts", "Maximum number of toasts to show at once (older toasts fade out early if the limit is exceeded).", 1, 5, 1, true, "How it alerts")),
+            Page.When("t.enabled", Page.Select("t.toastStyle", "Toast style", "Intel card shows level, distance with a meter and group size. Threat card shows how worried to be and why: stealth classes, how close, and group size.", TOAST_STYLES, false, "Toast look")),
             Page.When("t.enabled", Page.Toggle("t.showPlayerName", "Show player name", "Display the enemy player's name in the toast.", true, "Toast look")),
             Page.When("t.enabled", Page.Toggle("t.showAuraIcons", "Show buff and debuff icons", "Display up to 3 active buff or debuff icons on the toast (defensive cooldowns, mount, existing debuffs).", true, "Toast look")),
             Page.When("t.enabled", Page.Toggle("t.useClassColors", "Use class colors", "Color the toast background by enemy class (red for Warrior, purple for Warlock).", true, "Toast look")),
