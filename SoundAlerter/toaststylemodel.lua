@@ -4,7 +4,7 @@ SA_ToastStyle.STYLES = { "intel", "threat" }
 SA_ToastStyle.DEFAULT = "intel"
 
 local BAND_RANK = { Close = 4, Nearby = 3, Medium = 2, Detected = 1 }
-local BAND_PHRASE = { Close = "very close", Nearby = "close by", Medium = "in range", Detected = "on your nameplates" }
+local BAND_PHRASE = { Close = "very close", Nearby = "close by", Medium = "in range", Detected = "far away" }
 local CLASS_WEIGHT = {
     ROGUE = 3, DRUID = 3, MAGE = 2, HUNTER = 2, WARLOCK = 2, WARRIOR = 2, DEATHKNIGHT = 2,
     PALADIN = 1, PRIEST = 1, SHAMAN = 1,
