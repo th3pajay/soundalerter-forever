@@ -862,18 +862,6 @@ function SoundAlerter:GetSearchPercentiles(mode)
     return PercentileAt(sorted, count, 0.50), PercentileAt(sorted, count, 0.95), PercentileAt(sorted, count, 0.99), sorted[count], count
 end
 
-function SoundAlerter:PrintSearchTimingReport()
-    for _, mode in ipairs(TIMING_MODES) do
-        local p50, p95, p99, max, count = self:GetSearchPercentiles(mode)
-        if p50 then
-            self:Print(string_format("[SpellFinder] %-12s n=%d p50=%.3fms p95=%.3fms p99=%.3fms max=%.3fms",
-                mode, count, p50, p95, p99, max))
-        else
-            self:Print(string_format("[SpellFinder] %-12s no samples", mode))
-        end
-    end
-end
-
 local DESC_TICK = 0.25
 local DESC_NEW_PER_TICK = 60
 local DESC_INFLIGHT_MAX = 300

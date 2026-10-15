@@ -54,10 +54,6 @@ function SA_LossOfControl.Voice(category)
     return VOICE[category]
 end
 
-function SA_LossOfControl.Setting(category)
-    return SETTING[category]
-end
-
 function SA_LossOfControl.ShouldSpeak(settings, state, category, now)
     if not settings.lossOfControlVoice then return false end
     local key = SETTING[category]

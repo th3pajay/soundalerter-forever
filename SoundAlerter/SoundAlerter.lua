@@ -29,12 +29,6 @@ self.SA_LOCALEPATH = SA_LOCALEPATH
 self.SA_LANGUAGE = {
     ["Interface\\Addons\\SoundAlerter\\Voice\\"] = "English",
 }
-self.SA_CHATGROUP = {
-    ["SAY"] = L["Say"],
-    ["PARTY"] = L["Party"],
-    ["RAID"] = L["Raid"],
-    ["BATTLEGROUND"] = L["Battleground"],
-}
 self.SA_EVENT = {
     SPELL_CAST_SUCCESS = L["Instant spell was successfully casted"],
     SPELL_CAST_START = L["Spell is casting"],
@@ -545,8 +539,6 @@ function SoundAlerter:OnEnable()
     self:RefreshZoneState()
 
     if not self.SA_LANGUAGE[sadb.path] then sadb.path = self.SA_LOCALEPATH.enUS end
-    self.throttled = {}
-    self.smarter = 0
 
     self.proximityAlertCache = {}
     self.proximityRecentGUIDs = {}
@@ -705,33 +697,6 @@ function SoundAlerter:PlaySpell(list, spellID, sourceGUID, sourceName)
             end
         end
         return true
-    end
-end
-
-function SoundAlerter:spellOptions(order, spellID, ...)
-    local spellname, _, icon = GetSpellInfo(spellID)
-
-    if spellname ~= nil then
-        return {
-            type = 'toggle',
-            name = "\124T"..icon..":24\124t"..spellname,
-            desc = function ()
-                local spellLink = GetSpellLink(spellID)
-                if spellLink then
-                    GameTooltip:SetHyperlink(spellLink);
-                end
-            end,
-            descStyle = "custom",
-            order = order,
-        }
-    else
-        return {
-            type = 'description',
-            name = "Unknown Spell ID (" .. spellID .. ")",
-            desc = "This spell ID could not be found by your WoW client. It has been disabled.",
-            order = order,
-            disabled = true,
-        }
     end
 end
 
@@ -1891,17 +1856,17 @@ local function WithinMediumRange(unit)
     return ok and Plain(inRange) == true
 end
 
+local function WithinInteractRange(unit, index)
+    local ok, inRange = pcall(CheckInteractDistance, unit, index)
+    return ok and Plain(inRange) == true
+end
+
 function SoundAlerter:GetApproxRange(unit)
     if not UnitExists(unit) then return nil end
 
-    local function withinInteractRange(index)
-        local ok, inRange = pcall(CheckInteractDistance, unit, index)
-        return ok and Plain(inRange) == true
-    end
-
-    if withinInteractRange(3) then
+    if WithinInteractRange(unit, 3) then
         return "Close"
-    elseif withinInteractRange(1) then
+    elseif WithinInteractRange(unit, 1) then
         return "Nearby"
     elseif WithinMediumRange(unit) then
         return "Medium"

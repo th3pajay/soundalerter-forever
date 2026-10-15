@@ -7,7 +7,7 @@ local Settings = SA_TrackerSettings
 local ICON_SIZE = Settings.DEFAULT_ICON_SIZE
 local ICON_SPACING = 4
 local ICON_POOL_SIZE = 20
-local UPDATE_THROTTLE = 0.033
+local UPDATE_THROTTLE = 0.05
 local BORDER_RING_TEXTURE = "Interface\\AddOns\\SoundAlerter\\Textures\\border_ring.tga"
 
 local CONSTANTS = {
@@ -394,10 +394,12 @@ function SpellTracker:CheckFinisher(trackerIndex, spellID, castTime)
     self:HideTracker(trackerIndex)
 end
 
+local CAST_UNITS = { "player", "target" }
+
 function SpellTracker:OnTrackedCast(spellID)
     if not InCombatLockdown() then return end
 
-    for _, unit in ipairs({ "player", "target" }) do
+    for _, unit in ipairs(CAST_UNITS) do
         local config = trackedSpellsByUnit[unit][spellID]
         if config then
             local iconConfig = self.db.icons[config.trackerIndex]
@@ -910,15 +912,6 @@ function SpellTracker:SetSetting(key, value)
             self:RefreshAllTrackers()
         end
     end
-end
-
-function SpellTracker:GetIconSetting(index, key)
-    local icon = self.db and self.db.icons[index]
-    local value = icon and icon[key]
-    if value == nil then
-        return Settings.IconDefault(key)
-    end
-    return value
 end
 
 function SpellTracker:SetIconSetting(index, key, value)

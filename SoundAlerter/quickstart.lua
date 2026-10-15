@@ -1,8 +1,6 @@
 local QuickStart = {}
 
-local GOLD = "|cffFFD700"
 local AMBER = "|cffFFAA00"
-local GREY = "|cff888888"
 local WHITE = "|cffFFFFFF"
 local RESET = "|r"
 
@@ -88,21 +86,6 @@ function QuickStart.ApplyPreset(profile, key)
     return false
 end
 
-function QuickStart.PresetLabel(preset, active)
-    if active then
-        return GOLD .. preset.label .. RESET .. GREY .. " (active)" .. RESET
-    end
-    return WHITE .. preset.label .. RESET
-end
-
-function QuickStart.PresetStatus(profile)
-    local preset = QuickStart.ActivePreset(profile)
-    if preset then
-        return GREY .. "Your setup matches the " .. RESET .. WHITE .. preset.label .. RESET .. GREY .. " style." .. RESET
-    end
-    return GREY .. "Custom setup: adjusted below." .. RESET
-end
-
 function QuickStart.Summary(profile, volumePercent)
     local zones = {}
     for _, zone in ipairs(QuickStart.ZONES) do
@@ -125,10 +108,6 @@ function QuickStart.Summary(profile, volumePercent)
         "     Scope " .. WHITE .. scopeText .. RESET ..
         "     Volume " .. WHITE .. volumePercent .. "%" .. RESET ..
         "     " .. WHITE .. heard .. RESET .. " of " .. #QuickStart.CATEGORIES .. " alert types on"
-end
-
-function QuickStart.GuideLabel(entry)
-    return GOLD .. entry.label .. RESET .. "  " .. GREY .. entry.hint .. RESET
 end
 
 SA_QuickStart = QuickStart

@@ -16,7 +16,6 @@ local ROW_BAR_WIDTH = 110
 local ROW_BAR_HEIGHT = 8
 local NAME_LIMIT = 22
 
-local ZONE_NAMES = { arena = "Arena", battleground = "BG", worldPvP = "World", sanctuary = "City" }
 local TREND_MARKS = {
     increasing = "|cff00FF00+|r",
     decreasing = "|cffFF4040-|r",
@@ -244,10 +243,6 @@ function Format.ClassRows(list, limit)
             GREY .. "  " .. string.format("%.0f", entry.avgPerPlayer or 0) .. " each" .. RESET
     end
     return table.concat(rows, "\n")
-end
-
-function Format.ZoneName(zone)
-    return ZONE_NAMES[zone] or zone or "N/A"
 end
 
 SA_StatsFormat = Format

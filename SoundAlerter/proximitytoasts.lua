@@ -236,6 +236,7 @@ end
 local ACCENT = {1, 0.49, 0.04}
 local THREAT_COLORS = {HIGH = {1, 0.3, 0.3}, MEDIUM = {1, 0.65, 0.2}, LOW = {0.7, 0.7, 0.7}}
 local CELL_X = {10, 70, 190}
+local CELL_LABELS = {"Level", "Distance", "Group"}
 
 local function ClassTextColor(className)
     local color = className and RAID_CLASS_COLORS[className]
@@ -299,12 +300,11 @@ local function ApplyView(toast, view)
         toast.tagText:SetPoint("TOPRIGHT", toast, "TOPRIGHT", -10, -12)
         toast.tagText:SetTextColor(0.85, 0.87, 0.92)
         toast.auraIcons[1]:SetPoint("TOPLEFT", toast, "TOPLEFT", 262, -52)
-        local labels = {"Level", "Distance", "Group"}
         local values = {view.levelShort or "-", view.band or "-", view.groupText or "-"}
         for i = 1, 3 do
             toast.cellLabels[i]:ClearAllPoints()
             toast.cellLabels[i]:SetPoint("TOPLEFT", toast, "TOPLEFT", CELL_X[i], -52)
-            toast.cellLabels[i]:SetText(labels[i])
+            toast.cellLabels[i]:SetText(CELL_LABELS[i])
             toast.cellLabels[i]:Show()
             toast.cellValues[i]:ClearAllPoints()
             toast.cellValues[i]:SetPoint("TOPLEFT", toast.cellLabels[i], "BOTTOMLEFT", 0, -1)

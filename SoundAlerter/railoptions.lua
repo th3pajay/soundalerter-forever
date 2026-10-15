@@ -38,11 +38,6 @@ local function description(order, text)
     }
 end
 
-local function addPreview(group, getText)
-    group.args.livePreview = description(0.1, getText)
-    return group
-end
-
 local function addSummary(options, getText)
     options.args.summary = description(1.7, getText)
 end

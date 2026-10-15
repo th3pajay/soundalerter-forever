@@ -24,24 +24,11 @@ function Rail.Bar(width, height, fill, r, g, b)
     return out
 end
 
-function Rail.Dots(count, active, size, activeColor, idleColor)
-    local out = {}
-    for index = 1, count do
-        local c = index <= active and activeColor or idleColor
-        out[#out + 1] = Rail.Strip(size, size, c[1], c[2], c[3])
-    end
-    return table.concat(out, " ")
-end
-
 function Rail.ExpandChat(template, vars)
     if type(template) ~= "string" or template == "" then return "" end
     return (template:gsub("#(%w+)#", function(token)
         return vars[token] or ("#" .. token .. "#")
     end))
-end
-
-function Rail.ChatLine(channelName, template, vars)
-    return "[" .. channelName .. "] " .. Rail.ExpandChat(template, vars)
 end
 
 function Rail.Status(label, items, none)

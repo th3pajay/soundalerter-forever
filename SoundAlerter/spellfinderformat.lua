@@ -158,7 +158,6 @@ local function plainText(text)
     return (text:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
-Format.PlainText = plainText
 
 function Format.ChatText(spell, description, limit)
     local text = string.format("%s (%s) - ID: %d", spell.baseName, Format.RankText(spell.rankNum), spell.spellID)

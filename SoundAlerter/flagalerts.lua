@@ -34,9 +34,6 @@ local type = type
 local pairs = pairs
 local ipairs = ipairs
 
-local bit_band = bit and bit.band or function(a, b) return a % (b*2) >= b and a % (b*2) - b or a % (b*2) end
-local bit_rshift = bit and bit.rshift or function(a, b) return math.floor(a / (2^b)) end
-
 local CACHE_TTL = 60
 local MAX_RAID_SCAN = 40
 
@@ -130,7 +127,6 @@ function FlagAlerts:OnInitialize()
     sadb = SoundAlerter.db1.profile
 
     self.inCombat = false
-    self.combatAwareOperations = 0
 
     self.nameToClassCache = {}
     self.cacheSize = 0
@@ -178,7 +174,6 @@ function FlagAlerts:OnInitialize()
     self.flagSecureToastPool = {}
     self.flagInsecureToastPool = {}
     self.activeFlagToasts = {}
-    self.flagSwapInProgress = false
     self.flagInsecureSwapBuffer = {}
 
     self.flagSwapMetrics = {count = 0, totalTime = 0, maxTime = 0, histogram = {}}
@@ -276,52 +271,6 @@ function FlagAlerts:PLAYER_REGEN_ENABLED()
     SoundAlerter:Debug("FlagAlerts", "Left combat - all features restored")
 end
 
-function FlagAlerts:HandleFlagPickup(playerName, guid, carrierTeam)
-    if not sadb.flagPickupAudio then return end
-
-    if not self:ShouldProcessFlagEvent(playerName, "PICKUP") then
-        SoundAlerter:Debug("FlagAlerts", "Dedupe: Ignoring duplicate pickup for %s", playerName)
-        return
-    end
-
-    local playerClass = self:ExtractClassFromGUID(guid)
-
-    if playerClass and playerClass ~= "UNKNOWN" then
-        self:SaveToPersistentCache(playerName, playerClass)
-    end
-
-    if not self:PassesTeamFilter(playerName, carrierTeam) then return end
-
-    self:TriggerFlagAlert(playerName, playerClass, "PICKUP", carrierTeam)
-
-    self.performanceMetrics.auraPickups = self.performanceMetrics.auraPickups + 1
-
-    SoundAlerter:Debug("FlagAlerts", "Aura Detection: %s (%s, %s) picked up flag", playerName, playerClass or "UNKNOWN", carrierTeam or "UNKNOWN_TEAM")
-end
-
-function FlagAlerts:HandleFlagDrop(playerName, guid, carrierTeam)
-    if not sadb.flagDropAudio then return end
-
-    if not self:ShouldProcessFlagEvent(playerName, "DROP") then
-        SoundAlerter:Debug("FlagAlerts", "Dedupe: Ignoring duplicate drop for %s", playerName)
-        return
-    end
-
-    local playerClass = self:ExtractClassFromGUID(guid)
-
-    if playerClass and playerClass ~= "UNKNOWN" then
-        self:SaveToPersistentCache(playerName, playerClass)
-    end
-
-    if not self:PassesTeamFilter(playerName, carrierTeam) then return end
-
-    self:TriggerFlagAlert(playerName, playerClass, "DROP", carrierTeam)
-
-    self.performanceMetrics.auraDrops = self.performanceMetrics.auraDrops + 1
-
-    SoundAlerter:Debug("FlagAlerts", "Aura Detection: %s (%s, %s) dropped flag", playerName, playerClass or "UNKNOWN", carrierTeam or "UNKNOWN_TEAM")
-end
-
 function FlagAlerts:ShouldProcessFlagEvent(playerName, eventType)
     local currentTime = GetTime()
 
@@ -365,38 +314,6 @@ function FlagAlerts:PassesTeamFilter(playerName, playerTeam)
     end
 
     return true
-end
-
-local CLASS_ID_TO_NAME = {
-    [1] = "WARRIOR",
-    [2] = "PALADIN",
-    [3] = "HUNTER",
-    [4] = "ROGUE",
-    [5] = "PRIEST",
-    [6] = "DEATHKNIGHT",
-    [7] = "SHAMAN",
-    [8] = "MAGE",
-    [9] = "WARLOCK",
-    [10] = "DRUID",
-}
-
-function FlagAlerts:ExtractClassFromGUID(guid)
-    if not guid or type(guid) ~= "string" then return nil end
-
-    local classIDHex = guid:sub(6, 7)
-    local classID = tonumber(classIDHex, 16)
-
-    if classID and CLASS_ID_TO_NAME[classID] then
-        return CLASS_ID_TO_NAME[classID]
-    end
-
-    local guidNum = tonumber(guid:sub(3), 16)
-    if guidNum then
-        classID = bit_band(bit_rshift(guidNum, 40), 0xFF)
-        return CLASS_ID_TO_NAME[classID]
-    end
-
-    return nil
 end
 
 function FlagAlerts:ProcessFlagEvent(message)
@@ -738,14 +655,6 @@ function FlagAlerts:GetObjectiveAudioFile(eventType)
     if eventType == "CAPTURE" then return "FlagCaptured" end
     if eventType == "RETURN" then return "FlagReturned" end
     return "FlagPickup"
-end
-
-function FlagAlerts:GetToastTitle(eventType)
-    if eventType == "PICKUP" then return "FLAG CARRIER!" end
-    if eventType == "DROP" then return "FLAG DROPPED!" end
-    if eventType == "CAPTURE" then return "FLAG CAPTURED!" end
-    if eventType == "RETURN" then return "FLAG RETURNED!" end
-    return "OBJECTIVE ALERT!"
 end
 
 function FlagAlerts:SendFlagChatAlert(playerName, playerClass, eventType)

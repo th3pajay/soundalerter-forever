@@ -80,18 +80,6 @@ function Model.State(model, now)
     return stateOf(model, Model.Remaining(model, now))
 end
 
-function Model.Tone(model, now)
-    local remaining = Model.Remaining(model, now)
-    return toneOf(stateOf(model, remaining), remaining)
-end
-
-function Model.Fraction(model, now)
-    if not model.inCombat then
-        return 0
-    end
-    return math_min(1, Model.Remaining(model, now) / model.windowMs)
-end
-
 function Model.Snapshot(model, now)
     local remaining = Model.Remaining(model, now)
     local state = stateOf(model, remaining)

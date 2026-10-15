@@ -130,11 +130,6 @@ function Model.Add(trail, u, v, world, mapID, spacing, jump, nx, ny)
     return "added"
 end
 
-function Model.Point(trail, index)
-    local at = slot(trail, index)
-    return trail.u[at], trail.v[at], trail.w[at], trail.m[at], trail.s[at]
-end
-
 function Model.RestoreAction(isInitialLogin, isReloadingUi, savedAt, now, grace)
     if isReloadingUi == true then return "keep" end
     if isInitialLogin == true then return "clear" end
