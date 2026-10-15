@@ -47,6 +47,8 @@ speedmeter.lua
 minimaptracking.lua
 footstepsmodel.lua
 modulepage.lua
+customexport.lua
+generaloptions.lua
 castfeedoptions.lua
 resourcebaroptions.lua
 castingbaroptions.lua

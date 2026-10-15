@@ -604,7 +604,26 @@ function Methods:AddRow(row, y, advanced)
             control = MakeSelect(frame, row, function(value) page:Change(row.key, value) end)
         end
     else
+        local armed = false
         control = MakeButton(frame, row.label, function()
+            if row.confirm and not armed then
+                armed = true
+                control.label:SetText(row.confirm)
+                control.frame:SetWidth(math.max(control.frame:GetWidth(), control.label:GetStringWidth() + 24))
+                if C_Timer and C_Timer.After then
+                    C_Timer.After(5, function()
+                        if armed then
+                            armed = false
+                            control.label:SetText(row.label)
+                        end
+                    end)
+                end
+                return
+            end
+            if armed then
+                armed = false
+                control.label:SetText(row.label)
+            end
             if row.onClick then row.onClick() end
             page:Refresh()
         end)
@@ -753,6 +772,9 @@ local function BuildPage(spec)
     page.summary = Text(frame, 11.5, COLOR.muted)
     page.summary:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -56)
     page.summary:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+    page.summary:SetHeight(28)
+    page.summary:SetJustifyV("TOP")
+    if page.summary.SetWordWrap then page.summary:SetWordWrap(true) end
 
     local scroll = CreateFrame("ScrollFrame", nil, frame)
     scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -HEADER_HEIGHT)
