@@ -122,6 +122,12 @@ function Page.Text(key, label, hint, advanced, group, lines)
     return row
 end
 
+function Page.Block(label, text, advanced, group)
+    local row = Row("block", nil, label, "", advanced, group)
+    row.text = text
+    return row
+end
+
 function Page.Visible(predicate, row)
     row.visible = predicate
     return row
@@ -550,7 +556,7 @@ function Methods:Visibility(settings)
         local entry = self.rows[index]
         local row = entry.spec
         entry.visible = not row.visible or (row.visible(settings) and true or false)
-        bits[index] = entry.visible and "1" or "0"
+        bits[index] = (entry.visible and "1" or "0") .. (row.kind == "block" and tostring(entry.height) or "")
     end
     return table.concat(bits)
 end
@@ -611,7 +617,6 @@ function Methods:Refresh()
     local settings = self.spec.get()
     if not settings then return end
     self.settings = settings
-    self:Layout(settings)
 
     local hasMaster = self.spec.master ~= false
     local enabled = true
@@ -634,6 +639,12 @@ function Methods:Refresh()
             local value = Resolve(settings, row.key)
             if value ~= nil then entry.control:Set(value) end
         end
+        if row.kind == "block" then
+            entry.blockText:SetWidth(math.max(60, self.child:GetWidth() - 8))
+            entry.blockText:SetText(row.text(settings) or "")
+            entry.height = math.max(24, entry.blockText:GetStringHeight() + 14)
+            entry.frame:SetHeight(entry.height)
+        end
         if type(row.label) == "function" then
             if entry.labelText then
                 entry.labelText:SetText(row.label(settings))
@@ -654,6 +665,7 @@ function Methods:Refresh()
         entry.control.frame:EnableMouse(active)
     end
 
+    self:Layout(settings)
     if self.spec.preview then self.spec.preview.update(self.previewState, settings) end
 end
 
@@ -661,6 +673,7 @@ function Methods:AddRow(row, advanced)
     local multiline = row.kind == "text" and (row.lines or 1) > 1
     local height = row.hint ~= "" and ROW_WITH_HINT or ROW_PLAIN
     if multiline then height = 30 + row.lines * 15 + 14 end
+    if row.kind == "block" then height = 30 end
     local frame = CreateFrame("Frame", nil, self.child)
     frame:SetHeight(height)
     frame:EnableMouse(true)
@@ -680,6 +693,8 @@ function Methods:AddRow(row, advanced)
         control = MakeRange(frame, row, function(value) page:Change(row.key, value) end)
     elseif row.kind == "color" then
         control = MakeColor(frame, function(value) page:Change(row.key, value) end)
+    elseif row.kind == "block" then
+        control = { frame = frame }
     elseif row.kind == "text" then
         control = MakeText(frame, row, function(value) page:Change(row.key, value) end)
     elseif row.kind == "select" then
@@ -727,7 +742,13 @@ function Methods:AddRow(row, advanced)
     end
 
     local entry = { spec = row, frame = frame, control = control, height = height, highlight = highlight }
-    if row.kind == "action" then
+    if row.kind == "block" then
+        local block = Text(frame, 12, COLOR.text)
+        block:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -4)
+        block:SetJustifyV("TOP")
+        if block.SetWordWrap then block:SetWordWrap(true) end
+        entry.blockText = block
+    elseif row.kind == "action" then
         control.frame:SetPoint("LEFT", frame, "LEFT", 4, 0)
         local hint = Text(frame, 10.5, COLOR.muted)
         hint:SetPoint("LEFT", control.frame, "RIGHT", 10, 0)

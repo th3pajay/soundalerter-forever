@@ -49,6 +49,7 @@ footstepsmodel.lua
 modulepage.lua
 customexport.lua
 generaloptions.lua
+statisticsoptions.lua
 castfeedoptions.lua
 resourcebaroptions.lua
 castingbaroptions.lua
