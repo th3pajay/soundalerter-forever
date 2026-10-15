@@ -8,7 +8,7 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.65-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.66-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Status" src="https://img.shields.io/badge/status-beta-yellow.svg"/>
@@ -91,6 +91,7 @@ Extract `SoundAlerter` to `World of Warcraft/Interface/AddOns/`, type `/sa`, ope
 | `/sa probe` | What the client lets the addon read right now |
 | `/sa snooze [min]` / `unsnooze` | Silence proximity alerts |
 | `/sa footsteps clear` | Erase the footsteps trail |
+| `/sa spelltest on` / `off` / `report` / `clear` | Record for up to 30 minutes what the game hands the addon for casts and auras, so we know which spell alerts can work. No player names are saved |
 | `/sa watch [guild] <name>` / `unwatch` / `watchlist` | Manage the watchlist |
 | `/sa aurasound` | Test engine aura sounds |
 

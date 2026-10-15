@@ -572,6 +572,7 @@ function SoundAlerter:OnEnable()
     self:InitializeModule("SpeedMeter")
     self:InitializeModule("MinimapTracking")
     self:InitializeModule("Footsteps")
+    self:InitializeModule("SpellTest")
 
     local Statistics = self:GetModule("Statistics")
     if Statistics then
@@ -924,6 +925,9 @@ function SoundAlerter:HandleCommand(input)
         if self.Footsteps then
             self.Footsteps:PrintHelp()
         end
+        if self.SpellTest then
+            self.SpellTest:PrintHelp()
+        end
     elseif command == "toast" then
         if self.ProximityToasts then
             self.ProximityToasts:HandleCommand(rest)
@@ -947,6 +951,12 @@ function SoundAlerter:HandleCommand(input)
             self.Footsteps:HandleCommand(rest)
         else
             self:Print("|cffFF0000Footsteps module not loaded.|r")
+        end
+    elseif command == "spelltest" then
+        if self.SpellTest then
+            self.SpellTest:HandleCommand(rest)
+        else
+            self:Print("|cffFF0000SpellTest module not loaded.|r")
         end
     elseif command == "apicheck" then
         self:RunApiCheck()
