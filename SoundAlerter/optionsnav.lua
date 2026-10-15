@@ -24,8 +24,6 @@ Nav.Sections = {
 }
 
 Nav.SearchFamilies = {
-    { "ProximityAlerts" },
-    { "BattlegroundAlerts" },
     { "Spells", "chatalerter" },
 }
 

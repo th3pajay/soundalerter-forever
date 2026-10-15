@@ -600,146 +600,100 @@ local function module()
     return SoundAlerter.Footsteps
 end
 
-local function apply(key, value)
+local PREVIEW_DOTS = 22
+local PREVIEW_SIZE = 150
+
+local function PreviewPoint(distance)
+    return 75 - distance * 0.3 + math.sin(distance / 26) * 14, 75 + distance * 0.2 + math.cos(distance / 40) * 6
+end
+
+local FootstepsPreview = { height = PREVIEW_SIZE }
+
+function FootstepsPreview.build(stage)
+    local state = { dots = {} }
+    local disc = stage:CreateTexture(nil, "BACKGROUND")
+    disc:SetTexture(DOT_TEXTURE)
+    disc:SetVertexColor(0.15, 0.26, 0.17, 1)
+    disc:SetSize(PREVIEW_SIZE, PREVIEW_SIZE)
+    disc:SetPoint("CENTER", stage, "CENTER", 0, 0)
+    state.stage = stage
+    for index = 1, PREVIEW_DOTS do
+        local dot = stage:CreateTexture(nil, "ARTWORK")
+        dot:SetTexture(DOT_TEXTURE)
+        state.dots[index] = dot
+    end
+    local player = stage:CreateTexture(nil, "OVERLAY")
+    player:SetTexture(DOT_TEXTURE)
+    player:SetSize(7, 7)
+    player:SetVertexColor(1, 1, 1, 1)
+    player:SetPoint("CENTER", stage, "CENTER", 0, 0)
+    return state
+end
+
+function FootstepsPreview.update(state, settings)
+    if not state then return end
+    local step = math.max(1, settings.spacing) * 5.5
+    local previous, accumulated, used = nil, 0, 0
+    local distance = 0
+    while used < PREVIEW_DOTS and distance < 700 do
+        local x, y = PreviewPoint(distance)
+        if previous then accumulated = accumulated + math.sqrt((x - previous[1]) ^ 2 + (y - previous[2]) ^ 2) end
+        previous = { x, y }
+        if accumulated >= step then
+            accumulated = accumulated - step
+            used = used + 1
+            local dot = state.dots[used]
+            local alpha = settings.ageFade and (1 - 0.78 * used / PREVIEW_DOTS) or 1
+            dot:SetSize(settings.dotSize, settings.dotSize)
+            dot:SetVertexColor(settings.color.r, settings.color.g, settings.color.b, alpha)
+            dot:ClearAllPoints()
+            dot:SetPoint("CENTER", state.stage, "CENTER", x - 75, 75 - y)
+            dot:Show()
+        end
+        distance = distance + 1
+    end
+    for index = used + 1, PREVIEW_DOTS do state.dots[index]:Hide() end
+end
+
+local function summary(settings)
+    local where = {}
+    if settings.showMinimap then where[#where + 1] = "minimap" end
+    if settings.showWorldMap then where[#where + 1] = "world map" end
+    local head = settings.enabled and "|cff3ddc97On|r" or "Off"
     local active = module()
-    if not active then return end
-    active:SetSetting(key, value)
-end
-
-local function disabled()
-    local active = module()
-    return not active or not active:GetSettings().enabled
-end
-
-local function toggle(order, name, desc, key)
-    return {
-        type = 'toggle',
-        name = name,
-        desc = desc,
-        get = function() return module():GetSettings()[key] end,
-        set = function(_, value) apply(key, value) end,
-        disabled = disabled,
-        width = "full",
-        order = order,
-    }
-end
-
-local function range(order, name, desc, key, min, max, step)
-    return {
-        type = 'range',
-        name = name,
-        desc = desc,
-        min = min,
-        max = max,
-        step = step,
-        get = function() return module():GetSettings()[key] end,
-        set = function(_, value) apply(key, value) end,
-        disabled = disabled,
-        order = order,
-    }
+    return head .. " · " .. (#where > 0 and table.concat(where, " + ") or "drawn nowhere") ..
+        " · " .. settings.dotSize .. " px dots, " .. settings.spacing .. " yd apart · " .. (active and active:GetCount() or 0) .. " steps"
 end
 
 function SoundAlerter:BuildFootstepsOptions()
-    return {
-        type = 'group',
-        name = "Footsteps",
+    local Page = SoundAlerter.Page
+    return Page.Module({
+        key = "Footsteps",
+        title = "Footsteps",
         icon = "Interface\\Icons\\Ability_Tracking",
-        desc = "A dotted trail on the minimap showing the path you have walked.",
+        desc = "A dotted trail on the minimap and world map showing where you have walked.",
+        blurb = "A dotted trail on the minimap and world map showing where you have walked.",
         order = 2.91,
-        args = {
-            description = {
-                type = 'description',
-                name = "|cffFFD700Footsteps|r\n\n" ..
-                       "Draws a dotted trail on the minimap and on the zone map along the path you have walked. It survives /reload and is erased when you log in again. " ..
-                       "Nothing is recorded inside instances, battlegrounds or on flight paths, and a teleport starts a new stretch instead of drawing a line across the gap. " ..
-                       "Only the newest 1500 steps are kept. Disabled by default.\n",
-                fontSize = "medium",
-                order = 1,
-            },
-
-            initErrorWarning = {
-                type = 'description',
-                name = function()
-                    return "|cffFF0000Footsteps failed to initialize this session:|r\n" ..
-                           tostring(SoundAlerter.moduleInitErrors and SoundAlerter.moduleInitErrors.Footsteps) ..
-                           "\n\n|cffFFFFFFToggles below will not take effect until this is fixed and you /reload.|r\n"
-                end,
-                fontSize = "medium",
-                order = 1.5,
-                hidden = function() return SoundAlerter.Footsteps ~= nil end,
-            },
-
-            generalGroup = {
-                type = 'group',
-                inline = true,
-                name = "General",
-                order = 2,
-                args = {
-                    enabled = {
-                        type = 'toggle',
-                        name = "Enable Footsteps",
-                        get = function() return module():GetSettings().enabled end,
-                        set = function(_, value) apply("enabled", value) end,
-                        width = "full",
-                        order = 1,
-                    },
-                    showMinimap = toggle(2, "Show On Minimap", "Draw the trail on the minimap. Turn off to keep recording without drawing.", "showMinimap"),
-                    showWorldMap = toggle(2.5, "Show On World Map", "Draw the trail on the world map when it shows the zone you walked in.", "showWorldMap"),
-                    status = {
-                        type = 'description',
-                        name = function()
-                            local active = module()
-                            return "Trail: " .. (active and active:GetCount() or 0) .. " steps"
-                        end,
-                        order = 3,
-                    },
-                    clear = {
-                        type = 'execute',
-                        name = "Clear Trail",
-                        desc = "Erase every recorded step.",
-                        func = function()
-                            if module() then module():ClearTrail() end
-                        end,
-                        disabled = function() return not module() end,
-                        order = 4,
-                    },
-                },
-            },
-
-            appearanceGroup = {
-                type = 'group',
-                inline = true,
-                name = "Appearance",
-                order = 3,
-                args = {
-                    dotSize = range(1, "Dot Size", "Size of each dot in pixels.", "dotSize", 2, 16, 1),
-                    spacing = range(2, "Spacing", "Distance in yards between two dots.", "spacing", 1, 10, 0.5),
-                    rotation = {
-                        type = 'select',
-                        name = "Minimap Rotation",
-                        desc = "Automatic follows the game's setting. If the trail drifts while you turn, pick Rotating or Fixed north to match your minimap.",
-                        values = { auto = "Automatic", rotate = "Rotating", fixed = "Fixed north" },
-                        get = function() return module():GetSettings().rotation end,
-                        set = function(_, value) apply("rotation", value) end,
-                        disabled = disabled,
-                        order = 3.5,
-                    },
-                    ageFade = toggle(3, "Fade With Age", "Older dots are fainter, so the direction you came from is easy to read.", "ageFade"),
-                    color = {
-                        type = 'color',
-                        name = "Dot Color",
-                        get = function()
-                            local c = module():GetSettings().color
-                            return c.r, c.g, c.b
-                        end,
-                        set = function(_, r, g, b) apply("color", { r = r, g = g, b = b }) end,
-                        disabled = disabled,
-                        order = 4,
-                    },
-                },
-            },
+        module = module,
+        defaults = function() return dbDefaults.profile.footsteps end,
+        summary = summary,
+        preview = FootstepsPreview,
+        rows = {
+            Page.Toggle("showMinimap", "Show on minimap", "Draw the trail on the minimap. Turn off to keep recording without drawing.", false, "Where"),
+            Page.Toggle("showWorldMap", "Show on world map", "Draw the trail on the world map when it shows the zone you walked in.", false, "Where"),
+            Page.Range("dotSize", "Dot size", "Size of each dot in pixels.", 2, 16, 1, false, "Look", " px"),
+            Page.Color("color", "Dot color", "", false, "Look"),
+            Page.Toggle("ageFade", "Fade with age", "Older dots are fainter, so the direction you came from is easy to read.", false, "Look"),
+            Page.Action("Clear trail", "Erase every recorded step.", function()
+                local active = module()
+                if active then active:ClearTrail() end
+            end, false, "Trail"),
+            Page.Range("spacing", "Spacing", "Distance in yards between two dots.", 1, 10, 0.5, true, "Look", " yd"),
+            Page.Select("rotation", "Minimap rotation", "Automatic follows the game's setting. If the trail drifts while you turn, pick Rotating or Fixed north to match your minimap.", {
+                { "auto", "Auto" }, { "rotate", "Rotating" }, { "fixed", "Fixed north" },
+            }, true, "Minimap"),
         },
-    }
+    })
 end
 
 SoundAlerter.Footsteps = Footsteps
