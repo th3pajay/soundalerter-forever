@@ -191,129 +191,49 @@ local function module()
     return SoundAlerter.Notices
 end
 
-local function apply(key, value)
-    local active = module()
-    if active then active:SetSetting(key, value) end
-end
-
-local function disabled()
-    local active = module()
-    return not active or not active:GetSettings().enabled
-end
-
-local function toggle(order, name, desc, key)
-    return {
-        type = 'toggle',
-        name = name,
-        desc = desc,
-        get = function() return module():GetSettings()[key] end,
-        set = function(_, value) apply(key, value) end,
-        disabled = disabled,
-        order = order,
-    }
+local function summary(settings)
+    local Page = SoundAlerter.Page
+    local on = 0
+    for index = 1, #Model.NOTICES do
+        if settings[Model.NOTICES[index].key] then on = on + 1 end
+    end
+    return Page.Summary(settings, on .. " of " .. #Model.NOTICES .. " notices on",
+        "flash " .. (settings.flash and "on" or "off"), "chat " .. (settings.chat and "on" or "off"))
 end
 
 function SoundAlerter:BuildNoticesOptions()
-    local options = {
-        type = 'group',
-        name = "Notices",
-        icon = "Interface\\Icons\\INV_Misc_Note_01",
-        desc = "Short cues for things that cost you time when you miss them: duel requests, summons, resurrections, group invites, queue pops, ready checks and low durability.",
-        order = 2.55,
-        args = {
-            description = {
-                type = 'description',
-                name = "|cffFFD700Notices|r\n\n" ..
-                       "Short cues for things that cost you time when you miss them. Each one can play a voice line, flash the taskbar icon while the game is in the background, and print a line in chat. " ..
-                       "A notice stays silent until its voice file exists in the Voice folder; |cffFFFFFF/sa notices files|r lists the files and what to say. " ..
-                       "Queue pops and ready checks ignore the quiet rules. Disabled by default.\n",
-                fontSize = "medium",
-                order = 1,
-            },
-            initErrorWarning = {
-                type = 'description',
-                name = function()
-                    return "|cffFF0000Notices failed to initialize this session:|r\n" ..
-                           tostring(SoundAlerter.moduleInitErrors and SoundAlerter.moduleInitErrors.Notices) ..
-                           "\n\n|cffFFFFFFToggles below will not take effect until this is fixed and you /reload.|r\n"
-                end,
-                fontSize = "medium",
-                order = 1.5,
-                hidden = function() return SoundAlerter.Notices ~= nil end,
-            },
-            generalGroup = {
-                type = 'group',
-                inline = true,
-                name = "General",
-                order = 2,
-                args = {
-                    enabled = {
-                        type = 'toggle',
-                        name = "Enable Notices",
-                        get = function() return module():GetSettings().enabled end,
-                        set = function(_, value) apply("enabled", value) end,
-                        width = "full",
-                        order = 1,
-                    },
-                    flash = toggle(2, "Flash The Taskbar Icon", "Flash the game's taskbar icon when a notice fires, for when the game is in the background.", "flash"),
-                    chat = toggle(3, "Print A Chat Line", "Print a short line in your chat window when a notice fires.", "chat"),
-                    testAll = {
-                        type = 'execute',
-                        name = "Test All",
-                        desc = "Fire every notice once, ignoring the switches below.",
-                        func = function()
-                            if module() then module():Test("all") end
-                        end,
-                        disabled = disabled,
-                        order = 4,
-                    },
-                },
-            },
-            noticeGroup = {
-                type = 'group',
-                inline = true,
-                name = "Notices",
-                order = 3,
-                args = {},
-            },
-            durabilityGroup = {
-                type = 'group',
-                inline = true,
-                name = "Durability",
-                order = 4,
-                args = {
-                    durabilityThreshold = {
-                        type = 'range',
-                        name = "Warn Below (percent)",
-                        desc = "Warn once when your most worn item drops below this. It warns again after you repair above this plus 5 percent.",
-                        min = 5,
-                        max = 50,
-                        step = 5,
-                        get = function() return module():GetSettings().durabilityThreshold end,
-                        set = function(_, value) apply("durabilityThreshold", value) end,
-                        disabled = disabled,
-                        order = 1,
-                    },
-                },
-            },
-        },
+    local Page = SoundAlerter.Page
+    local rows = {
+        Page.Toggle("flash", "Flash the taskbar icon", "Flash the game's taskbar icon when a notice fires, for when the game is in the background.", false, "How it alerts"),
+        Page.Toggle("chat", "Print a chat line", "Print a short line in your chat window when a notice fires.", false, "How it alerts"),
     }
-
-    for index, notice in ipairs(Model.NOTICES) do
-        options.args.noticeGroup.args[notice.key] = toggle(index * 2 - 1, notice.label, "Say \"" .. notice.phrase .. "\" from " .. notice.file .. ".mp3 when this happens." .. (notice.always and " Ignores the quiet rules." or ""), notice.key)
-        options.args.noticeGroup.args[notice.key .. "Test"] = {
-            type = 'execute',
-            name = "Test",
-            func = function()
-                if module() then module():Test(notice.key) end
-            end,
-            disabled = disabled,
-            width = "half",
-            order = index * 2,
-        }
+    for _, notice in ipairs(Model.NOTICES) do
+        rows[#rows + 1] = Page.Toggle(notice.key, notice.label, "Say \"" .. notice.phrase .. "\" from " .. notice.file .. ".mp3 when this happens." .. (notice.always and " Ignores the quiet rules." or ""), false, "Notices")
+    end
+    rows[#rows + 1] = Page.When("durability", Page.Range("durabilityThreshold", "Warn below", "Warn once when your most worn item drops below this. It warns again after you repair above this plus 5 percent.", 5, 50, 5, true, "Durability", " %"))
+    rows[#rows + 1] = Page.Action("Test all", "Fire every notice once, ignoring the switches.", function()
+        local active = module()
+        if active then active:Test("all") end
+    end, true, "Test")
+    for _, notice in ipairs(Model.NOTICES) do
+        rows[#rows + 1] = Page.Action("Test " .. notice.label:lower(), "Fire just this notice.", function()
+            local active = module()
+            if active then active:Test(notice.key) end
+        end, true, "Test")
     end
 
-    return options
+    return Page.Module({
+        key = "Notices",
+        title = "Notices",
+        icon = "Interface\\Icons\\INV_Misc_Note_01",
+        desc = "Short cues for things that cost you time when you miss them: duel requests, summons, resurrections, group invites, queue pops, ready checks and low durability.",
+        blurb = "Short cues for things that cost you time when missed. A notice stays silent until its voice file exists; /sa notices files lists them. Queue pops and ready checks ignore the quiet rules.",
+        order = 2.55,
+        module = module,
+        defaults = function() return dbDefaults.profile.notices end,
+        summary = summary,
+        rows = rows,
+    })
 end
 
 SoundAlerter.Notices = Notices
