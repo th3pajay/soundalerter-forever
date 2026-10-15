@@ -4,6 +4,8 @@ dbDefaults = {
 		debugmode = false,
 		spelldebug = false,
 
+		flatWindow = true,
+
 		findSpell = {
 			autocomplete = false,
 			fuzzy = false,

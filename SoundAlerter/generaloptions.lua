@@ -98,6 +98,7 @@ function SoundAlerter:BuildGeneralOptions()
             Page.Toggle("m.enabled", "Track target and focus on the minimap", "Keeps target and focus on the minimap after every loading screen.", false, "Minimap tracking"),
             Page.When("m.enabled", Page.Toggle("m.target", "Track target", "", true, "Minimap tracking")),
             Page.When("m.enabled", Page.Toggle("m.focus", "Track focus", "", true, "Minimap tracking")),
+            Page.Toggle("p.flatWindow", "Dark flat options window", "Restyle the options window in the same dark flat look as the pages. Turning it off fully applies after /reload.", true, "Window"),
             Page.When("p.debugmode", Page.Toggle("p.spelldebug", "Spell ID output debugging", "Print the spell ID of every spell the addon sees. Needs Debug Mode, set in Developer tools.", true, "Debug")),
             Page.When("p.debugmode", import),
             Page.When("p.debugmode", Page.Action("Export custom sound alerts", "Write your custom sound alerts into the export text below.", exportAlerts, true, "Import and export")),

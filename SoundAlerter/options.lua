@@ -30,6 +30,7 @@ function SoundAlerter:ShowConfig()
         SA_OptionsNav.RestorePage(AceConfigDialog, sadb.ui)
 	    AceConfigDialog:Open(configName)
         local opened = AceConfigDialog.OpenFrames[configName]
+        if opened and sadb.flatWindow ~= false then pcall(SA_WindowSkin.Apply, opened) end
         if opened and opened.frame and not opened.frame.saRemembersPage then
             opened.frame.saRemembersPage = true
             opened.frame:HookScript("OnHide", function()
