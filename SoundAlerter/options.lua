@@ -3566,6 +3566,8 @@ function SoundAlerter:OnOptionsCreate()
 
 	self:AddOption('SpeedMeter', self:BuildSpeedMeterOptions())
 
+	self:AddOption('Footsteps', self:BuildFootstepsOptions())
+
 	self:AddOption('SpellTracker', self:BuildSpellTrackerOptions())
 
 	self:AddOption('Statistics', self:BuildStatisticsOptions())

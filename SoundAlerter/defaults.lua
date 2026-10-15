@@ -305,6 +305,17 @@ dbDefaults = {
 			baseColor = { r = 1, g = 1, b = 1 },
 		},
 
+		footsteps = {
+			enabled = false,
+			showMinimap = true,
+			showWorldMap = true,
+			rotation = "auto",
+			dotSize = 4,
+			spacing = 3,
+			ageFade = true,
+			color = { r = 1, g = 0.82, b = 0.2 },
+		},
+
 		castFeed = {
 			enabled = false,
 			locked = true,

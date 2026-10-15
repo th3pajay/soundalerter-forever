@@ -8,7 +8,7 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.63-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.64-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Status" src="https://img.shields.io/badge/status-beta-yellow.svg"/>
@@ -70,6 +70,7 @@ Extract `SoundAlerter` to `World of Warcraft/Interface/AddOns/`, type `/sa`, ope
 | Cast feed | 🟡 | One icon row per unit with time between casts. Other units' casts are sometimes shown generically |
 | **Combat drop timer** | 🟡 | Hairline bar with millisecond digits counting down to leaving combat, pulse in the last second. The game does not report every hit, so it is an estimate that snaps to the real drop. Resyncs after death, loading screens and reloads |
 | **Speed meter** | ✅ | Live movement speed as a percent of base run speed. Green above 100%, red below, plain when mounted or flying. Follows running, swimming, flying |
+| **Footsteps** | 🟡 | A dotted trail on the minimap and on the zone map along the path you have walked since you logged in, kept across `/reload`. Off by default. Nothing is recorded in instances or on flight paths, a teleport starts a new stretch, and only the newest 1500 steps are kept. The world map shows the steps taken on the map it is displaying, so the continent view stays empty. Not yet confirmed in game |
 
 ### Trackers and tools
 
@@ -89,6 +90,7 @@ Extract `SoundAlerter` to `World of Warcraft/Interface/AddOns/`, type `/sa`, ope
 | `/sa help` | Full command list |
 | `/sa probe` | What the client lets the addon read right now |
 | `/sa snooze [min]` / `unsnooze` | Silence proximity alerts |
+| `/sa footsteps clear` | Erase the footsteps trail |
 | `/sa watch [guild] <name>` / `unwatch` / `watchlist` | Manage the watchlist |
 | `/sa aurasound` | Test engine aura sounds |
 

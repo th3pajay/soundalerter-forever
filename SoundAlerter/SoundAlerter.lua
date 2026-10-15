@@ -121,6 +121,10 @@ function SoundAlerter:ChangeProfile()
 		self.MinimapTracking:OnProfileChanged()
 	end
 
+	if self.Footsteps then
+		self.Footsteps:OnProfileChanged()
+	end
+
 	if sadb.statistics and sadb.statistics.enabled then
 		local Statistics = self:GetModule("Statistics")
 		if Statistics then
@@ -566,6 +570,7 @@ function SoundAlerter:OnEnable()
     self:InitializeModule("CombatTimer")
     self:InitializeModule("SpeedMeter")
     self:InitializeModule("MinimapTracking")
+    self:InitializeModule("Footsteps")
 
     local Statistics = self:GetModule("Statistics")
     if Statistics then
@@ -852,11 +857,14 @@ function SoundAlerter:BlizzardAudioAlertsEnabled()
     return ok and Plain(enabled) == true
 end
 
-function SoundAlerter:PLAYER_ENTERING_WORLD()
+function SoundAlerter:PLAYER_ENTERING_WORLD(_, isInitialLogin, isReloadingUi)
     CombatLogClearEntries()
     self:ClearAuraTracking()
     if self.MinimapTracking then
         self.MinimapTracking:OnEnterWorld()
+    end
+    if self.Footsteps then
+        self.Footsteps:OnEnterWorld(isInitialLogin, isReloadingUi)
     end
     self.enterWorldTime = GetTime()
     self:RefreshZoneState()
@@ -905,6 +913,9 @@ function SoundAlerter:HandleCommand(input)
         if self.CombatTimer then
             self.CombatTimer:PrintHelp()
         end
+        if self.Footsteps then
+            self.Footsteps:PrintHelp()
+        end
     elseif command == "toast" then
         if self.ProximityToasts then
             self.ProximityToasts:HandleCommand(rest)
@@ -922,6 +933,12 @@ function SoundAlerter:HandleCommand(input)
             self.CombatTimer:HandleCommand(rest)
         else
             self:Print("|cffFF0000CombatTimer module not loaded.|r")
+        end
+    elseif command == "footsteps" then
+        if self.Footsteps then
+            self.Footsteps:HandleCommand(rest)
+        else
+            self:Print("|cffFF0000Footsteps module not loaded.|r")
         end
     elseif command == "apicheck" then
         self:RunApiCheck()
