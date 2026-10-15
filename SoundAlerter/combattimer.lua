@@ -75,10 +75,21 @@ local function RealCombat()
     return value and true or false
 end
 
+local STEP_INTERVAL = 1 / 30
+local stepElapsed = 0
+
+local function OnUpdate(_, elapsed)
+    stepElapsed = stepElapsed + elapsed
+    if stepElapsed < STEP_INTERVAL then return end
+    stepElapsed = 0
+    CombatTimer:Step(GetTime())
+end
+
 function CombatTimer:Attach()
     if not self.attached then
         self.attached = true
-        self.frame:SetScript("OnUpdate", function() CombatTimer:Step(GetTime()) end)
+        stepElapsed = STEP_INTERVAL
+        self.frame:SetScript("OnUpdate", OnUpdate)
     end
 end
 

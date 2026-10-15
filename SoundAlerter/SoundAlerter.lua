@@ -684,6 +684,8 @@ function SoundAlerter:BroadcastChat(message)
     end
 end
 
+local statisticsModule
+
 function SoundAlerter:PlaySpell(list, spellID, sourceGUID, sourceName)
     if list[spellID] then
         if not sadb[list[spellID]] then return end
@@ -691,9 +693,9 @@ function SoundAlerter:PlaySpell(list, spellID, sourceGUID, sourceName)
         SoundAlerter:PlayVoice(sadb.sapath..list[spellID]..".mp3");
 
         if sadb.statistics and sadb.statistics.enabled then
-            local Statistics = self:GetModule("Statistics")
-            if Statistics then
-                Statistics:RecordAlert("spellAlerts", spellID, sourceGUID, sourceName)
+            statisticsModule = statisticsModule or self:GetModule("Statistics")
+            if statisticsModule then
+                statisticsModule:RecordAlert("spellAlerts", spellID, sourceGUID, sourceName)
             end
         end
         return true
@@ -1360,18 +1362,27 @@ local function ReadableSourceUnit(aura)
     return sourceUnit
 end
 
+local resyncHadBefore = {}
+local resyncSourceUnits = {}
+
 function SoundAlerter:ResyncUnitAuras(unit, tracked, ctx)
-    local hadBefore = {}
-    if unitAuraCount[unit] then
-        for spellID in pairs(unitAuraCount[unit]) do
+    local hadBefore = resyncHadBefore
+    local sourceUnits = resyncSourceUnits
+    wipe(hadBefore)
+    wipe(sourceUnits)
+
+    local previous = unitAuraCount[unit]
+    if previous then
+        for spellID in pairs(previous) do
             hadBefore[spellID] = true
         end
+        wipe(previous)
+        wipe(unitAuraMap[unit])
+    else
+        unitAuraMap[unit] = {}
+        unitAuraCount[unit] = {}
     end
 
-    unitAuraMap[unit] = {}
-    unitAuraCount[unit] = {}
-
-    local sourceUnits = {}
     for spellID in pairs(tracked) do
         local ok, data = pcall(C_UnitAuras.GetUnitAuraBySpellID, unit, spellID)
         if ok and data ~= nil and not issecretvalue(data) then
@@ -1714,9 +1725,7 @@ function SoundAlerter:CheckCustomAlerts(eventName, sourceUnit, destUnit, spellID
     if not next(sadb.custom) then return end
     if issecretvalue(spellID) then return end
 
-    local spellName = GetSpellInfo(spellID)
-    local destName = destUnit and SafeUnitName(destUnit)
-    local sourceName = sourceUnit and SafeUnitName(sourceUnit)
+    local spellName
 
     for _, css in pairs(sadb.custom) do
         if css.eventtype and css.eventtype[eventName] then
@@ -1727,13 +1736,21 @@ function SoundAlerter:CheckCustomAlerts(eventName, sourceUnit, destUnit, spellID
                 css.spellidNumSrc = css.spellid
             end
 
-            if spellID == spellIdNum or (css.acceptSpellName and spellName and css.spellname == spellName) then
-                local destOK = self:MatchesUidFilter(destUnit, css.destuidfilter, css.destcustomname)
-                local sourceOK = self:MatchesUidFilter(sourceUnit, css.sourceuidfilter, css.sourcecustomname)
-                local destTypeOK = self:MatchesTypeFilter(destUnit, css.desttypefilter)
-                local sourceTypeOK = self:MatchesTypeFilter(sourceUnit, css.sourcetypefilter)
+            local matched = spellID == spellIdNum
+            if not matched and css.acceptSpellName then
+                if spellName == nil then
+                    spellName = GetSpellInfo(spellID) or false
+                end
+                matched = spellName and css.spellname == spellName
+            end
 
-                if destOK and sourceOK and destTypeOK and sourceTypeOK then
+            if matched then
+                if self:MatchesUidFilter(destUnit, css.destuidfilter, css.destcustomname)
+                    and self:MatchesUidFilter(sourceUnit, css.sourceuidfilter, css.sourcecustomname)
+                    and self:MatchesTypeFilter(destUnit, css.desttypefilter)
+                    and self:MatchesTypeFilter(sourceUnit, css.sourcetypefilter) then
+                    local destName = destUnit and SafeUnitName(destUnit)
+                    local sourceName = sourceUnit and SafeUnitName(sourceUnit)
                     self:Debug("CustomSound", "%s matched on %s (spell %s, source %s -> dest %s)", tostring(css.name), eventName, tostring(spellID), tostring(sourceName), tostring(destName))
 
                     if not css.chatAlert then
@@ -1753,6 +1770,16 @@ function SoundAlerter:CheckCustomAlerts(eventName, sourceUnit, destUnit, spellID
             end
         end
     end
+end
+
+local auraContext = {}
+
+local function FillAuraContext(isPlayer, isTargetOrFocus, isTracked, isAlly)
+    auraContext.isPlayer = isPlayer
+    auraContext.isTargetOrFocus = isTargetOrFocus
+    auraContext.isTracked = isTracked
+    auraContext.isAlly = isAlly
+    return auraContext
 end
 
 function SoundAlerter:UNIT_AURA(event, unit, updateInfo)
@@ -1787,8 +1814,6 @@ function SoundAlerter:UNIT_AURA(event, unit, updateInfo)
     if not self:IsAlertZoneAllowed() then return end
 
     local tracked = GetTrackedAuraSpellIDs()
-    local ctx = { isPlayer = isPlayer, isTargetOrFocus = isTargetOrFocus, isTracked = isTracked, isAlly = isAlly }
-
     local usable, added, removed = ReadableDelta(updateInfo)
     if sadb.debugmode then
         local kind = isPlayer and "player" or isTargetOrFocus and unit or isArena and "arena" or isNameplate and "nameplate" or "party"
@@ -1797,7 +1822,7 @@ function SoundAlerter:UNIT_AURA(event, unit, updateInfo)
     end
 
     if not unitAuraMap[unit] or not usable then
-        self:ResyncUnitAuras(unit, tracked, ctx)
+        self:ResyncUnitAuras(unit, tracked, FillAuraContext(isPlayer, isTargetOrFocus, isTracked, isAlly))
         return
     end
 
@@ -1829,7 +1854,7 @@ function SoundAlerter:UNIT_AURA(event, unit, updateInfo)
     end
 
     if needsResync then
-        self:ResyncUnitAuras(unit, tracked, ctx)
+        self:ResyncUnitAuras(unit, tracked, FillAuraContext(isPlayer, isTargetOrFocus, isTracked, isAlly))
     end
 end
 
@@ -1879,8 +1904,14 @@ end
 
 function SoundAlerter:RescanTrackedNameplates()
     if not (sadb.proximityEnabled and SA_Distance.IsRestricted(sadb.proximityMaxBand)) then return end
-    for _, unit in pairs(self.trackedNameplates) do
-        self:CheckProximityAlert(unit)
+    local now = GetTime()
+    local cooldown = sadb.proximityCooldown or 60
+    local alerted = self.proximityAlertCache
+    for guid, unit in pairs(self.trackedNameplates) do
+        local last = alerted[guid]
+        if not last or now - last >= cooldown then
+            self:CheckProximityAlert(unit)
+        end
     end
 end
 
@@ -2135,6 +2166,8 @@ function SoundAlerter:IsTrackedNameplate(unit)
     return self.trackedNameplates[guid] ~= nil
 end
 
+local ARENA_TARGET_UNITS = { "arena1target", "arena2target", "arena3target", "arena4target", "arena5target" }
+
 local function IsRelevantCastUnit(unit)
     if unit == "target" or unit == "focus" then return true end
     local kind = UnitKind(unit)
@@ -2160,8 +2193,8 @@ function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
         if sadb.dArenaPartner then return end
         local currentZoneType, pvpType = self.cachedInstanceType, self.cachedZonePvpType
         if not ((currentZoneType == "arena") or (pvpType == "arena")) then return end
-        for i = 1, 5 do
-            if playerName == SafeUnitName("arena"..i.."target") then return end
+        for i = 1, #ARENA_TARGET_UNITS do
+            if playerName == SafeUnitName(ARENA_TARGET_UNITS[i]) then return end
         end
         self:PlaySpell(self.spellList.friendCCs, spellID)
         return
