@@ -200,136 +200,61 @@ local function meter()
     return SoundAlerter.SpeedMeter
 end
 
-local function apply(key, value)
-    local active = meter()
-    if not active then return end
-    active:SetSetting(key, value)
+local SPEED_SAMPLES = { { 130, "boostColor" }, { 100, "baseColor" }, { 60, "slowColor" } }
+local SpeedPreview = { height = 56 }
+
+function SpeedPreview.build(stage)
+    local state = { labels = {} }
+    for index = 1, #SPEED_SAMPLES do
+        local label = stage:CreateFontString(nil, "OVERLAY")
+        label:SetPoint("CENTER", stage, "CENTER", (index - 2) * 78, 0)
+        state.labels[index] = label
+    end
+    return state
 end
 
-local function disabled()
-    local active = meter()
-    return not active or not active:GetSettings().enabled
-end
-
-local function range(order, name, desc, key, min, max, step)
-    return {
-        type = 'range',
-        name = name,
-        desc = desc,
-        min = min,
-        max = max,
-        step = step,
-        get = function() return meter():GetSettings()[key] end,
-        set = function(_, value) apply(key, value) end,
-        disabled = disabled,
-        order = order,
-    }
-end
-
-local function toggle(order, name, desc, key)
-    return {
-        type = 'toggle',
-        name = name,
-        desc = desc,
-        get = function() return meter():GetSettings()[key] end,
-        set = function(_, value) apply(key, value) end,
-        disabled = disabled,
-        width = "full",
-        order = order,
-    }
-end
-
-local function color(order, name, desc, key)
-    return {
-        type = 'color',
-        name = name,
-        desc = desc,
-        get = function()
-            local c = meter():GetSettings()[key]
-            return c.r, c.g, c.b
-        end,
-        set = function(_, r, g, b) apply(key, { r = r, g = g, b = b }) end,
-        disabled = disabled,
-        order = order,
-    }
+function SpeedPreview.update(state, settings)
+    for index = 1, #SPEED_SAMPLES do
+        local sample = SPEED_SAMPLES[index]
+        local label = state.labels[index]
+        local color = settings[sample[2]]
+        label:SetFont(FONT_PATH, math_floor(math.min(30, settings.fontSize * settings.scale)), "OUTLINE")
+        label:SetTextColor(color.r, color.g, color.b)
+        label:SetText(string_format("%d%%", sample[1]))
+    end
 end
 
 function SoundAlerter:BuildSpeedMeterOptions()
-    local options = {
-        type = 'group',
-        name = "Speed Meter",
+    local Page = SoundAlerter.Page
+    return Page.Module({
+        key = "SpeedMeter",
+        title = "Speed Meter",
         icon = "Interface\\Icons\\Ability_Rogue_Sprint",
         desc = "Your current movement speed as a percent of base run speed.",
+        blurb = "Your movement speed as a percent of base run speed, tinted when something changes it.",
         order = 2.89,
-        args = {
-            description = {
-                type = 'description',
-                name = "|cffFFD700Speed Meter|r\n\n" ..
-                       "Shows your movement speed as a percent of base run speed, including talents, buffs, slows and gear. " ..
-                       "It follows how you move: running, swimming or flying. On foot and swimming it turns green above 100% and red below it. " ..
-                       "Mounted and flying show the number without a tint, since a mount is not a temporary boost. " ..
-                       "Unlock to drag it into position. Disabled by default.\n",
-                fontSize = "medium",
-                order = 1,
-            },
-
-            initErrorWarning = {
-                type = 'description',
-                name = function()
-                    return "|cffFF0000Speed Meter failed to initialize this session:|r\n" ..
-                           tostring(SoundAlerter.moduleInitErrors and SoundAlerter.moduleInitErrors.SpeedMeter) ..
-                           "\n\n|cffFFFFFFToggles below will not take effect until this is fixed and you /reload.|r\n"
-                end,
-                fontSize = "medium",
-                order = 1.5,
-                hidden = function() return SoundAlerter.SpeedMeter ~= nil end,
-            },
-
-            generalGroup = {
-                type = 'group',
-                inline = true,
-                name = "General",
-                order = 2,
-                args = {
-                    enabled = {
-                        type = 'toggle',
-                        name = "Enable Speed Meter",
-                        get = function() return meter():GetSettings().enabled end,
-                        set = function(_, value) apply("enabled", value) end,
-                        width = "full",
-                        order = 1,
-                    },
-                    locked = toggle(2, "Lock Position", "Unlock to drag the meter. A shaded outline and a 100% preview mark it while unlocked.", "locked"),
-                    hideAtBaseline = toggle(3, "Hide At Base Speed", "Hide the number while you run or swim at exactly 100%, so it only shows when something changes your speed.", "hideAtBaseline"),
-                    resetPosition = {
-                        type = 'execute',
-                        name = "Reset Position",
-                        func = function()
-                            if meter() then meter():ResetPosition() end
-                        end,
-                        disabled = disabled,
-                        order = 4,
-                    },
-                },
-            },
-
-            appearanceGroup = {
-                type = 'group',
-                inline = true,
-                name = "Appearance",
-                order = 3,
-                args = {
-                    fontSize = range(1, "Font Size", "Size of the number.", "fontSize", 8, 40, 1),
-                    scale = range(2, "Scale", "Overall size.", "scale", 0.5, 3, 0.05),
-                    boostColor = color(3, "Boosted Color", "Above 100% on foot or swimming.", "boostColor"),
-                    slowColor = color(4, "Slowed Color", "Below 100% on foot or swimming.", "slowColor"),
-                    baseColor = color(5, "Normal Color", "Exactly 100%, mounted, flying, or no reading.", "baseColor"),
-                },
-            },
+        module = meter,
+        defaults = function() return dbDefaults.profile.speedMeter end,
+        summary = function(settings)
+            return Page.Summary(settings,
+                settings.locked and "locked" or "unlocked, drag to move",
+                settings.hideAtBaseline and "hidden at base speed" or "always shown")
+        end,
+        preview = SpeedPreview,
+        rows = {
+            Page.Toggle("locked", "Lock position", "Unlock to drag the meter. A shaded outline and a 100% preview mark it while unlocked.", false, "General"),
+            Page.Toggle("hideAtBaseline", "Hide at base speed", "Hide the number while you run or swim at exactly 100%, so it only shows when something changes your speed.", false, "General"),
+            Page.Range("fontSize", "Font size", "Size of the number.", 8, 40, 1, false, "Look", " px"),
+            Page.Color("boostColor", "Boosted color", "Above 100% on foot or swimming.", false, "Look"),
+            Page.Color("slowColor", "Slowed color", "Below 100% on foot or swimming.", false, "Look"),
+            Page.Range("scale", "Scale", "Overall size.", 0.5, 3, 0.05, true, "Look", "x"),
+            Page.Color("baseColor", "Normal color", "Exactly 100%, mounted, flying, or no reading.", true, "Look"),
+            Page.Action("Reset position", "Put the meter back where it started.", function()
+                local active = meter()
+                if active then active:ResetPosition() end
+            end, true, "General"),
         },
-    }
-
-    return SoundAlerter:RailSpeedMeter(options)
+    })
 end
 
 SoundAlerter.SpeedMeter = SpeedMeter

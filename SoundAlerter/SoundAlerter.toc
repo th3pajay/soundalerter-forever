@@ -45,6 +45,12 @@ combattimer.lua
 speedmeter.lua
 minimaptracking.lua
 footstepsmodel.lua
+modulepage.lua
+castfeedoptions.lua
+resourcebaroptions.lua
+castingbaroptions.lua
+proximityoptions.lua
+flagoptions.lua
 footsteps.lua
 spellfinderformat.lua
 spellfinder.lua
