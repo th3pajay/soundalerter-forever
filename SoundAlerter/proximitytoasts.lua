@@ -968,6 +968,8 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
         toast:SetBackdropBorderColor(0.8, 0.2, 0.2, 1)
     end
 
+    if nearbyCount == 0 then nearbyCount = 1 end
+
     local Style = SA_ToastStyle
     local style = Style.Normalize(sadb.proximityToasts.toastStyle)
     local classLabel = className and (className:sub(1, 1) .. className:sub(2):lower()) or "Enemy"

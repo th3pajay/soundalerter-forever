@@ -8,7 +8,7 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 </p>
 
 <p align="center">
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.73-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.74-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Status" src="https://img.shields.io/badge/status-beta-yellow.svg"/>
