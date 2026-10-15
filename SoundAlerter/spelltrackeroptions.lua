@@ -97,6 +97,12 @@ local function view()
         slots["slot" .. slot] = data
     end
 
+    if not (selectedIndex and list[selectedIndex]) then
+        selectedIndex = ordered[1] and ordered[1].index or nil
+        for slot = 1, MAX_ICONS do
+            if flat[slot] == selectedIndex and selectedIndex then slots["slot" .. slot].selected = true end
+        end
+    end
     local config = selectedIndex and list[selectedIndex]
     local selected = { valid = config ~= nil }
     if config then
@@ -234,8 +240,7 @@ function SoundAlerter:BuildSpellTrackerOptions()
             "Track this spell. Off keeps its settings but hides the icon. Click the name to edit its details below.", false, "Tracked spells")
         Page.Visible(function(settings) return settings.slots[name].present end, row)
         Page.Selectable(row, function()
-            local index = flat[slot]
-            selectedIndex = (index ~= selectedIndex) and index or nil
+            selectedIndex = flat[slot]
         end, function(settings) return settings.slots[name].selected end)
         rows[#rows + 1] = row
     end
@@ -256,14 +261,17 @@ function SoundAlerter:BuildSpellTrackerOptions()
     rows[#rows + 1] = Page.Select("add.auraType", "Aura type", "Whether to track a buff or a debuff.", AURA_OPTIONS, false, "Add a spell")
     rows[#rows + 1] = Page.Action("Add spell", "Add this spell to the tracker. It is listed under its class.", tryAddSpell, false, "Add a spell")
 
-    rows[#rows + 1] = Page.When("sel.valid", Page.Select("sel.unit", "Track on", "Which unit to read this aura from.", UNIT_OPTIONS, true, "Selected spell"))
-    rows[#rows + 1] = Page.When("sel.valid", Page.Select("sel.auraType", "Aura type", "Whether this tracks a buff or a debuff.", AURA_OPTIONS, true, "Selected spell"))
-    rows[#rows + 1] = Page.When("sel.valid", Page.Toggle("sel.trackCooldown", "Track cooldown", "Show when this spell is ready to cast again. This is your own cooldown, not an enemy's.", true, "Selected spell"))
-    rows[#rows + 1] = Page.When("sel.valid", Page.Toggle("sel.showWhenInactive", "Show when inactive", "Keep the icon on screen, faded, while the aura is not active.", true, "Selected spell"))
-    rows[#rows + 1] = Page.When("sel.valid", Page.Range("sel.size", "Icon size", "Size of the spell tracker icon in pixels.", 24, 80, 4, true, "Selected spell", " px"))
-    rows[#rows + 1] = Page.When("sel.valid", Page.Range("sel.cooldownTextSize", "Cooldown text size", "Font size for the cooldown countdown text. Only visible when Cooldown is on.", 8, 32, 1, true, "Selected spell", " pt"))
-    rows[#rows + 1] = Page.When("sel.valid", Page.Range("sel.auraDuration", "Aura duration in combat", "Used for the in-combat aura spiral and number when the game hides the aura. 0 means automatic: the duration is learned the last time the aura was visible out of combat. Set a value for spells that can only be used in combat.", 0, 180, 0.5, true, "Selected spell", " s"))
-    local delete = Page.When("sel.valid", Page.Action("Delete spell", "Remove the selected spell from the tracker.", deleteSpell, true, "Selected spell"))
+    local function editor(row)
+        return Page.Visible(function(settings) return settings.sel.valid end, row)
+    end
+    rows[#rows + 1] = editor(Page.Select("sel.unit", "Track on", "Which unit to read this aura from.", UNIT_OPTIONS, false, "Selected spell"))
+    rows[#rows + 1] = editor(Page.Select("sel.auraType", "Aura type", "Whether this tracks a buff or a debuff.", AURA_OPTIONS, false, "Selected spell"))
+    rows[#rows + 1] = editor(Page.Toggle("sel.trackCooldown", "Track cooldown", "Show when this spell is ready to cast again. This is your own cooldown, not an enemy's.", false, "Selected spell"))
+    rows[#rows + 1] = editor(Page.Toggle("sel.showWhenInactive", "Show when inactive", "Keep the icon on screen, faded, while the aura is not active.", false, "Selected spell"))
+    rows[#rows + 1] = editor(Page.Range("sel.size", "Icon size", "Size of the spell tracker icon in pixels.", 24, 80, 4, false, "Selected spell", " px"))
+    rows[#rows + 1] = editor(Page.Range("sel.cooldownTextSize", "Cooldown text size", "Font size for the cooldown countdown text. Only visible when Cooldown is on.", 8, 32, 1, false, "Selected spell", " pt"))
+    rows[#rows + 1] = editor(Page.Range("sel.auraDuration", "Aura duration in combat", "Used for the in-combat aura spiral and number when the game hides the aura. 0 means automatic: the duration is learned the last time the aura was visible out of combat. Set a value for spells that can only be used in combat.", 0, 180, 0.5, false, "Selected spell", " s"))
+    local delete = editor(Page.Action("Delete spell", "Remove the selected spell from the tracker.", deleteSpell, false, "Selected spell"))
     delete.confirm = function(settings)
         if settings.g.deleteWithoutConfirm then return nil end
         return "Click again to delete"
@@ -276,6 +284,15 @@ function SoundAlerter:BuildSpellTrackerOptions()
         rows[#rows + 1] = Page.Visible(function(settings) return settings.count > 0 end, row)
     end
     rows[#rows + 1] = Page.When("undo.available", Page.Action(function() return lastPreset and ("Undo " .. lastPreset) or "Undo" end, "Restore Enabled and Cooldown from before the last preset.", undoPreset, true, "Presets"))
+
+    local groupOrder = { "Tracked spells", "Selected spell", "Display", "Add a spell", "Presets" }
+    local sorted = {}
+    for _, group in ipairs(groupOrder) do
+        for _, row in ipairs(rows) do
+            if row.group == group then sorted[#sorted + 1] = row end
+        end
+    end
+    rows = sorted
 
     local spec = Page.Spec({
         title = "Spell Tracker",
