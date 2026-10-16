@@ -8,6 +8,7 @@ local ORIENTATIONS = { { "horizontal", "Horizontal" }, { "vertical", "Vertical" 
 local TIME_FORMATS = { { "milliseconds", "SS.sss (Milliseconds)" }, { "centiseconds", "SS.ss (Centiseconds)" } }
 local HORIZONTAL_FILLS = { { "right", "Right" }, { "left", "Left" } }
 local VERTICAL_FILLS = { { "up", "Up" }, { "down", "Down" } }
+local ANIM_QUALITIES = { { "off", "Off" }, { "low", "Low" }, { "normal", "Normal" }, { "high", "High" } }
 local PREVIEW_LENGTH = 200
 
 local function bars()
@@ -21,6 +22,8 @@ local function write(active, key, value)
         active:SetLocked(value)
     elseif key == "barTexture" then
         active:UpdateTexture()
+    elseif key == "animQuality" or key == "segments" then
+        active:LoadSettings()
     elseif unit then
         if key:match("%.orientation$") then
             local fill = active:GetSettings()[unit].fillDirection
@@ -145,6 +148,9 @@ function SoundAlerter:BuildCastingBarOptions()
         Page.Toggle("showSpellIcon", "Show spell icons", "Display spell icons to the left of casting bars.", false, "General"),
         Page.Toggle("showLatency", "Show latency shadow", "Display a red shadow at the end of the player casting bar representing network latency. Helps predict when the spell will actually cast on the server.", false, "General"),
         Page.Select("timeFormat", "Time format", "Choose how cast time is displayed. SS.sss shows seconds with milliseconds (02.450), SS.ss shows seconds with centiseconds (02.45).", TIME_FORMATS, true, "General"),
+        Page.Toggle("segments", "Segmented bars", "Draw faint tick marks along the bar so progress is easy to read at a glance.", false, "Animations"),
+        Page.Toggle("channelPulse", "Channel pulses", "Flash the bar at the quarter points of a channelled spell. These are evenly spaced pulses, not the spell's real damage ticks, which the game does not expose.", false, "Animations"),
+        Page.Select("animQuality", "Animation quality", "Off turns every animation off. Low keeps the effects minimal and redraws the fill 15 times a second, Normal adds the full animations, High adds gloss, extra rings and sub-pixel fill. Applies to every casting bar.", ANIM_QUALITIES, true, "Animations"),
     }
     for _, unit in ipairs(UNITS) do
         rows[#rows + 1] = Page.Toggle(unit .. ".enabled", "Show " .. LABELS[unit] .. " casting bar", "Display a casting bar for " .. (unit == "player" and "your own spells." or "your " .. unit .. "'s spells."), false, "Bars")

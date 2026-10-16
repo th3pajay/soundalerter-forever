@@ -17,6 +17,21 @@ dbDefaults = {
 		MinimapButtonPosition = nil,
 		MinimapButtonHidden = false,
 
+		minimapButton = {
+			clicks = {
+				none = { left = "options", right = "menu", middle = "finder" },
+				shift = { left = "proximity", right = "lockbars", middle = "none" },
+				ctrl = { left = "battleground", right = "stats", middle = "none" },
+				alt = { left = "snooze", right = "test", middle = "none" },
+			},
+			icons = {
+				both = "ability_dualwield",
+				prox = "ability_hunter_mastermarksman",
+				bg = "achievement_bg_winwsg",
+				none = "spell_holy_silence",
+			},
+		},
+
 		minimapTracking = {
 			enabled = false,
 			target = true,
@@ -187,6 +202,8 @@ dbDefaults = {
 			comboPositionY = -85,
 			comboScale = 1.0,
 			comboStyle = "circle",
+			comboCelebration = "classic",
+			comboAnimQuality = "normal",
 			comboActiveColor = {r = 0.2, g = 1, b = 0.2},
 			comboMaxColor = {r = 1, g = 0.8, b = 0.2},
 			comboInactiveColor = {r = 0.25, g = 0.25, b = 0.25},
@@ -206,6 +223,9 @@ dbDefaults = {
 			timeFormat = "milliseconds",
 			showSpellIcon = false,
 			showLatency = false,
+			animQuality = "normal",
+			segments = true,
+			channelPulse = true,
 
 			player = {
 				enabled = false,
@@ -328,6 +348,7 @@ dbDefaults = {
 			showCooldownText = true,
 			showReadyText = false,
 			deleteWithoutConfirm = false,
+			animQuality = "normal",
 			icons = {},
 		},
 

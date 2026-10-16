@@ -14,12 +14,17 @@ local TEXT_INSET = 5
 local FRAME_PAD_X = 20
 local FRAME_PAD_Y = 30
 
-local FINISH_HOLD = 0.4
 local FINISH_NEAR_END = 0.2
+local WARN_TIME = 0.7
+local WARN_MIN_DURATION = 1
+local CHANNEL_PULSES = 3
+local REST_BORDER = { 0.5, 0.5, 0.5 }
+local NO_TIER = { throttle = 0, subpixel = false }
+local stats = { updates = 0, writes = 0, throttled = 0, since = 0 }
 
 local FINISH_STYLES = {
-	success = { duration = 0.25, r = 0.2, g = 0.9, b = 0.2 },
-	interrupt = { duration = 0.5, r = 1, g = 0.2, b = 0.2 },
+	success = { duration = 0.52, hold = 0.58, r = 0.2, g = 0.9, b = 0.2 },
+	interrupt = { duration = 0.74, hold = 0.7, r = 1, g = 0.2, b = 0.2 },
 }
 
 local UNIT_ORDER = { "player", "target", "focus" }
@@ -36,6 +41,9 @@ local CASTING_BAR_GROUP_KEYS = {
 	timeFormat = true,
 	showSpellIcon = true,
 	showLatency = true,
+	animQuality = true,
+	segments = true,
+	channelPulse = true,
 }
 
 local CASTING_BAR_UNIT_KEYS = {
@@ -50,6 +58,21 @@ local CASTING_BAR_UNIT_KEYS = {
 
 function CastingBars:GetSettings()
 	return self.db
+end
+
+function CastingBars:Fx(action, ...)
+	local effects = SoundAlerter.CastingBarFX
+	if effects then return effects[action](effects, ...) end
+end
+
+function CastingBars:FxTier()
+	local effects = SoundAlerter.CastingBarFX
+	return effects and effects.tier or NO_TIER
+end
+
+local function plainFlag(value)
+	if issecretvalue(value) then return nil end
+	return value
 end
 
 function CastingBars:SetSetting(key, value)
@@ -89,6 +112,7 @@ function CastingBars:Initialize()
 	self.db = self.addon.db1.profile.castingBars
 	self.initialized = false
 	self.updating = false
+	stats.since = GetTime()
 	self.textureApplied = false
 
 	self.bars = {}
@@ -312,7 +336,7 @@ local EVENT_HANDLERS = {
 	UNIT_SPELLCAST_FAILED = function(self, unit)
 		local b = self.bars[unit]
 		if b.casting and not b.channeling then
-			self:OnCastStop(unit)
+			self:OnCastStop(unit, true)
 		end
 	end,
 	UNIT_SPELLCAST_INTERRUPTED = function(self, unit)
@@ -426,9 +450,21 @@ function CastingBars:ApplySecretTimer(b, unit, channeling)
 	return pcall(b.bar.SetTimerDuration, b.bar, duration, nil, direction)
 end
 
-function CastingBars:BeginSecretCast(b, unit, channeling, spellName, texture)
+function CastingBars:StartFx(b, fresh, notInterruptible)
+	b.warned = false
+	b.pulses = 0
+	if plainFlag(notInterruptible) == true then
+		self:Fx("Lock", b)
+	end
+	if fresh then
+		self:Fx("Enter", b)
+	end
+end
+
+function CastingBars:BeginSecretCast(b, unit, channeling, spellName, texture, notInterruptible, fresh)
 	if not self:ApplySecretTimer(b, unit, channeling) then return end
 
+	self:Fx("Rest", b)
 	b.casting = not channeling
 	b.channeling = channeling
 	b.secretTimer = true
@@ -455,6 +491,7 @@ function CastingBars:BeginSecretCast(b, unit, channeling, spellName, texture)
 	end
 
 	b.frame:Show()
+	self:StartFx(b, fresh, notInterruptible)
 	self:Attach()
 end
 
@@ -462,19 +499,21 @@ function CastingBars:BeginCast(unit, channeling)
 	local b = self.bars[unit]
 	if not b or not self.db[unit].enabled then return end
 
-	local spellName, _, _, texture, startTime, endTime
+	local spellName, _, _, texture, startTime, endTime, notInterruptible
 	if channeling then
-		spellName, _, _, texture, startTime, endTime = UnitChannelInfo(unit)
+		spellName, _, _, texture, startTime, endTime, _, notInterruptible = UnitChannelInfo(unit)
 	else
-		spellName, _, _, texture, startTime, endTime = UnitCastingInfo(unit)
+		spellName, _, _, texture, startTime, endTime, _, notInterruptible = UnitCastingInfo(unit)
 	end
 
 	if not spellName then return end
+	local fresh = not (b.casting or b.channeling)
 	if issecretvalue(startTime) or issecretvalue(endTime) then
-		self:BeginSecretCast(b, unit, channeling, spellName, texture)
+		self:BeginSecretCast(b, unit, channeling, spellName, texture, notInterruptible, fresh)
 		return
 	end
 	b.secretTimer = nil
+	self:Fx("Rest", b)
 
 	local now = self:SetTimes(b, startTime, endTime)
 
@@ -512,6 +551,7 @@ function CastingBars:BeginCast(unit, channeling)
 	end
 
 	b.frame:Show()
+	self:StartFx(b, fresh, notInterruptible)
 	self:Attach()
 end
 
@@ -527,9 +567,12 @@ function CastingBars:ResetState(b)
 	b.lastTick = nil
 	b.bounceActive = false
 	b.finishing = nil
+	b.warned = false
+	b.pulses = 0
+	self:Fx("Rest", b)
 	b.frame:SetAlpha(1)
 	b.bar:SetValue(0)
-	b.bar:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+	b.bar:SetBackdropBorderColor(REST_BORDER[1], REST_BORDER[2], REST_BORDER[3], 1)
 end
 
 function CastingBars:Finish(b, kind)
@@ -553,8 +596,9 @@ function CastingBars:Finish(b, kind)
 	if kind == "success" then
 		b.bar:SetValue(1)
 		b.lastFill = 1
+		self:Fx("Success", b)
 	else
-		b.spellText:SetText("Interrupted")
+		b.spellText:SetText(self:Fx("Interrupt", b) and "" or "Interrupted")
 	end
 
 	self:Attach()
@@ -569,10 +613,10 @@ function CastingBars:UpdateFinish(b, now)
 		return
 	end
 
-	if t <= FINISH_HOLD then
+	if t <= style.hold then
 		b.frame:SetAlpha(1)
 	else
-		b.frame:SetAlpha(1 - (t - FINISH_HOLD) / (1 - FINISH_HOLD))
+		b.frame:SetAlpha(1 - (t - style.hold) / (1 - style.hold))
 	end
 end
 
@@ -587,20 +631,56 @@ function CastingBars:OnStopEvent(unit, interrupted)
 	elseif GetTime() >= b.endTime - FINISH_NEAR_END then
 		self:Finish(b, "success")
 	else
-		self:OnCastStop(unit)
+		self:OnCastStop(unit, true)
 	end
 end
 
-function CastingBars:OnCastStop(unit)
+function CastingBars:HideCallback(b)
+	local callback = b.hideCallback
+	if not callback then
+		callback = function() self:HideBar(b) end
+		b.hideCallback = callback
+	end
+	return callback
+end
+
+function CastingBars:GetFxStats(reset)
+	local now = GetTime()
+	local snapshot = { updates = stats.updates, writes = stats.writes, throttled = stats.throttled, seconds = now - stats.since, quality = SoundAlerter.CastingBarFX and SoundAlerter.CastingBarFX.quality or "normal", active = self:ActiveBars() }
+	if reset then
+		stats.updates, stats.writes, stats.throttled = 0, 0, 0
+		stats.since = now
+	end
+	return snapshot
+end
+
+function CastingBars:ActiveBars()
+	local count = 0
+	for _, b in ipairs(self.barList or {}) do
+		if b.casting or b.channeling then count = count + 1 end
+	end
+	return count
+end
+
+function CastingBars:HideBar(b)
+	b.frame:Hide()
+	b.frame:SetAlpha(1)
+	b.spellText:SetText("")
+	b.timeText:SetText("")
+end
+
+function CastingBars:OnCastStop(unit, animate)
 	local b = self.bars[unit]
 	if not b then return end
 
+	local wasActive = b.casting or b.channeling
 	self:ResetState(b)
 
 	if self.db.locked then
-		b.frame:Hide()
-		b.spellText:SetText("")
-		b.timeText:SetText("")
+		if animate and wasActive and b.frame:IsShown() and self:Fx("Cancel", b, self:HideCallback(b)) then
+			return
+		end
+		self:HideBar(b)
 	else
 		b.spellText:SetText("Ready")
 		b.timeText:SetText("")
@@ -656,6 +736,8 @@ function CastingBars:OnUpdate()
 	local now = GetTime()
 	local busy = false
 
+	local tier = self:FxTier()
+	local throttle = tier.throttle
 	local list = self.barList
 	for i = 1, #list do
 		local b = list[i]
@@ -665,7 +747,12 @@ function CastingBars:OnUpdate()
 		elseif b.secretTimer then
 			busy = true
 		elseif b.casting or b.channeling then
-			self:UpdateBar(b, now)
+			if throttle <= 0 or now - (b.lastDraw or 0) >= throttle then
+				b.lastDraw = now
+				self:UpdateBar(b, now, tier)
+			else
+				stats.throttled = stats.throttled + 1
+			end
 			if b.casting or b.channeling or b.finishing then
 				busy = true
 				if b.bounceActive then
@@ -680,7 +767,10 @@ function CastingBars:OnUpdate()
 	end
 end
 
-function CastingBars:UpdateBar(b, now)
+function CastingBars:UpdateBar(b, now, tier)
+	tier = tier or self:FxTier()
+	stats.updates = stats.updates + 1
+
 	local remaining = b.endTime - now
 	if remaining <= 0 then
 		self:Finish(b, "success")
@@ -696,10 +786,33 @@ function CastingBars:UpdateBar(b, now)
 	progress = math_max(0, math_min(1, progress))
 
 	local extent = b.extent
+	if tier.subpixel then extent = extent * 4 end
 	local fill = math_floor(progress * extent + 0.5) / extent
 	if fill ~= b.lastFill then
 		b.lastFill = fill
+		stats.writes = stats.writes + 1
 		b.bar:SetValue(fill)
+	end
+
+	if b.duration >= WARN_MIN_DURATION then
+		if remaining <= WARN_TIME then
+			if not b.warned then
+				b.warned = true
+				self:Fx("Warn", b)
+			end
+		elseif b.warned then
+			b.warned = false
+			self:Fx("ClearWarn", b)
+		end
+	end
+
+	if b.channeling and self.db.channelPulse then
+		local pulses = b.pulses or 0
+		while pulses < CHANNEL_PULSES and 1 - progress >= (pulses + 1) / (CHANNEL_PULSES + 1) do
+			pulses = pulses + 1
+			self:Fx("Pulse", b)
+		end
+		b.pulses = pulses
 	end
 
 	local rate = self.db.timeFormat == "centiseconds" and 100 or 1000
@@ -720,7 +833,8 @@ function CastingBars:UpdateBounce(b, now)
 
 	if elapsed >= BOUNCE_DURATION then
 		b.bounceActive = false
-		b.bar:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+		local rest = b.restBorder or REST_BORDER
+		b.bar:SetBackdropBorderColor(rest[1], rest[2], rest[3], 1)
 		return
 	end
 
@@ -759,11 +873,13 @@ function CastingBars:LoadSettings()
 	local locked = self.db.locked
 
 	self.db.barTexture = self.addon.BarTexture:Normalize(self.db.barTexture)
+	self.db.animQuality = self:Fx("SetQuality", self.db.animQuality) or self.db.animQuality
 
 	for _, b in ipairs(self.barList) do
 		local unitDB = self.db[b.unit]
 
 		self:ApplyOrientation(b)
+		self:Fx("Look", b, self.db)
 		BarUtils:LoadPosition(b.frame, unitDB, "", 0, b.defaultY)
 
 		if unitDB.enabled then
@@ -801,6 +917,7 @@ function CastingBars:ApplyBarTexture()
 
 	for _, b in ipairs(self.barList) do
 		self.addon.BarTexture:Apply(b.bar, texture)
+		self:Fx("Look", b, self.db)
 	end
 end
 

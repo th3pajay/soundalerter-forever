@@ -20,6 +20,7 @@ local GLOBAL_KEYS = {
     showCooldownText = true,
     showReadyText = true,
     deleteWithoutConfirm = true,
+    animQuality = true,
 }
 
 function Settings.IsGlobalKey(key)

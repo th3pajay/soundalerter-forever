@@ -42,6 +42,7 @@ local function write(key, value)
     if not current then return end
     if key == "enabled" then
         current.proximityEnabled = value
+        if SoundAlerter.UpdateMinimapButtonIcon then SoundAlerter:UpdateMinimapButtonIcon() end
         return
     end
     local scope, name = key:match("^(%a+)%.(.+)$")

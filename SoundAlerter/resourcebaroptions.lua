@@ -9,6 +9,8 @@ local BAR_FRAMES = { energyScale = "energyFrame", rageScale = "rageFrame", healt
 local COLOR_UPDATES = { energyColor = "UpdateEnergyBar", rageColor = "UpdateRageBar", healthColor = "UpdateHealthBar", manaColor = "UpdateManaBar" }
 local VISIBILITY = { energyEnabled = true, rageEnabled = true, healthEnabled = true, manaEnabled = true, comboEnabled = true, comboTextEnabled = true }
 local COMBO_COLORS = { comboActiveColor = true, comboMaxColor = true }
+local CELEBRATIONS = SoundAlerter.CPCelebration:Styles()
+local QUALITIES = SoundAlerter.CPCelebration:Qualities()
 local SQUARE_SHAPES = { square = true, bar = true }
 
 local SHAPES = {
@@ -36,6 +38,8 @@ local function write(active, key, value)
     elseif COLOR_UPDATES[key] then
         active:CacheColors()
         active[COLOR_UPDATES[key]](active)
+    elseif key == "comboCelebration" or key == "comboAnimQuality" then
+        active:ApplyCelebration()
     elseif key == "comboStyle" then
         active:ApplyCPStyle()
     elseif COMBO_COLORS[key] then
@@ -138,6 +142,10 @@ function SoundAlerter:BuildResourceBarOptions()
             Page.Toggle("manaEnabled", "Show mana bar", "Display mana bar (for casters).", false, "Bars"),
             Page.Toggle("comboEnabled", "Show combo points", "Display combo points (for Rogues, Druids in Cat Form).", false, "Bars"),
             Page.When("comboEnabled", Page.Select("comboStyle", "Combo point shape", "Choose the visual shape for combo points.", SHAPES, false, "Bars")),
+            Page.When("comboEnabled", Page.Select("comboCelebration", "Combo celebration", "Animation when combo points are gained, reach 5, are spent with a finisher or are lost when the target changes or dies. Every style has its own spend and loss exit.", CELEBRATIONS, false, "Bars")),
+            Page.When("comboEnabled", Page.Select("comboAnimQuality", "Animation quality", "Low keeps the lightest version of each effect (fewer sparks and arcs, nothing spinning). High adds more sparks, arcs and a second pulse. Persistent effects run on the game's animation engine, so even High costs almost no script time.", QUALITIES, true, "Combo points")),
+            Page.When("comboEnabled", Page.Action("Preview spend", "Run 0 to 5 combo points on the live bar, then spend them with the chosen spend animation.", function() if bars() then bars():PreviewCelebration("spent") end end, false, "Bars")),
+            Page.When("comboEnabled", Page.Action("Preview loss", "Run 0 to 5 combo points on the live bar, then lose them as if the target died.", function() if bars() then bars():PreviewCelebration("lost") end end, false, "Bars")),
             Page.When("energyEnabled", Page.Color("energyColor", "Energy color", "Color of the energy bar.", true, "Energy bar")),
             Page.When("energyEnabled", Page.Range("energyScale", "Energy bar scale", "Adjust the size of the energy bar.", 0.5, 2, 0.05, true, "Energy bar", "x")),
             Page.When("rageEnabled", Page.Color("rageColor", "Rage color", "Color of the rage bar.", true, "Rage bar")),

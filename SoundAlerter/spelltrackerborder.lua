@@ -9,9 +9,8 @@ Border.COLORS = {
 }
 
 Border.GLOWS = {
-    applied = { 1, 1, 1, mode = "flash" },
-    expiring = { 1, 0.35, 0.3, mode = "pulse" },
-    ready = { 0.24, 0.86, 0.52, mode = "pulse" },
+    expiring = { 1, 0.35, 0.3, mode = "tint" },
+    ready = { 0.24, 0.86, 0.52, mode = "steady" },
     cooldown = { 0.35, 0.66, 1, mode = "steady" },
 }
 

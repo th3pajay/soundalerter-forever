@@ -16,10 +16,10 @@ Nav.resultGroups = {}
 local searchWrapped = setmetatable({}, { __mode = "k" })
 
 Nav.Sections = {
-    { name = "Setup", order = 0, keys = { QuickStart = 1, General = 2 } },
-    { name = "Alerts", order = 10, keys = { Spells = 11, ProximityAlerts = 12, BattlegroundAlerts = 13, custom = 14, Notices = 15 } },
-    { name = "Displays", order = 20, keys = { ResourceBar = 21, CastingBars = 22, CastFeed = 23, CombatTimer = 24, SpeedMeter = 25, Footsteps = 26 } },
-    { name = "Tools", order = 30, keys = { SpellTracker = 31, Statistics = 32, FindSpell = 33 } },
+    { name = "Setup", order = 0, keys = { QuickStart = 1, General = 2, MinimapButton = 3 } },
+    { name = "Alerts", order = 10, sorted = true, keys = { Spells = 11, ProximityAlerts = 12, BattlegroundAlerts = 13, Notices = 15 } },
+    { name = "Displays", order = 20, sorted = true, keys = { ResourceBar = 21, CastingBars = 22, CastFeed = 23, CombatTimer = 24, SpeedMeter = 25, Footsteps = 26, SpellTracker = 27 } },
+    { name = "Tools", order = 30, sorted = true, keys = { Statistics = 31, FindSpell = 32, custom = 33 } },
     { name = "Profile", order = 40, keys = { profiles = 41 } },
 }
 
@@ -46,11 +46,42 @@ function Nav.Heading(name, order)
     }
 end
 
+function Nav.SortKey(node)
+    local name = node and node.name
+    if type(name) == "function" then
+        local ok, value = pcall(name)
+        name = ok and value or ""
+    end
+    name = tostring(name or "")
+    name = string.gsub(name, "|c%x%x%x%x%x%x%x%x", "")
+    name = string.gsub(name, "|r", "")
+    name = string.gsub(name, "|T.-|t", "")
+    return string.lower((string.gsub(name, "^%s+", "")))
+end
+
+local function sortedKeys(root, section)
+    local list = {}
+    for key in pairs(section.keys) do
+        if root.args[key] then list[#list + 1] = { key = key, label = Nav.SortKey(root.args[key]) } end
+    end
+    table.sort(list, function(a, b)
+        if a.label ~= b.label then return a.label < b.label end
+        return a.key < b.key
+    end)
+    return list
+end
+
 function Nav.Layout(root)
     for _, section in ipairs(Nav.Sections) do
         root.args["navHeading" .. section.name] = Nav.Heading(section.name, section.order)
-        for key, order in pairs(section.keys) do
-            if root.args[key] then root.args[key].order = order end
+        if section.sorted then
+            for index, entry in ipairs(sortedKeys(root, section)) do
+                root.args[entry.key].order = section.order + index
+            end
+        else
+            for key, order in pairs(section.keys) do
+                if root.args[key] then root.args[key].order = order end
+            end
         end
     end
     Nav.resultGroups = {}

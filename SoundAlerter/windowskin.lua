@@ -90,6 +90,38 @@ local function skinTree(tree)
     try(skinTreeButtons, tree)
 end
 
+local function metadata(field)
+    local read = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
+    if not read then return nil end
+    local ok, value = pcall(read, "SoundAlerter", field)
+    if ok and type(value) == "string" and value ~= "" then return value end
+    return nil
+end
+
+function Skin.HeaderText(version, author)
+    local parts = {}
+    if version and version ~= "" then
+        parts[#parts + 1] = "v" .. string.gsub(version, "^[vV]", "")
+    end
+    if author and author ~= "" then parts[#parts + 1] = author end
+    return table.concat(parts, " - ")
+end
+
+function Skin.Badge(widget)
+    if type(widget) ~= "table" or not widget.frame or not widget.frame.CreateFontString then return false end
+    local frame = widget.frame
+    local text = frame.saBadge
+    if not text then
+        text = frame:CreateFontString(nil, "OVERLAY")
+        text:SetFont(FONT, 11, "")
+        text:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -18, -11)
+        text:SetTextColor(COLOR.muted[1], COLOR.muted[2], COLOR.muted[3])
+        frame.saBadge = text
+    end
+    text:SetText(Skin.HeaderText(metadata("Version"), metadata("Author") or "th3pajay"))
+    return true
+end
+
 function Skin.Apply(widget)
     if type(widget) ~= "table" or not widget.frame then return false end
     local frame = widget.frame
@@ -115,6 +147,13 @@ function Skin.Apply(widget)
                 widget.titletext:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -9)
                 widget.titletext:SetFont(FONT, 14, "")
                 widget.titletext:SetTextColor(COLOR.accent[1], COLOR.accent[2], COLOR.accent[3])
+                local handle = widget.titletext:GetParent()
+                if handle and handle ~= frame then
+                    handle:ClearAllPoints()
+                    handle:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+                    handle:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+                    handle:SetHeight(27)
+                end
             end
         end)
 

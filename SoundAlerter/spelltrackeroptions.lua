@@ -13,6 +13,7 @@ local CLASS_COLORS = {
 }
 local UNIT_OPTIONS = { { "player", "Player (self)" }, { "target", "Target" } }
 local AURA_OPTIONS = { { "HELPFUL", "Buff" }, { "HARMFUL", "Debuff" } }
+local ANIM_QUALITIES = { { "off", "Off" }, { "low", "Low" }, { "normal", "Normal" }, { "high", "High" } }
 
 local addForm = { spellID = "", unit = "player", auraType = "HELPFUL" }
 local selectedIndex = nil
@@ -248,13 +249,14 @@ function SoundAlerter:BuildSpellTrackerOptions()
     for _, setting in ipairs({
         { "g.locked", "Lock icons", "Lock all spell tracker icons in place. Unlock to drag and reposition individual icons.", false },
         { "g.showTimerText", "Show aura duration numbers", "Display the aura duration countdown at the bottom of spell tracker icons.", false },
-        { "g.showBorderTimer", "Depleting border timer", "Draw a colored border around the icon that shrinks as the buff or debuff runs out.", false },
+        { "g.showBorderTimer", "Depleting border timer", "Draw a colored border around the icon that shrinks as the buff or debuff runs out. On your buffs it also shifts from green through amber to red as time runs low.", false },
         { "g.showCooldownText", "Show spell cooldown numbers", "Display the spell cooldown countdown (gold) at the top center of icons. Only affects spells with Cooldown on. This tracks YOUR spell cooldowns, not enemy cooldowns.", false },
         { "g.showReadyText", "Show Ready! when the cooldown is finished", "Display green Ready! where the cooldown numbers were while the spell is off cooldown. Only affects spells with Cooldown on.", false },
         { "g.deleteWithoutConfirm", "Delete without confirmation", "Skip the confirmation step when you delete a tracked spell. Deleting is immediate and cannot be undone.", true },
     }) do
         rows[#rows + 1] = Page.Toggle(setting[1], setting[2], setting[3], setting[4], "Display")
     end
+    rows[#rows + 1] = Page.Select("g.animQuality", "Animation quality", "Off turns every icon animation off. Low keeps the icon effects minimal and updates timers 10 times a second. Normal adds the full pop-in, colour shift, red tint and shine. High adds extra rings and shines and updates every frame.", ANIM_QUALITIES, true, "Display")
 
     rows[#rows + 1] = Page.Text("add.spellID", "Spell ID", "Enter the numeric spell ID, then press Add spell. Use Find Spell in Developer Tools to look IDs up.", false, "Add a spell")
     rows[#rows + 1] = Page.Select("add.unit", "Track on", "Which unit to read this aura from.", UNIT_OPTIONS, false, "Add a spell")

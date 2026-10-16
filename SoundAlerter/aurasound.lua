@@ -8,6 +8,7 @@ local ENEMY_TOKENS = { "target", "focus" }
 local TEST_UNITS = { "player", "target", "focus", "nameplate1", "arena1", "party1", "mouseover" }
 local TEST_SPELL = 2825
 local PLAY_SECONDS = 30
+local RETRY_SECONDS = 2
 local playIDs = {}
 
 function SoundAlerter:EngineAuraSoundSupported()
@@ -55,9 +56,31 @@ function SoundAlerter:RemoveAllAuraSounds()
     end
 end
 
+function SoundAlerter:AuraSoundRegistrationBlocked()
+    if InCombatLockdown() then return true end
+    if Enum and Enum.AddOnRestrictionType and C_RestrictedActions and C_RestrictedActions.GetAddOnRestrictionState then
+        for _, restriction in pairs(Enum.AddOnRestrictionType) do
+            local ok, state = pcall(C_RestrictedActions.GetAddOnRestrictionState, restriction)
+            if ok and type(state) == "number" and state ~= 0 then return true end
+        end
+    end
+    return false
+end
+
+function SoundAlerter:RetryAuraSoundSync()
+    self.auraSoundRetryTimer = nil
+    self:RunAuraSoundSync()
+end
+
 function SoundAlerter:SyncAuraSounds()
     local profile = self.db1.profile
     if not self:EngineAuraSoundSupported() then return end
+    if self:AuraSoundRegistrationBlocked() then
+        if not self.auraSoundRetryTimer then
+            self.auraSoundRetryTimer = self:ScheduleTimer("RetryAuraSoundSync", RETRY_SECONDS)
+        end
+        return
+    end
     local ids = SavedIDs(self)
     local desired = SA_AuraSound.Desired(self.spellList, profile, enemyUnits, self:IsAlertZoneAllowed() and true or false)
     local add, remove = SA_AuraSound.Diff(registered, desired)

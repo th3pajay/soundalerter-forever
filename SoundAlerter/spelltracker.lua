@@ -2,12 +2,12 @@ local SpellTracker = {}
 local GetSpellInfo = SA_COMPAT.GetSpellInfo
 local Game = SA_TrackerGame
 local Border = SA_TrackerBorder
+local FX = SA_TrackerFX
 
 local Settings = SA_TrackerSettings
 local ICON_SIZE = Settings.DEFAULT_ICON_SIZE
 local ICON_SPACING = 4
 local ICON_POOL_SIZE = 20
-local UPDATE_THROTTLE = 0.05
 local BORDER_RING_TEXTURE = "Interface\\AddOns\\SoundAlerter\\Textures\\border_ring.tga"
 
 local CONSTANTS = {
@@ -31,6 +31,29 @@ local FINISHER_CHECK_DELAY = 0.5
 local FINISHER_DROP_LEEWAY = 0.3
 
 local cooldownEnabledTrackers = {}
+local timedTrackers = {}
+local timedSet = {}
+
+local function trackTimed(index)
+    if not timedSet[index] then
+        timedSet[index] = true
+        timedTrackers[#timedTrackers + 1] = index
+    end
+end
+
+local function untrackTimed(index)
+    if not timedSet[index] then return end
+    timedSet[index] = nil
+    for i = #timedTrackers, 1, -1 do
+        if timedTrackers[i] == index then
+            timedTrackers[i] = timedTrackers[#timedTrackers]
+            timedTrackers[#timedTrackers] = nil
+            return
+        end
+    end
+end
+
+local stats = { ticks = 0, visited = 0, shifts = 0, idle = 0, cooldownTicks = 0, since = 0 }
 
 function SpellTracker:Initialize()
     if self.initialized then return end
@@ -45,6 +68,7 @@ function SpellTracker:Initialize()
     self.db = self.addon.db1.profile.spellTracker
 
     self.state = SA_TrackerState.New()
+    stats.since = GetTime()
     self.cachedTime = 0
     self.lookupFailed = {}
 
@@ -81,6 +105,7 @@ function SpellTracker:CreateIconFrame(index)
 
     local idle = Border.COLORS.IDLE
     frame.borderKey = "IDLE"
+    frame.baseBorder = idle
     self.addon.BarUtils:CreateBackdrop(frame, idle[1], idle[2], idle[3], 1,
         "Interface\\DialogFrame\\UI-DialogBox-Background", 0, 0, 0, 0.8,
         CONSTANTS.BACKDROP_EDGE_SIZE, CONSTANTS.ICON_INSET)
@@ -131,12 +156,17 @@ function SpellTracker:UpdateBorderTimer(frame, config, decision, auraDuration)
         local color = Border.TimerColor(config.auraType)
         ring:SetSwipeColor(color[1], color[2], color[3], 1)
         ring:SetCooldown(decision.expiration - decision.duration, decision.duration)
+        frame.shiftDuration = decision.duration
+        frame.shiftBase = config.auraType == "HELPFUL" and color or nil
+        frame.shiftStep = nil
     elseif mode == "secret" and auraDuration and ring.SetCooldownFromDurationObject then
         local color = Border.TimerColor(config.auraType)
         ring:SetSwipeColor(color[1], color[2], color[3], 1)
         ring:SetCooldownFromDurationObject(auraDuration, true)
+        frame.shiftBase = nil
     else
         ring:Clear()
+        frame.shiftBase = nil
     end
 end
 
@@ -201,22 +231,6 @@ function SpellTracker:CreateIconText(frame)
     frame.cooldownText = cooldownText
 end
 
-function SpellTracker:CreateIconAnimation(frame)
-    local pulseGroup = frame:CreateAnimationGroup()
-
-    local pulseScale1 = pulseGroup:CreateAnimation("Scale")
-    pulseScale1:SetScale(1.15, 1.15)
-    pulseScale1:SetDuration(0.15)
-    pulseScale1:SetOrder(1)
-
-    local pulseScale2 = pulseGroup:CreateAnimation("Scale")
-    pulseScale2:SetScale(0.87, 0.87)
-    pulseScale2:SetDuration(0.15)
-    pulseScale2:SetOrder(2)
-
-    frame.pulseAnim = pulseGroup
-end
-
 function SpellTracker:CreateIconGlow(frame)
     local glowFrame = CreateFrame("Frame", nil, frame)
     glowFrame:SetAllPoints(frame)
@@ -228,24 +242,17 @@ function SpellTracker:CreateIconGlow(frame)
     glow:SetPoint("CENTER", frame, "CENTER")
     glow:Hide()
 
-    local group = glow:CreateAnimationGroup()
-    group:SetScript("OnFinished", function()
-        if frame.glowKey == "applied" then
-            frame.glowKey = nil
-            glow:Hide()
-            SpellTracker:RefreshBorder(frame.trackerIndex)
-        end
-    end)
-
     frame.glow = glow
-    frame.glowGroup = group
-    frame.glowFade = group:CreateAnimation("Alpha")
 end
 
 local function applyGlow(frame, key)
     if key == frame.glowKey then return end
+    local previous = frame.glowKey
     frame.glowKey = key
-    frame.glowGroup:Stop()
+
+    if previous == "expiring" then
+        FX:ClearWarn(frame)
+    end
 
     local style = key and Border.GLOWS[key]
     if not style then
@@ -253,19 +260,18 @@ local function applyGlow(frame, key)
         return
     end
 
-    frame.glow:SetVertexColor(style[1], style[2], style[3])
-    if style.mode == "steady" then
-        frame.glow:SetAlpha(0.3)
-    else
-        local flash = style.mode == "flash"
-        frame.glow:SetAlpha(1)
-        frame.glowGroup:SetLooping(flash and "NONE" or "BOUNCE")
-        frame.glowFade:SetFromAlpha(1)
-        frame.glowFade:SetToAlpha(flash and 0 or 0.35)
-        frame.glowFade:SetDuration(flash and 0.4 or 0.5)
-        frame.glowGroup:Play()
+    if style.mode == "tint" then
+        frame.glow:Hide()
+        FX:Warn(frame)
+        return
     end
+
+    frame.glow:SetVertexColor(style[1], style[2], style[3])
+    frame.glow:SetAlpha(0.3)
     frame.glow:Show()
+    if key == "ready" then
+        FX:Shine(frame)
+    end
 end
 
 function SpellTracker:RefreshBorder(trackerIndex, now)
@@ -278,10 +284,10 @@ function SpellTracker:RefreshBorder(trackerIndex, now)
     if borderKey ~= frame.borderKey then
         frame.borderKey = borderKey
         local color = Border.COLORS[borderKey]
+        frame.baseBorder = color
         frame:SetBackdropBorderColor(color[1], color[2], color[3], 1)
     end
 
-    if frame.glowKey == "applied" then return end
     local remaining = active and self.state:Remaining(trackerIndex, now or GetTime())
     local readout = config.trackCooldown and self.state:CooldownReadout(trackerIndex)
     applyGlow(frame, Border.GlowKey(active, remaining, readout))
@@ -317,10 +323,12 @@ function SpellTracker:CreateIcon(index)
     self:CreateIconTexture(frame)
     self:CreateIconCooldown(frame)
     self:CreateIconText(frame)
-    self:CreateIconAnimation(frame)
     self:CreateIconGlow(frame)
     self:SetupIconDragging(frame)
 
+    frame.finishHide = function()
+        SpellTracker:FinishHide(frame)
+    end
     frame:SetAlpha(CONSTANTS.INACTIVE_ALPHA)
     frame:Hide()
     frame.trackerIndex = nil
@@ -458,6 +466,7 @@ function SpellTracker:UpdateTracker(trackerIndex, spellID, decision, unit, auraI
     local frame = iconFrames[trackerIndex]
     if not frame then return end
 
+    FX:CancelExit(frame)
     frame.trackerIndex = trackerIndex
     frame.spellID = spellID
 
@@ -503,9 +512,14 @@ function SpellTracker:UpdateTracker(trackerIndex, spellID, decision, unit, auraI
         frame:Hide()
     end
 
+    if decision.expiration then
+        trackTimed(trackerIndex)
+    else
+        untrackTimed(trackerIndex)
+    end
+
     if decision.isNew then
-        frame.pulseAnim:Play()
-        applyGlow(frame, "applied")
+        FX:Appear(frame)
     end
     self:RefreshBorder(trackerIndex)
 
@@ -539,21 +553,30 @@ function SpellTracker:HideTracker(trackerIndex)
     local frame = iconFrames[trackerIndex]
     if not frame then return end
 
+    local wasShown = frame:IsShown() and self.state:IsActive(trackerIndex)
     frame.timerText:SetText("")
     frame.lastTimerText = ""
     frame.cooldown:Clear()
     frame.auraNumbers:Clear()
     if frame.borderCooldown then frame.borderCooldown:Clear() end
+    frame.shiftBase = nil
+    untrackTimed(trackerIndex)
     self.state:Hide(trackerIndex)
-    if frame.glowKey == "applied" then
-        applyGlow(frame, nil)
-    end
     self:RefreshBorder(trackerIndex)
 
     local shouldShow, alpha = self:DetermineVisibility(trackerIndex, false)
+    frame.hideShow = shouldShow
+    frame.hideAlpha = alpha
 
-    if shouldShow then
-        frame:SetAlpha(alpha)
+    if wasShown and FX:Exit(frame, shouldShow and alpha or 0, frame.finishHide) then
+        return
+    end
+    self:FinishHide(frame)
+end
+
+function SpellTracker:FinishHide(frame)
+    if frame.hideShow then
+        frame:SetAlpha(frame.hideAlpha)
         frame:Show()
     else
         frame:Hide()
@@ -561,16 +584,26 @@ function SpellTracker:HideTracker(trackerIndex)
 end
 
 function SpellTracker:OnUpdate(elapsed)
+    if #timedTrackers == 0 and #cooldownEnabledTrackers == 0 then
+        stats.idle = stats.idle + 1
+        return
+    end
+
     throttleTime = throttleTime + elapsed
-    if throttleTime >= UPDATE_THROTTLE then
+    if #timedTrackers > 0 and throttleTime >= FX.tier.throttle then
         throttleTime = 0
 
         self.cachedTime = GetTime()
+        stats.ticks = stats.ticks + 1
 
-        for trackerIndex = 1, ICON_POOL_SIZE do
+        for slot = #timedTrackers, 1, -1 do
+            local trackerIndex = timedTrackers[slot]
             local frame = iconFrames[trackerIndex]
             local remaining = frame and self.state:Remaining(trackerIndex, self.cachedTime)
-            if remaining then
+            stats.visited = stats.visited + 1
+            if not remaining then
+                untrackTimed(trackerIndex)
+            else
                 if remaining <= 0 then
                     self:HideTracker(trackerIndex)
                 else
@@ -586,6 +619,10 @@ function SpellTracker:OnUpdate(elapsed)
                             frame.lastTimerText = ""
                         end
                     end
+                    if frame.shiftBase then
+                        stats.shifts = stats.shifts + 1
+                        FX:BorderShift(frame, remaining)
+                    end
                     if remaining <= Border.EXPIRING_SECONDS then
                         self:RefreshBorder(trackerIndex, self.cachedTime)
                     end
@@ -595,14 +632,27 @@ function SpellTracker:OnUpdate(elapsed)
     end
 
     cooldownThrottle = cooldownThrottle + elapsed
-    if cooldownThrottle >= COOLDOWN_UPDATE_INTERVAL then
+    if #cooldownEnabledTrackers > 0 and cooldownThrottle >= COOLDOWN_UPDATE_INTERVAL then
         cooldownThrottle = 0
 
+        local now = GetTime()
+        self.cachedTime = now
+        stats.cooldownTicks = stats.cooldownTicks + 1
         for j = 1, #cooldownEnabledTrackers do
             local i = cooldownEnabledTrackers[j]
-            self:UpdateCooldown(i, self.cachedTime)
+            self:UpdateCooldown(i, now)
         end
     end
+end
+
+function SpellTracker:GetFxStats(reset)
+    local now = GetTime()
+    local snapshot = { ticks = stats.ticks, visited = stats.visited, shifts = stats.shifts, idle = stats.idle, cooldownTicks = stats.cooldownTicks, seconds = now - stats.since, quality = FX.quality, timed = #timedTrackers }
+    if reset then
+        stats.ticks, stats.visited, stats.shifts, stats.idle, stats.cooldownTicks = 0, 0, 0, 0, 0
+        stats.since = now
+    end
+    return snapshot
 end
 
 function SpellTracker:FormatTime(seconds)
@@ -888,12 +938,27 @@ function SpellTracker:LoadSettings()
 
     self.db.knownDurations = self.db.knownDurations or {}
     self.state:SetKnownDurations(self.db.knownDurations)
+    self.db.animQuality = FX:SetQuality(self.db.animQuality)
 
     self:MigrateIconSettings()
     self:UpdateContainerVisibility()
     self:RestoreIconStates()
     self:RebuildTrackingLookups()
+    self:RebuildTimed()
     self:RefreshAllTrackers()
+end
+
+function SpellTracker:RebuildTimed()
+    for i = #timedTrackers, 1, -1 do
+        timedSet[timedTrackers[i]] = nil
+        timedTrackers[i] = nil
+    end
+    local now = GetTime()
+    for i = 1, #self.db.icons do
+        if self.state:Remaining(i, now) then
+            trackTimed(i)
+        end
+    end
 end
 
 function SpellTracker:GetSettings()
@@ -908,6 +973,9 @@ function SpellTracker:SetSetting(key, value)
         self:SetLocked(value)
     else
         self.db[key] = value
+        if key == "animQuality" then
+            self.db.animQuality = FX:SetQuality(value)
+        end
         if key == "showBorderTimer" then
             self:RefreshAllTrackers()
         end
@@ -987,6 +1055,8 @@ function SpellTracker:ResetFrameDisplay(frame)
     frame.cooldownNumbers.sentStart = nil
     frame.cooldownNumbers.sentDuration = nil
     frame.cooldownNumbers.secretShown = nil
+    FX:Rest(frame)
+    frame.shiftBase = nil
     frame.cooldownText:SetText("")
     frame.cooldownText:SetTextColor(1, 0.82, 0, 1)
     frame.lastCooldownText = ""

@@ -14,6 +14,9 @@ local UnitPowerMax = UnitPowerMax
 local UnitHealth = UnitHealth
 local UnitHealthMax = UnitHealthMax
 local GetComboPoints = GetComboPoints
+local Plain = SA_COMPAT.Plain
+
+local TARGET_SWITCH_WINDOW = 0.25
 
 local POWER_TYPE_MANA = 0
 local POWER_TYPE_RAGE = 1
@@ -41,14 +44,6 @@ local CP_SPACING = 8
 local VALUE_UPDATE_THROTTLE = 0.016
 local ENERGY_UPDATE_THROTTLE = 0.01
 local TWO_PI = math_pi * 2
-
-local CP_DEFAULT_SCALE = 1.0
-local CP_BOUNCE_AMOUNT = 0.15
-local CP_CELEBRATION_BOUNCE = 0.25
-local CP_BOUNCE_DURATION = 0.2
-local CP_CELEBRATION_DURATION = 0.6
-local CP_CELEBRATION_WAVE_DELAY = 0.08
-local CP_CELEBRATION_CP_DURATION = 0.4
 
 local BAR_CONFIGS = {
 	energy = {
@@ -105,6 +100,8 @@ local RESOURCE_BAR_KEYS = {
 	comboMaxColor = true,
 	comboInactiveColor = true,
 	comboStyle = "circle",
+	comboCelebration = true,
+	comboAnimQuality = true,
 	fullCPSound = true,
 	barTexture = true,
 	healthHeight = true,
@@ -160,11 +157,6 @@ function ResourceBar:Initialize()
 		combo = ""
 	}
 
-	self.cpAnimationState = {
-		running = {},
-		celebration = false
-	}
-
 	self.lastBarUpdate = {
 		energy = nil,
 		rage = nil,
@@ -209,8 +201,7 @@ function ResourceBar:CacheColors()
 end
 
 function ResourceBar:RefreshComboColors()
-	self.lastComboPoints = -1
-	self:UpdateComboPoints()
+	self:PaintComboPoints(self.lastComboPoints or 0)
 end
 
 function ResourceBar:SaveComboPosition()
@@ -397,26 +388,6 @@ function ResourceBar:CreateCPFrame()
 		cpFrame.texture:SetAllPoints(cpFrame)
 		cpFrame.texture:SetVertexColor(0.25, 0.25, 0.25, 1)
 
-		cpFrame.sparks = cpFrame:CreateTexture(nil, "OVERLAY")
-		cpFrame.sparks:SetAllPoints(cpFrame)
-		cpFrame.sparks:SetTexture("Interface\\FullScreenTextures\\LowHealth")
-		cpFrame.sparks:SetBlendMode("ADD")
-		cpFrame.sparks:SetAlpha(0)
-
-		cpFrame.glow = cpFrame:CreateTexture(nil, "BACKGROUND")
-		cpFrame.glow:SetPoint("CENTER")
-		cpFrame.glow:SetSize(CP_HEIGHT * 1.5, CP_HEIGHT * 1.5)
-		cpFrame.glow:SetTexture("Interface\\FullScreenTextures\\LowHealth")
-		cpFrame.glow:SetBlendMode("ADD")
-		cpFrame.glow:SetAlpha(0)
-
-		cpFrame.particles = cpFrame:CreateTexture(nil, "OVERLAY")
-		cpFrame.particles:SetPoint("CENTER")
-		cpFrame.particles:SetSize(CP_HEIGHT * 2, CP_HEIGHT * 2)
-		cpFrame.particles:SetTexture("Interface\\Cooldown\\star4")
-		cpFrame.particles:SetBlendMode("ADD")
-		cpFrame.particles:SetAlpha(0)
-
 		if i == 1 then
 			cpFrame:SetPoint("LEFT", self.comboFrame, "LEFT", 10, 0)
 		else
@@ -425,6 +396,8 @@ function ResourceBar:CreateCPFrame()
 
 		self.comboPoints[i] = cpFrame
 	end
+
+	self.celebration = SoundAlerter.CPCelebration:Create(self.comboFrame, self.comboPoints, CP_SPACING, self.cachedColors)
 
 	self:ApplyCPStyle()
 	self.comboFrame:Hide()
@@ -527,6 +500,7 @@ function ResourceBar:UNIT_POWER_UPDATE(event, unitId, powerType)
 end
 
 function ResourceBar:PLAYER_TARGET_CHANGED()
+	self.targetChangedAt = GetTime()
 	if self.comboFrame and self.comboFrame:IsShown() then
 		self:UpdateComboPoints()
 	end
@@ -558,225 +532,94 @@ function ResourceBar:UpdateManaBar()
 end
 
 function ResourceBar:UpdateComboPoints()
-	if not self.comboPoints then return end
+	if not self.comboPoints or self.previewing then return end
 
 	local cpRaw = GetComboPoints("player", "target")
 	if issecretvalue(cpRaw) then return end
-	local cp = cpRaw or 0
+	self:SetComboPoints(cpRaw or 0)
+end
+
+function ResourceBar:PaintComboPoints(cp)
+	local activeColor = (cp == 5) and self.cachedColors.comboMax or self.cachedColors.comboActive
+	local inactiveColor = self.cachedColors.comboInactive
+
+	for i = 1, 5 do
+		local color = (i <= cp) and activeColor or inactiveColor
+		if color then
+			self.comboPoints[i].texture:SetVertexColor(color.r, color.g, color.b, 1)
+		end
+	end
+end
+
+function ResourceBar:ComboLossKind()
+	if GetTime() - (self.targetChangedAt or 0) < TARGET_SWITCH_WINDOW then return "lost" end
+	if Plain(UnitExists("target")) == false then return "lost" end
+	if Plain(UnitIsDeadOrGhost("target")) == true then return "lost" end
+	return "spent"
+end
+
+function ResourceBar:SetComboPoints(cp, forcedKind)
 	local lastCP = self.lastComboPoints or 0
+	if cp == lastCP then return end
 
-	if cp < lastCP then
-		self:CancelAllCPAnimations()
-	end
+	self:PaintComboPoints(cp)
 
-	if cp ~= lastCP then
-		local activeColor = (cp == 5) and self.cachedColors.comboMax or self.cachedColors.comboActive
-		local inactiveColor = self.cachedColors.comboInactive
-
-		for i = 1, 5 do
-			if i <= cp then
-				if activeColor then
-					self.comboPoints[i].texture:SetVertexColor(activeColor.r, activeColor.g, activeColor.b, 1)
-				end
-
-				if i > lastCP and i == cp and not (cp == 5 and lastCP == 4) then
-					self:AnimateCPGain(i)
-				end
-			else
-				if inactiveColor then
-					self.comboPoints[i].texture:SetVertexColor(inactiveColor.r, inactiveColor.g, inactiveColor.b, 1)
-				end
-			end
-		end
-
-		if cp == 5 and lastCP == 4 then
-			self:Animate5CPCelebrationWave()
-		end
-
-		self.lastComboPoints = cp
-
-		if self.comboText then
-			local newText = self.comboStrings[cp + 1]
-			if newText ~= self.lastText.combo then
-				self.comboText:SetText(newText)
-				self.lastText.combo = newText
-			end
-		end
-	end
-end
-
-local function restComboPoint(cp, color)
-	cp:SetScale(CP_DEFAULT_SCALE)
-	if cp.glow then cp.glow:SetAlpha(0) end
-	if cp.particles then cp.particles:SetAlpha(0) end
-	if cp.sparks then cp.sparks:SetAlpha(0) end
-	if color and cp.texture then
-		cp.texture:SetVertexColor(color.r, color.g, color.b, 1)
-	end
-end
-
-function ResourceBar:CancelCPAnimation(cpIndex)
-	local cp = self.comboPoints[cpIndex]
-	if not cp then return end
-
-	cp:SetScript("OnUpdate", nil)
-
-	cp.bounceTime = nil
-	cp.bounceStart = nil
-
-	restComboPoint(cp)
-
-	if self.cpAnimationState then
-		self.cpAnimationState.running[cpIndex] = false
-	end
-end
-
-function ResourceBar:CancelAllCPAnimations()
-	for i = 1, 5 do
-		self:CancelCPAnimation(i)
-	end
-
-	if self.comboFrame then
-		self.comboFrame:SetScript("OnUpdate", nil)
-		self.comboFrame.celebrationTime = nil
-	end
-
-	if self.cpAnimationState then
-		self.cpAnimationState.celebration = false
-	end
-end
-
-function ResourceBar:AnimateCPGain(cpIndex)
-	local cp = self.comboPoints[cpIndex]
-	if not cp then return end
-
-	self:CancelCPAnimation(cpIndex)
-
-	if self.cpAnimationState then
-		self.cpAnimationState.running[cpIndex] = true
-	end
-
-	cp:SetScript("OnUpdate", function(frame, elapsed)
-		if not frame.bounceTime then
-			frame.bounceTime = 0
-		end
-
-		frame.bounceTime = frame.bounceTime + elapsed
-		local progress = frame.bounceTime / CP_BOUNCE_DURATION
-
-		if progress >= 1 then
-			frame:SetScale(CP_DEFAULT_SCALE)
-			frame:SetScript("OnUpdate", nil)
-			frame.bounceTime = nil
-
-			if cp.sparks then cp.sparks:SetAlpha(0) end
-
-			if self.cpAnimationState then
-				self.cpAnimationState.running[cpIndex] = false
-			end
-		else
-			local scale = CP_DEFAULT_SCALE + (math_sin(progress * math_pi) * CP_BOUNCE_AMOUNT)
-			frame:SetScale(scale)
-
-			if cp.sparks then
-				local alpha = 0.8 * (1 - progress)
-				cp.sparks:SetAlpha(alpha)
-				cp.sparks:SetVertexColor(1, 0.9, 0.3, alpha)
-			end
-		end
-	end)
-end
-
-function ResourceBar:Animate5CPCelebrationWave()
-	if not self.comboFrame then return end
-
-	for i = 1, 5 do
-		self:CancelCPAnimation(i)
-	end
-
-	if self.cpAnimationState then
-		self.cpAnimationState.celebration = true
-	end
-
-	if self.db.fullCPSound then
+	local kind
+	if cp < lastCP then kind = forcedKind or self:ComboLossKind() end
+	SoundAlerter.CPCelebration:Change(self.celebration, lastCP, cp, kind)
+	if cp == 5 and self.db.fullCPSound then
 		PlaySound(SOUNDKIT and SOUNDKIT.AUCTION_WINDOW_CLOSE or 5275)
 	end
 
-	self.comboFrame:SetScript("OnUpdate", function(frame, elapsed)
-		if not frame.celebrationTime then
-			frame.celebrationTime = 0
+	self.lastComboPoints = cp
+
+	if self.comboText then
+		local newText = self.comboStrings[cp + 1]
+		if newText ~= self.lastText.combo then
+			self.comboText:SetText(newText)
+			self.lastText.combo = newText
 		end
+	end
+end
 
-		frame.celebrationTime = frame.celebrationTime + elapsed
-		local progress = frame.celebrationTime / CP_CELEBRATION_DURATION
+function ResourceBar:ApplyCelebration()
+	local fx = self.celebration
+	if not fx or not self.db then return end
 
-		if progress >= 1 then
-			for i = 1, 5 do
-				local cp = self.comboPoints[i]
-				if cp then
-					restComboPoint(cp, self.cachedColors.comboMax)
-				end
-			end
-			frame:SetScript("OnUpdate", nil)
-			frame.celebrationTime = nil
+	local Celebration = SoundAlerter.CPCelebration
+	local cp = self.lastComboPoints or 0
+	self.db.comboCelebration = Celebration:Normalize(self.db.comboCelebration)
+	self.db.comboAnimQuality = Celebration:NormalizeQuality(self.db.comboAnimQuality)
+	Celebration:Apply(fx, self.db.comboCelebration, cp, self.db.comboAnimQuality)
+	self:PaintComboPoints(cp)
+end
 
-			if self.cpAnimationState then
-				self.cpAnimationState.celebration = false
-			end
-		else
-			for i = 1, 5 do
-				local cp = self.comboPoints[i]
-				if cp then
-					local waveDelay = (i - 1) * CP_CELEBRATION_WAVE_DELAY
-					local cpProgress = (frame.celebrationTime - waveDelay) / CP_CELEBRATION_CP_DURATION
+function ResourceBar:CancelAllCPAnimations()
+	if self.celebration then
+		SoundAlerter.CPCelebration:Reset(self.celebration)
+	end
+end
 
-					if cpProgress > 0 and cpProgress < 1 then
-						local scale = CP_DEFAULT_SCALE + (math_sin(cpProgress * math_pi) * CP_CELEBRATION_BOUNCE)
-						cp:SetScale(scale)
+function ResourceBar:PreviewCelebration(kind)
+	if not self.comboFrame or not self.comboFrame:IsShown() then return end
 
-						if cp.glow then
-							local glowAlpha = 0.9 * math_sin(cpProgress * math_pi)
-							cp.glow:SetAlpha(glowAlpha)
-							cp.glow:SetVertexColor(1, 0.8, 0.2, glowAlpha)
-						end
+	self.previewToken = (self.previewToken or 0) + 1
+	local token = self.previewToken
+	self.previewing = true
+	self:SetComboPoints(0, "lost")
 
-						if cp.particles then
-							local particleAlpha = math_sin(cpProgress * math_pi)
-							local particleScale = 1 + (cpProgress * 1.5)
-							cp.particles:SetAlpha(particleAlpha)
-							cp.particles:SetVertexColor(1, 0.9, 0.3, particleAlpha)
-							cp.particles:SetSize(CP_HEIGHT * 2 * particleScale, CP_HEIGHT * 2 * particleScale)
-						end
-
-						if cp.sparks then
-							local sparksAlpha = 0.8 * math_sin(cpProgress * math_pi)
-							cp.sparks:SetAlpha(sparksAlpha)
-							cp.sparks:SetVertexColor(1, 0.9, 0.3, sparksAlpha)
-						end
-
-						if cp.texture then
-							local flashProgress = cpProgress * 2
-							if flashProgress < 1 then
-								local flashIntensity = math_sin(flashProgress * math_pi)
-								cp.texture:SetVertexColor(
-									0.8 + (0.2 * flashIntensity),
-									0.6 + (0.3 * flashIntensity),
-									1.0,
-									1
-								)
-							else
-								local color = self.cachedColors.comboMax
-								if color then
-									cp.texture:SetVertexColor(color.r, color.g, color.b, 1)
-								end
-							end
-						end
-					elseif cpProgress >= 1 then
-						restComboPoint(cp, self.cachedColors.comboMax)
-					end
-				end
-			end
-		end
+	for step = 1, 5 do
+		C_Timer.After(step * 0.45, function()
+			if self.previewToken == token then self:SetComboPoints(step) end
+		end)
+	end
+	C_Timer.After(5.6, function()
+		if self.previewToken == token then self:SetComboPoints(0, kind) end
+	end)
+	C_Timer.After(7.6, function()
+		if self.previewToken ~= token then return end
+		self.previewing = false
+		self:UpdateComboPoints()
 	end)
 end
 
@@ -841,6 +684,7 @@ function ResourceBar:ApplyComboLayout()
 	local inset = BarUtils:Snap(10, frame)
 
 	frame:SetSize(BarUtils:Snap(CP_CONTAINER_WIDTH + 20, frame), BarUtils:Snap(CP_HEIGHT + 20, frame))
+	SoundAlerter.CPCelebration:SetInset(self.celebration, inset)
 
 	for i = 1, 5 do
 		local cp = self.comboPoints[i]
@@ -895,8 +739,10 @@ function ResourceBar:UpdateVisibility()
 
 	if self.comboFrame then
 		if self.db.comboEnabled then
+			local wasHidden = not self.comboFrame:IsShown()
 			self.comboFrame:Show()
 			self.comboFrame:EnableMouse(not self.db.locked)
+			if wasHidden then self:ApplyCelebration() end
 			self:UpdateComboPoints()
 			self:StartComboUpdates()
 		else
@@ -927,5 +773,6 @@ function ResourceBar:OnProfileChanged()
 	self:CacheColors()
 	self:LoadSettings()
 	self:ApplyBarTexture()
+	self:ApplyCelebration()
 	self:UpdateVisibility()
 end

@@ -115,6 +115,8 @@ function SoundAlerter:ChangeProfile()
 		self.MinimapTracking:OnProfileChanged()
 	end
 
+	self:UpdateMinimapButtonIcon()
+
 	if self.Footsteps then
 		self.Footsteps:OnProfileChanged()
 	end
@@ -144,309 +146,6 @@ end
 
 function SoundAlerter:AddOption(key, table)
 	self.options.args[key] = table
-end
-
-local SoundAlerterMinimapButton
-local BUTTON_TEXTURE = "Interface\\ICONS\\ability_warrior_battleshout"
-
-function SoundAlerter:CreateMinimapButton()
-    local db = sadb
-    local buttonSize = 24
-    local iconSize = 24
-    local initialX = 5
-    local initialY = -5
-
-    SoundAlerterMinimapButton = CreateFrame("Button", "SoundAlerterMinimapButton", Minimap)
-    SoundAlerterMinimapButton:SetSize(buttonSize, buttonSize)
-    SoundAlerterMinimapButton:SetFrameStrata("MEDIUM")
-    SoundAlerterMinimapButton:SetMovable(true)
-    SoundAlerterMinimapButton:EnableMouse(true)
-    SoundAlerterMinimapButton:RegisterForDrag("LeftButton")
-
-    local icon = SoundAlerterMinimapButton:CreateTexture(nil, "ARTWORK")
-    icon:SetTexture(BUTTON_TEXTURE)
-    icon:SetSize(iconSize, iconSize)
-    icon:SetPoint("CENTER", SoundAlerterMinimapButton, "CENTER", 0, 0)
-    icon:SetVertexColor(0.5, 1.0, 1.0)
-    SoundAlerterMinimapButton.icon = icon
-
-    local border = SoundAlerterMinimapButton:CreateTexture(nil, "OVERLAY")
-    border:SetTexture("Interface\\Buttons\\UI-Quickslot-Depress")
-    border:SetSize(iconSize + 4, iconSize + 4)
-    border:SetPoint("CENTER", SoundAlerterMinimapButton, "CENTER", 0, 0)
-    border:SetVertexColor(0.5, 0.5, 0.5, 0.8)
-    SoundAlerterMinimapButton.border = border
-
-    local highlight = SoundAlerterMinimapButton:CreateTexture(nil, "HIGHLIGHT")
-    highlight:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
-    highlight:SetSize(iconSize, iconSize)
-    highlight:SetPoint("CENTER", SoundAlerterMinimapButton, "CENTER", 0, 0)
-    highlight:SetBlendMode("ADD")
-    highlight:SetVertexColor(0.0, 0.8, 0.8)
-    highlight:SetAlpha(0)
-    SoundAlerterMinimapButton.highlight = highlight
-
-    self:CreateMinimapButtonAnimations()
-
-    SoundAlerterMinimapButton:SetScript("OnEnter", function(self)
-        SoundAlerter:MinimapButton_OnEnter(self)
-    end)
-
-    SoundAlerterMinimapButton:SetScript("OnLeave", function(self)
-        SoundAlerter:MinimapButton_OnLeave(self)
-    end)
-
-    SoundAlerterMinimapButton:SetScript("OnMouseDown", function(self, button)
-        SoundAlerter:MinimapButton_OnMouseDown(self, button)
-    end)
-
-    SoundAlerterMinimapButton:SetScript("OnMouseUp", function(self, button)
-        SoundAlerter:MinimapButton_OnMouseUp(self, button)
-    end)
-
-    SoundAlerterMinimapButton:SetScript("OnClick", function(self, button)
-        SoundAlerter:MinimapButton_OnClick(self, button)
-    end)
-
-    SoundAlerterMinimapButton:SetScript("OnDragStart", function(self)
-        SoundAlerter:MinimapButton_OnDragStart(self)
-    end)
-
-    SoundAlerterMinimapButton:SetScript("OnDragStop", function(self)
-        SoundAlerter:MinimapButton_OnDragStop(self)
-    end)
-
-    if db.MinimapButtonPosition then
-        SoundAlerterMinimapButton:ClearAllPoints()
-        SoundAlerterMinimapButton:SetPoint("CENTER", Minimap, "CENTER",
-            db.MinimapButtonPosition.x, db.MinimapButtonPosition.y)
-    else
-        SoundAlerterMinimapButton:SetPoint("TOPLEFT", Minimap, "TOPLEFT", initialX, initialY)
-    end
-
-    if db.MinimapButtonHidden then
-        SoundAlerterMinimapButton:Hide()
-    else
-        SoundAlerterMinimapButton:Show()
-    end
-
-    self:UpdateMinimapButtonIcon()
-end
-
-function SoundAlerter:CreateMinimapButtonAnimations()
-    local button = SoundAlerterMinimapButton
-    if not button then return end
-
-    button.hoverAnimGroup = button:CreateAnimationGroup()
-    button.hoverAnimGroup:SetLooping("NONE")
-
-    local hoverScale = button.hoverAnimGroup:CreateAnimation("Scale")
-    hoverScale:SetScale(1.05, 1.05)
-    hoverScale:SetDuration(0.15)
-    hoverScale:SetSmoothing("OUT")
-
-    button.unhoverAnimGroup = button:CreateAnimationGroup()
-    button.unhoverAnimGroup:SetLooping("NONE")
-
-    local unhoverScale = button.unhoverAnimGroup:CreateAnimation("Scale")
-    unhoverScale:SetScale(0.952, 0.952)
-    unhoverScale:SetDuration(0.15)
-    unhoverScale:SetSmoothing("OUT")
-
-    button.pressAnimGroup = button:CreateAnimationGroup()
-    button.pressAnimGroup:SetLooping("NONE")
-
-    local pressScale = button.pressAnimGroup:CreateAnimation("Scale")
-    pressScale:SetScale(0.905, 0.905)
-    pressScale:SetDuration(0.05)
-
-    button.releaseAnimGroup = button:CreateAnimationGroup()
-    button.releaseAnimGroup:SetLooping("NONE")
-
-    local releaseScale = button.releaseAnimGroup:CreateAnimation("Scale")
-    releaseScale:SetScale(1.105, 1.105)
-    releaseScale:SetDuration(0.1)
-    releaseScale:SetSmoothing("OUT")
-end
-
-function SoundAlerter:MinimapButton_OnEnter(self)
-    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-    GameTooltip:AddLine("SoundAlerter")
-    GameTooltip:AddLine("Click: Options", 1, 1, 1)
-    GameTooltip:AddLine("Shift+Click: Toggle Proximity", 0.8, 0.8, 0.8)
-    GameTooltip:AddLine("Ctrl+Click: Toggle Battleground", 0.8, 0.8, 0.8)
-    GameTooltip:AddLine("Drag to move", 0.6, 0.6, 0.6)
-    GameTooltip:Show()
-
-    if SoundAlerterMinimapButton.hoverAnimGroup then
-        SoundAlerterMinimapButton.unhoverAnimGroup:Stop()
-        SoundAlerterMinimapButton.hoverAnimGroup:Play()
-    end
-
-    if SoundAlerterMinimapButton.border then
-        SoundAlerterMinimapButton.border:SetVertexColor(0.0, 0.8, 0.8, 1.0)
-    end
-
-    local highlight = SoundAlerterMinimapButton.highlight
-    if highlight then
-        UIFrameFadeIn(highlight, 0.15, highlight:GetAlpha(), 0.3)
-    end
-end
-
-function SoundAlerter:MinimapButton_OnLeave(self)
-    GameTooltip:Hide()
-
-    if SoundAlerterMinimapButton.unhoverAnimGroup then
-        SoundAlerterMinimapButton.hoverAnimGroup:Stop()
-        SoundAlerterMinimapButton.unhoverAnimGroup:Play()
-    end
-
-    if SoundAlerterMinimapButton.border then
-        SoundAlerterMinimapButton.border:SetVertexColor(0.5, 0.5, 0.5, 0.8)
-    end
-
-    local highlight = SoundAlerterMinimapButton.highlight
-    if highlight then
-        UIFrameFadeOut(highlight, 0.15, highlight:GetAlpha(), 0)
-    end
-end
-
-function SoundAlerter:MinimapButton_OnMouseDown(self, button)
-    if button ~= "LeftButton" and button ~= "RightButton" then
-        return
-    end
-
-    SoundAlerterMinimapButton.pendingShift = IsShiftKeyDown()
-    SoundAlerterMinimapButton.pendingCtrl = IsControlKeyDown()
-
-    if SoundAlerterMinimapButton.pressAnimGroup then
-        SoundAlerterMinimapButton.releaseAnimGroup:Stop()
-        SoundAlerterMinimapButton.pressAnimGroup:Play()
-    end
-
-    if SoundAlerterMinimapButton.icon then
-        SoundAlerterMinimapButton.icon:SetVertexColor(0.425, 0.85, 0.85)
-    end
-
-    if SoundAlerterMinimapButton.border then
-        SoundAlerterMinimapButton.border:SetVertexColor(1.0, 1.0, 1.0, 1.0)
-    end
-
-    local point, relativeTo, relativePoint, xOfs, yOfs = SoundAlerterMinimapButton:GetPoint(1)
-    SoundAlerterMinimapButton.originalOffset = {point, relativeTo, relativePoint, xOfs, yOfs}
-    SoundAlerterMinimapButton:ClearAllPoints()
-    SoundAlerterMinimapButton:SetPoint(point, relativeTo, relativePoint, xOfs + 1, yOfs - 1)
-end
-
-function SoundAlerter:MinimapButton_OnMouseUp(self, button)
-    if button ~= "LeftButton" and button ~= "RightButton" then
-        return
-    end
-
-    if SoundAlerterMinimapButton.releaseAnimGroup then
-        SoundAlerterMinimapButton.pressAnimGroup:Stop()
-        SoundAlerterMinimapButton.releaseAnimGroup:Play()
-    end
-
-    if SoundAlerterMinimapButton.icon then
-        SoundAlerterMinimapButton.icon:SetVertexColor(0.5, 1.0, 1.0)
-    end
-
-    if SoundAlerterMinimapButton.border then
-        local startTime = GetTime()
-        local duration = 0.15
-        local startR, startG, startB = 1.0, 1.0, 1.0
-        local endR, endG, endB = 0.0, 0.8, 0.8
-
-        SoundAlerterMinimapButton.borderFadeFrame = SoundAlerterMinimapButton.borderFadeFrame or CreateFrame("Frame")
-        SoundAlerterMinimapButton.borderFadeFrame:SetScript("OnUpdate", function(fadeFrame, elapsed)
-            local progress = (GetTime() - startTime) / duration
-            if progress >= 1.0 then
-                SoundAlerterMinimapButton.border:SetVertexColor(endR, endG, endB, 1.0)
-                fadeFrame:SetScript("OnUpdate", nil)
-            else
-                local r = startR + (endR - startR) * progress
-                local g = startG + (endG - startG) * progress
-                local b = startB + (endB - startB) * progress
-                SoundAlerterMinimapButton.border:SetVertexColor(r, g, b, 1.0)
-            end
-        end)
-    end
-
-    if SoundAlerterMinimapButton.originalOffset then
-        local point, relativeTo, relativePoint, xOfs, yOfs = unpack(SoundAlerterMinimapButton.originalOffset)
-        SoundAlerterMinimapButton:ClearAllPoints()
-        SoundAlerterMinimapButton:SetPoint(point, relativeTo, relativePoint, xOfs, yOfs)
-        SoundAlerterMinimapButton.originalOffset = nil
-    end
-end
-
-function SoundAlerter:UpdateMinimapButtonIcon()
-    if not SoundAlerterMinimapButton or not SoundAlerterMinimapButton.icon then return end
-
-    local proximityOn = sadb.proximityEnabled
-    local battlegroundOn = sadb.battlegroundAlertsEnabled
-    local icon = SoundAlerterMinimapButton.icon
-
-    if proximityOn and battlegroundOn then
-
-        icon:SetTexture("Interface\\ICONS\\Ability_Warrior_VictoryRush")
-    elseif proximityOn and not battlegroundOn then
-
-        icon:SetTexture("Interface\\ICONS\\Ability_Hunter_SniperShot")
-    elseif not proximityOn and battlegroundOn then
-
-        icon:SetTexture("Interface\\ICONS\\INV_Banner_02")
-    else
-
-        icon:SetTexture("Interface\\ICONS\\ability_warrior_battleshout")
-    end
-
-    icon:SetVertexColor(0.5, 1.0, 1.0)
-end
-
-function SoundAlerter:MinimapButton_OnClick(self, button)
-    if button == "LeftButton" then
-        local wasShift = SoundAlerterMinimapButton.pendingShift
-        local wasCtrl = SoundAlerterMinimapButton.pendingCtrl
-
-        SoundAlerterMinimapButton.pendingShift = false
-        SoundAlerterMinimapButton.pendingCtrl = false
-
-        if wasShift then
-            sadb.proximityEnabled = not sadb.proximityEnabled
-            if sadb.proximityEnabled then
-                sadb.proximityWorld = true
-            end
-            local status = sadb.proximityEnabled and "|cff00FF00ON|r" or "|cffFF0000OFF|r"
-            SoundAlerter:Print("Proximity Alerts: " .. status)
-            SoundAlerter:ScheduleTimer("UpdateMinimapButtonIcon", 0.05)
-        elseif wasCtrl then
-            sadb.battlegroundAlertsEnabled = not sadb.battlegroundAlertsEnabled
-            local status = sadb.battlegroundAlertsEnabled and "|cff00FF00ON|r" or "|cffFF0000OFF|r"
-            SoundAlerter:Print("Battleground Alerts: " .. status)
-            SoundAlerter:ScheduleTimer("UpdateMinimapButtonIcon", 0.05)
-        else
-            SoundAlerter:ShowConfig()
-        end
-    elseif button == "RightButton" then
-        SoundAlerter:ShowConfig()
-    end
-end
-
-function SoundAlerter:MinimapButton_OnDragStart(self)
-    self:StartMoving()
-end
-
-function SoundAlerter:MinimapButton_OnDragStop(self)
-    self:StopMovingOrSizing()
-    local minimapX, minimapY = Minimap:GetCenter()
-    local buttonX, buttonY = self:GetCenter()
-
-    sadb.MinimapButtonPosition = {
-        x = buttonX - minimapX,
-        y = buttonY - minimapY,
-    }
 end
 
 function SoundAlerter:OnInitialize()
@@ -875,11 +574,21 @@ function SoundAlerter:HandleCommand(input)
 
     if command == "stats" then
         self:ShowPerformanceStats()
+    elseif command == "speed" then
+        if self.SpeedMeter and self.SpeedMeter.Probe and self.SpeedMeter.addon then
+            self.SpeedMeter:Probe()
+        else
+            self:Print("|cffFF0000SpeedMeter module not loaded.|r")
+        end
+    elseif command == "fxstats" then
+        self:ShowFxStats(rest:lower())
     elseif command == "help" then
         self:Print("|cffFFD700=== SoundAlerter Commands ===|r")
         self:Print("|cff00FFFF[General]|r")
         self:Print("  |cffFFFFFF/sa|r - Open options panel")
         self:Print("  |cffFFFFFF/sa stats|r - Show class detection performance stats")
+        self:Print("  |cffFFFFFF/sa speed|r - Print the raw speed values and what the Speed Meter would show (stand in the water, then run it)")
+        self:Print("  |cffFFFFFF/sa fxstats [reset]|r - Show how often the casting bars and spell tracker icons update at the current animation quality")
         self:Print("  |cffFFFFFF/sa probe|r - Print what the client lets the addon read (turn on Debug Mode first to record events)")
         self:Print("  |cffFFFFFF/sa snooze [minutes]|r / |cffFFFFFF/sa unsnooze|r - Silence proximity and enemy awareness alerts for a while")
         self:Print("  |cffFFFFFF/sa watch [guild] <name>|r / |cffFFFFFF/sa unwatch [guild] <name>|r / |cffFFFFFF/sa watchlist|r - Manage the watchlist")

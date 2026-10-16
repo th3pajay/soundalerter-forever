@@ -30,6 +30,7 @@ function SoundAlerter:ShowConfig()
         SA_OptionsNav.RestorePage(AceConfigDialog, sadb.ui)
 	    AceConfigDialog:Open(configName)
         local opened = AceConfigDialog.OpenFrames[configName]
+        if opened then pcall(SA_WindowSkin.Badge, opened) end
         if opened and sadb.flatWindow ~= false then pcall(SA_WindowSkin.Apply, opened) end
         if opened and opened.frame and not opened.frame.saRemembersPage then
             opened.frame.saRemembersPage = true
@@ -822,6 +823,8 @@ function SoundAlerter:OnOptionsCreate()
 	self:AddOption('QuickStart', self:BuildQuickStartOptions())
 
 	self:AddOption('General', self:BuildGeneralOptions())
+
+	self:AddOption('MinimapButton', self:BuildMinimapButtonOptions())
 
 	self:AddOption('ProximityAlerts', self:BuildProximityOptions())
 

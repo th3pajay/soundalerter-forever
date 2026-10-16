@@ -20,12 +20,17 @@ local SETTING_KEYS = {
     boostColor = true, slowColor = true, baseColor = true,
 }
 
-function SpeedMeter.Evaluate(run, flight, swim, mounted, flying, swimming)
+local function usable(value)
+    return type(value) == "number" and value > 0
+end
+
+function SpeedMeter.Evaluate(run, flight, swim, mounted, flying, swimming, current)
     local speed, base, mode
     if flying then
         speed, base, mode = flight, BASE_RUN, "flight"
     elseif swimming then
         speed, base, mode = swim, BASE_SWIM, "swim"
+        if not usable(speed) and usable(current) then speed = current end
     else
         speed, base, mode = run, BASE_RUN, "run"
     end
@@ -46,8 +51,29 @@ function SpeedMeter.Evaluate(run, flight, swim, mounted, flying, swimming)
 end
 
 local function ReadSpeeds()
-    local _, run, flight, swim = GetUnitSpeed("player")
-    return Plain(run), Plain(flight), Plain(swim)
+    local current, run, flight, swim = GetUnitSpeed("player")
+    return Plain(run), Plain(flight), Plain(swim), Plain(current)
+end
+
+local function flag(value)
+    return Plain(value) == true
+end
+
+local function InWater()
+    if flag(IsSwimming()) then return true end
+    return IsSubmerged ~= nil and flag(IsSubmerged())
+end
+
+function SpeedMeter:Probe()
+    local current, run, flight, swim = GetUnitSpeed("player")
+    local function show(value)
+        if Plain(value) == nil and value ~= nil then return "secret" end
+        return tostring(value)
+    end
+    self.addon:Print(string_format("Speed probe: current %s, run %s, flight %s, swim %s", show(current), show(run), show(flight), show(swim)))
+    self.addon:Print(string_format("Speed probe: swimming %s, submerged %s, flying %s, mounted %s", show(IsSwimming()), IsSubmerged and show(IsSubmerged()) or "missing", show(IsFlying()), show(IsMounted())))
+    local percent, mode, tint = SpeedMeter.Evaluate(Plain(run), Plain(flight), Plain(swim), flag(IsMounted()), flag(IsFlying()), InWater(), Plain(current))
+    self.addon:Print(string_format("Speed probe: the meter would show %s (%s, %s)", percent and (percent .. "%") or "--", tostring(mode), tostring(tint)))
 end
 
 function SpeedMeter:GetSettings()
@@ -89,8 +115,8 @@ function SpeedMeter:Render()
     if not db.locked then
         percent, tint = 100, "base"
     else
-        local run, flight, swim = ReadSpeeds()
-        percent, mode, tint = SpeedMeter.Evaluate(run, flight, swim, IsMounted(), IsFlying(), IsSwimming())
+        local run, flight, swim, current = ReadSpeeds()
+        percent, mode, tint = SpeedMeter.Evaluate(run, flight, swim, flag(IsMounted()), flag(IsFlying()), InWater(), current)
     end
 
     local label, color
