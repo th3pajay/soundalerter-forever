@@ -98,13 +98,21 @@ local function metadata(field)
     return nil
 end
 
+Skin.BETA = "|cffFF7D0ABETA|r"
+Skin.AUTHOR = "th3pajay"
+Skin.AUTHOR_COLORED = "|cff00FF00th|r|cff00D4FF3|r|cff00FF00pajay|r"
+
 function Skin.HeaderText(version, author)
     local parts = {}
     if version and version ~= "" then
         parts[#parts + 1] = "v" .. string.gsub(version, "^[vV]", "")
     end
-    if author and author ~= "" then parts[#parts + 1] = author end
-    return table.concat(parts, " - ")
+    if author and author ~= "" then
+        parts[#parts + 1] = author == Skin.AUTHOR and Skin.AUTHOR_COLORED or author
+    end
+    local text = table.concat(parts, " - ")
+    if text == "" then return "" end
+    return Skin.BETA .. " " .. text
 end
 
 function Skin.Badge(widget)

@@ -217,6 +217,61 @@ function Page.Module(config)
     return options
 end
 
+local function MakeScrollbar(parent, onChange, inset, topInset)
+    local strip = CreateFrame("Button", nil, parent)
+    strip:SetWidth(10)
+    strip:SetPoint("TOPRIGHT", parent, "TOPRIGHT", inset or 0, -(topInset or 0))
+    strip:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", inset or 0, 0)
+    strip:SetFrameLevel(parent:GetFrameLevel() + 20)
+    local thumb = Paint(strip, COLOR.track, 1, "OVERLAY")
+    thumb:SetWidth(4)
+    local bar = { strip = strip, thumb = thumb, fraction = 0, size = 24 }
+
+    local function clamp(value)
+        return math.max(0, math.min(1, value))
+    end
+
+    local function cursor()
+        local _, y = GetCursorPosition()
+        return y / strip:GetEffectiveScale()
+    end
+
+    function bar:Update(fraction, ratio)
+        local visible = ratio < 1
+        strip:SetShown(visible)
+        if not visible then return end
+        local track = strip:GetHeight()
+        self.size = math.max(24, track * ratio)
+        self.fraction = clamp(fraction)
+        thumb:SetHeight(self.size)
+        thumb:ClearAllPoints()
+        thumb:SetPoint("TOPRIGHT", strip, "TOPRIGHT", -3, -(track - self.size) * self.fraction)
+    end
+
+    local function stop()
+        strip:SetScript("OnUpdate", nil)
+    end
+
+    strip:SetScript("OnMouseDown", function(_, button)
+        if button and button ~= "LeftButton" then return end
+        local travel = strip:GetHeight() - bar.size
+        if travel <= 0 then return end
+        local y = cursor()
+        local thumbTop = strip:GetTop() - travel * bar.fraction
+        if y > thumbTop or y < thumbTop - bar.size then
+            bar.fraction = clamp((strip:GetTop() - y - bar.size / 2) / travel)
+            onChange(bar.fraction)
+        end
+        local startY, startFraction = y, bar.fraction
+        strip:SetScript("OnUpdate", function()
+            onChange(clamp(startFraction + (startY - cursor()) / travel))
+        end)
+    end)
+    strip:SetScript("OnMouseUp", stop)
+    strip:SetScript("OnHide", stop)
+    return bar
+end
+
 local function MakeToggle(parent, onChange)
     local button = CreateFrame("Button", nil, parent)
     button:SetSize(36, 18)
@@ -860,14 +915,7 @@ function Methods:UpdateScroll()
     local range = math.max(0, self.contentHeight - self.scroll:GetHeight())
     local offset = math.min(self.scroll:GetVerticalScroll(), range)
     self.scroll:SetVerticalScroll(offset)
-    self.thumb:SetShown(range > 0)
-    if range > 0 then
-        local trackHeight = self.scroll:GetHeight()
-        local thumbHeight = math.max(24, trackHeight * self.scroll:GetHeight() / self.contentHeight)
-        self.thumb:SetHeight(thumbHeight)
-        self.thumb:ClearAllPoints()
-        self.thumb:SetPoint("TOPRIGHT", self.scroll, "TOPRIGHT", 4, -(trackHeight - thumbHeight) * (offset / range))
-    end
+    self.bar:Update(range > 0 and offset / range or 0, range > 0 and self.scroll:GetHeight() / self.contentHeight or 1)
 end
 
 local function BuildPage(spec)
@@ -925,8 +973,12 @@ local function BuildPage(spec)
     scroll:SetScrollChild(child)
     scroll:EnableMouseWheel(true)
     page.scroll, page.child = scroll, child
-    page.thumb = Paint(scroll, COLOR.track, 1, "OVERLAY")
-    page.thumb:SetWidth(3)
+    page.bar = MakeScrollbar(scroll, function(fraction)
+        local range = math.max(0, page.contentHeight - scroll:GetHeight())
+        scroll:SetVerticalScroll(fraction * range)
+        page:UpdateScroll()
+    end, 12)
+    page.thumb = page.bar.strip
     scroll:SetScript("OnSizeChanged", function(_, width)
         child:SetWidth(math.max(1, width))
         page:UpdateScroll()
@@ -1020,6 +1072,7 @@ function WidgetMethods:SetCustomData(spec)
     page:Refresh()
     page:UpdateScroll()
     SA_MenuFX.SlideIn(page.frame, self.frame)
+    Page.Kit.FitWidget(self)
 end
 
 local function Constructor()
@@ -1093,22 +1146,17 @@ local function NewView(parent)
     child:SetSize(400, 100)
     scroll:SetScrollChild(child)
     scroll:EnableMouseWheel(true)
-    local thumb = Paint(scroll, COLOR.track, 1, "OVERLAY")
-    thumb:SetWidth(3)
-    view.frame, view.scroll, view.child, view.thumb = frame, scroll, child, thumb
+    view.frame, view.scroll, view.child = frame, scroll, child
+    view.bar = MakeScrollbar(scroll, function(fraction)
+        view:ScrollTo(fraction * math.max(0, view.height - scroll:GetHeight()))
+    end, 0)
+    view.thumb = view.bar.strip
 
     function view:UpdateScroll()
         local range = math.max(0, self.height - scroll:GetHeight())
         local offset = math.min(scroll:GetVerticalScroll(), range)
         scroll:SetVerticalScroll(offset)
-        thumb:SetShown(range > 0)
-        if range > 0 then
-            local track = scroll:GetHeight()
-            local size = math.max(24, track * track / self.height)
-            thumb:SetHeight(size)
-            thumb:ClearAllPoints()
-            thumb:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -1, -(track - size) * (offset / range))
-        end
+        self.bar:Update(range > 0 and offset / range or 0, range > 0 and scroll:GetHeight() / self.height or 1)
     end
 
     function view:SetContentHeight(height)
@@ -1333,6 +1381,52 @@ local function AddRow(card, row, after)
     return entry
 end
 
+local function FlattenSlider(bar)
+    for _, child in ipairs({ bar:GetChildren() }) do child:Hide() end
+    for _, region in ipairs({ bar:GetRegions() }) do
+        if region.IsObjectType and region:IsObjectType("Texture") then region:SetAlpha(0) end
+    end
+    bar:SetThumbTexture(FLAT)
+    local thumb = bar:GetThumbTexture()
+    thumb:SetVertexColor(COLOR.track[1], COLOR.track[2], COLOR.track[3], 1)
+    thumb:SetSize(6, 28)
+    local back = Paint(bar, COLOR.line, 0.4)
+    back:SetPoint("TOP", bar, "TOP", 0, 0)
+    back:SetPoint("BOTTOM", bar, "BOTTOM", 0, 0)
+    back:SetWidth(2)
+end
+
+local flattened = setmetatable({}, { __mode = "k" })
+
+local function FitNow(widget)
+    local frame = widget.frame
+    if not frame then return end
+    local content = frame:GetParent()
+    local scroll = content and content.GetParent and content:GetParent()
+    local height = scroll and scroll.GetHeight and scroll:GetHeight()
+    local target = PAGE_HEIGHT
+    if type(height) == "number" and height > 200 then target = math.max(300, math.floor(height) - 26) end
+    if math.abs(frame:GetHeight() - target) > 1 then
+        frame:SetHeight(target)
+        if widget.parent and widget.parent.DoLayout then widget.parent:DoLayout() end
+    end
+    local ace = scroll and scroll.obj
+    local bar = ace and ace.scrollbar
+    if bar and not flattened[bar] then
+        flattened[bar] = true
+        pcall(FlattenSlider, bar)
+    end
+end
+
+local function FitWidget(widget)
+    FitNow(widget)
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, function()
+            if widget.page then FitNow(widget) end
+        end)
+    end
+end
+
 Page.Kit = {
     COLOR = COLOR,
     FLAT = FLAT,
@@ -1343,6 +1437,8 @@ Page.Kit = {
     Outline = Outline,
     Text = Text,
     MakeToggle = MakeToggle,
+    MakeScrollbar = MakeScrollbar,
+    FitWidget = FitWidget,
     MakeRange = MakeRange,
     MakeText = MakeText,
     MakeButton = MakeButton,

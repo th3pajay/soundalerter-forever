@@ -1,3 +1,130 @@
+do
+local Settings = {}
+
+Settings.DEFAULT_ICON_SIZE = 48
+
+local ICON_KEYS = {
+    enabled = { default = true, reload = true },
+    unit = { default = "player", reload = true },
+    auraType = { default = "HELPFUL", reload = true },
+    size = { default = Settings.DEFAULT_ICON_SIZE, reload = true },
+    showWhenInactive = { default = false, reload = true },
+    trackCooldown = { default = false, reload = true },
+    cooldownTextSize = { default = 14, reload = true },
+    auraDuration = { default = 0, reload = false },
+}
+
+local GLOBAL_KEYS = {
+    locked = true,
+    showTimerText = true,
+    showBorderTimer = true,
+    showCooldownText = true,
+    showReadyText = true,
+    deleteWithoutConfirm = true,
+    animQuality = true,
+}
+
+function Settings.IsGlobalKey(key)
+    return GLOBAL_KEYS[key] == true
+end
+
+function Settings.IconDefault(key)
+    local spec = ICON_KEYS[key]
+    return spec and spec.default
+end
+
+function Settings.NewIcon(fields)
+    local icon = {}
+    for key, spec in pairs(ICON_KEYS) do
+        icon[key] = spec.default
+    end
+    for key, value in pairs(fields) do
+        icon[key] = value
+    end
+    return icon
+end
+
+function Settings.Backfill(icon)
+    for key, spec in pairs(ICON_KEYS) do
+        if icon[key] == nil then
+            icon[key] = spec.default
+        end
+    end
+    return icon
+end
+
+function Settings.SetIcon(icon, key, value)
+    local spec = ICON_KEYS[key]
+    if not spec then
+        error("SpellTracker icon setting - unknown key '" .. tostring(key) .. "'", 2)
+    end
+    icon[key] = value
+    return spec.reload
+end
+
+SA_TrackerSettings = Settings
+end
+
+do
+local Border = {}
+
+Border.EXPIRING_SECONDS = 3
+
+Border.COLORS = {
+    IDLE = { 0.42, 0.45, 0.5 },
+    HELPFUL = { 0.24, 0.86, 0.52 },
+    HARMFUL = { 1, 0.35, 0.3 },
+}
+
+Border.GLOWS = {
+    expiring = { 1, 0.35, 0.3, mode = "tint" },
+    ready = { 0.24, 0.86, 0.52, mode = "steady" },
+    cooldown = { 0.35, 0.66, 1, mode = "steady" },
+}
+
+function Border.BorderKey(auraType, active)
+    if active and Border.COLORS[auraType] then
+        return auraType
+    end
+    return "IDLE"
+end
+
+function Border.TimerMode(enabled, decision)
+    if not enabled or not decision then
+        return nil
+    end
+    if decision.expiration and decision.duration and decision.expiration - decision.duration > 0 then
+        return "plain"
+    end
+    if not decision.expiration and decision.secret then
+        return "secret"
+    end
+    return nil
+end
+
+function Border.TimerColor(auraType)
+    return Border.COLORS[Border.BorderKey(auraType, true)]
+end
+
+function Border.GlowKey(active, remaining, readout)
+    if active and remaining and remaining > 0 and remaining <= Border.EXPIRING_SECONDS then
+        return "expiring"
+    end
+    if readout then
+        if readout.ready and not active then
+            return "ready"
+        end
+        if readout.numbers ~= "clear" then
+            return "cooldown"
+        end
+    end
+    return nil
+end
+
+SA_TrackerBorder = Border
+end
+
+do
 local TrackerState = {}
 TrackerState.__index = TrackerState
 
@@ -166,3 +293,4 @@ function TrackerState:Remove(index, count)
 end
 
 SA_TrackerState = TrackerState
+end

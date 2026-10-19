@@ -3,7 +3,7 @@
 ## Title: SoundAlerter
 ## Notes: Voice alerts and chat announcements for critical PvP spells (CC, interrupts, cooldowns).
 ## Author: th3pajay
-## Version: 0.2.80
+## Version: 0.2.81
 ## IconTexture: Interface\AddOns\SoundAlerter\Textures\circle.tga
 ## SavedVariables: SoundAlerterDB, SoundAlerterSpellDB, SoundAlerterSpellDescDB
 ## X-License: MIT
@@ -14,21 +14,14 @@ SoundAlerter.xml
 Locales\locales.xml
 soundalerter-constants.lua
 defaults.lua
-profilecleanup.lua
 profilemodel.lua
 customalertmodel.lua
 debuglog.lua
-quietrules.lua
-scoreboardmodel.lua
-lossofcontrolmodel.lua
-distancemodel.lua
+alertrules.lua
 toaststylemodel.lua
-interruptmodel.lua
 aurasoundmodel.lua
-watchlistmodel.lua
 secretdisplay.lua
-enemyplates.lua
-castdispatch.lua
+unitrouting.lua
 SoundAlerter.lua
 aurasound.lua
 minimapbuttonmodel.lua
@@ -36,7 +29,6 @@ minimapbutton.lua
 watchlist.lua
 spellist.lua
 voicealertmodel.lua
-voicealertoptions.lua
 proximitytoasts.lua
 flagalerts.lua
 bartexture.lua
@@ -46,10 +38,8 @@ resourcebar.lua
 castingbarfx.lua
 castingbars.lua
 fxstats.lua
-spelltrackersettings.lua
 spelltrackerstate.lua
 spelltrackergame.lua
-spelltrackerborder.lua
 spelltrackerfx.lua
 spelltracker.lua
 castfeed.lua
@@ -61,7 +51,6 @@ minimaptracking.lua
 footstepsmodel.lua
 menufx.lua
 modulepage.lua
-customexport.lua
 windowskin.lua
 generaloptions.lua
 statisticsoptions.lua
@@ -83,11 +72,8 @@ statisticsformat.lua
 devtoolsmodel.lua
 devtools.lua
 devtoolspage.lua
-devtoolsoptions.lua
 profilepage.lua
-profileoptions.lua
 customalertpage.lua
-customalertoptions.lua
 statistics.lua
 spelltrackermodel.lua
 spelltrackeroptions.lua
