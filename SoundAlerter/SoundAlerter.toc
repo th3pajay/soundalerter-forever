@@ -7,8 +7,9 @@
 ## IconTexture: Interface\AddOns\SoundAlerter\Textures\circle.tga
 ## SavedVariables: SoundAlerterDB, SoundAlerterSpellDB, SoundAlerterSpellDescDB
 ## X-License: MIT
-## X-Website: https://github.com/th3pajay/SoundAlerter
+## X-Website: https://github.com/th3pajay/soundalerter-forever
 ## X-Category: PvP
+## X-Curse-Project-ID: 1754014
 
 SoundAlerter.xml
 Locales\locales.xml
