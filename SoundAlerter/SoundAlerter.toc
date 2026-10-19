@@ -3,7 +3,7 @@
 ## Title: SoundAlerter
 ## Notes: Voice alerts and chat announcements for critical PvP spells (CC, interrupts, cooldowns).
 ## Author: th3pajay
-## Version: 0.2.75
+## Version: 0.2.80
 ## IconTexture: Interface\AddOns\SoundAlerter\Textures\circle.tga
 ## SavedVariables: SoundAlerterDB, SoundAlerterSpellDB, SoundAlerterSpellDescDB
 ## X-License: MIT
@@ -15,6 +15,8 @@ Locales\locales.xml
 soundalerter-constants.lua
 defaults.lua
 profilecleanup.lua
+profilemodel.lua
+customalertmodel.lua
 debuglog.lua
 quietrules.lua
 scoreboardmodel.lua
@@ -24,6 +26,9 @@ toaststylemodel.lua
 interruptmodel.lua
 aurasoundmodel.lua
 watchlistmodel.lua
+secretdisplay.lua
+enemyplates.lua
+castdispatch.lua
 SoundAlerter.lua
 aurasound.lua
 minimapbuttonmodel.lua
@@ -48,11 +53,13 @@ spelltrackerborder.lua
 spelltrackerfx.lua
 spelltracker.lua
 castfeed.lua
+auradisplay.lua
 combattimermodel.lua
 combattimer.lua
 speedmeter.lua
 minimaptracking.lua
 footstepsmodel.lua
+menufx.lua
 modulepage.lua
 customexport.lua
 windowskin.lua
@@ -69,17 +76,25 @@ spelltest.lua
 noticesmodel.lua
 notices.lua
 spellfinderformat.lua
+finderlist.lua
+finderwindow.lua
 spellfinder.lua
 statisticsformat.lua
-devtoolsformat.lua
+devtoolsmodel.lua
 devtools.lua
+devtoolspage.lua
+devtoolsoptions.lua
+profilepage.lua
+profileoptions.lua
+customalertpage.lua
+customalertoptions.lua
 statistics.lua
 spelltrackermodel.lua
 spelltrackeroptions.lua
 quickstart.lua
 quickstartoptions.lua
 optionsrail.lua
-railoptions.lua
+voicepage.lua
 combattimeroptions.lua
 optionsnav.lua
 options.lua

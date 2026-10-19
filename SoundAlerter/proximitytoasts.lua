@@ -53,6 +53,7 @@ local PROXIMITY_TOAST_KEYS = {
     maxConcurrent = true,
     showPlayerName = true,
     showAuraIcons = true,
+    showLatestSpell = true,
     useClassColors = true,
     rainbowBorder = true,
     toastStyle = true,
@@ -244,6 +245,12 @@ local function ClassTextColor(className)
     return 1, 1, 1
 end
 
+local function DrawSpell(toast, view)
+    local shown = view.spellName ~= nil and SA_Secret.Draw(toast.spellText, toast.spellIcon, view.spellName, view.spellIcon)
+    toast.spellText:SetShown(shown)
+    toast.spellIcon:SetShown(shown)
+end
+
 local function ApplyView(toast, view)
     local r, g, b = ClassTextColor(view.className)
     local threatStyle = view.style == "threat"
@@ -342,6 +349,8 @@ local function ApplyView(toast, view)
             toast.auraDurationTexts[i]:Hide()
         end
     end
+
+    DrawSpell(toast, view)
 end
 
 local function CreateToastFrame(index, isSecure)
@@ -424,6 +433,19 @@ local function CreateToastFrame(index, isSecure)
         durationText:SetTextColor(1, 1, 1)
         toast.auraDurationTexts[i] = durationText
     end
+
+    toast.spellIcon = toast:CreateTexture(nil, "ARTWORK")
+    toast.spellIcon:SetSize(18, 18)
+    toast.spellIcon:SetPoint("TOPRIGHT", toast, "TOPRIGHT", -10, -30)
+    toast.spellIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    toast.spellIcon:Hide()
+    toast.spellText = toast:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    toast.spellText:SetPoint("RIGHT", toast.spellIcon, "LEFT", -4, 0)
+    toast.spellText:SetWidth(110)
+    toast.spellText:SetJustifyH("RIGHT")
+    toast.spellText:SetWordWrap(false)
+    toast.spellText:SetTextColor(1, 0.82, 0)
+    toast.spellText:Hide()
 
     toast.countdownBar = CreateFrame("Frame", nil, toast)
     toast.countdownBar:SetHeight(3)
@@ -652,7 +674,41 @@ function ProximityToasts:Initialize()
 
     self.initialized = true
     self:StartCleanupTimer()
+    self:SubscribeCasts()
 
+end
+
+function ProximityToasts:ShowSpell(guid, spellID)
+    for _, toast in ipairs(self.activeToasts) do
+        local view = toast.view
+        if view and toast.userData and toast.userData.guid == guid then
+            local name, icon = SA_Secret.Name(spellID), SA_Secret.Icon(spellID)
+            if name ~= nil or icon ~= nil then
+                view.spellName, view.spellIcon = name, icon
+                DrawSpell(toast, view)
+            end
+            return
+        end
+    end
+end
+
+function ProximityToasts:OnCastSeen(unit, castGUID, spellID)
+    if #self.activeToasts == 0 then return end
+    local settings = self:GetSettings()
+    if not (settings.enabled and settings.showLatestSpell) then return end
+    local guid = SA_Plates.GUID(unit)
+    if not guid and (unit == "target" or unit == "focus") then guid = SA_COMPAT.Plain(UnitGUID(unit)) end
+    if not guid then return end
+    self:ShowSpell(guid, spellID)
+end
+
+function ProximityToasts:SubscribeCasts()
+    local function seen(unit, castGUID, spellID) self:OnCastSeen(unit, castGUID, spellID) end
+    SA_CastDispatch.Subscribe("toasts", {
+        UNIT_SPELLCAST_START = seen,
+        UNIT_SPELLCAST_CHANNEL_START = seen,
+        UNIT_SPELLCAST_SUCCEEDED = seen,
+    })
 end
 
 function ProximityToasts:AcquireToast()
@@ -710,6 +766,10 @@ function ProximityToasts:ReleaseToast(toast)
     toast.tagText:SetText("")
     toast.sideBlock:Hide()
     toast.icon:SetTexture(nil)
+    toast.spellText:SetText("")
+    toast.spellText:Hide()
+    toast.spellIcon:SetTexture(nil)
+    toast.spellIcon:Hide()
     toast:SetBackdropColor(0, 0, 0, 0.85)
     toast:SetBackdropBorderColor(0.8, 0.2, 0.2, 1)
     if toast.userData then

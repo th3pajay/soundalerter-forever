@@ -5,6 +5,7 @@ dbDefaults = {
 		spelldebug = false,
 
 		flatWindow = true,
+		menuAnimations = true,
 
 		findSpell = {
 			autocomplete = false,
@@ -138,6 +139,7 @@ dbDefaults = {
 		interruptPets = false,
 		interruptReadyVoice = false,
 		engineAuraSounds = false,
+		hiddenSpells = true,
 		showTotemPlates = false,
 		watchlistEnabled = false,
 		watchNamesText = "",
@@ -167,6 +169,7 @@ dbDefaults = {
 			enableFocusTarget = true,
 			rainbowBorder = false,
 			toastStyle = "intel",
+			showLatestSpell = true,
 		},
 
 		resourceBar = {
@@ -328,6 +331,7 @@ dbDefaults = {
 			length = 400,
 			maxIcons = 12,
 			showInstants = true,
+			auraDisplay = false,
 			showGaps = false,
 			gapFontSize = 10,
 			rows = {
@@ -338,6 +342,7 @@ dbDefaults = {
 				party2 = { enabled = true, direction = "left", scale = 1, PositionX = 0, PositionY = -342 },
 				party3 = { enabled = true, direction = "left", scale = 1, PositionX = 0, PositionY = -390 },
 				party4 = { enabled = true, direction = "left", scale = 1, PositionX = 0, PositionY = -438 },
+				enemies = { enabled = false, direction = "left", scale = 1, PositionX = 0, PositionY = -486 },
 			},
 		},
 

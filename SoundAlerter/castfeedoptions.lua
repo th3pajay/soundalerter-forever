@@ -3,10 +3,13 @@ local SoundAlerter = SoundAlerter
 local ICON = "Interface\\Icons\\Spell_Nature_Lightning"
 local PREVIEW_ICONS = 5
 
-local UNITS = { "player", "target", "focus", "party1", "party2", "party3", "party4" }
+local UNITS = { "player", "target", "focus", "party1", "party2", "party3", "party4", "enemies" }
 local LABELS = {
     player = "Player", target = "Target", focus = "Focus",
-    party1 = "Party 1", party2 = "Party 2", party3 = "Party 3", party4 = "Party 4",
+    party1 = "Party 1", party2 = "Party 2", party3 = "Party 3", party4 = "Party 4", enemies = "Enemies",
+}
+local ROW_HINTS = {
+    enemies = "Casts of nearby enemy players, not your target or focus. Needs Show hidden enemy spells on (General).",
 }
 local DIRECTIONS = { { "left", "Left" }, { "right", "Right" }, { "up", "Up" }, { "down", "Down" } }
 
@@ -17,6 +20,7 @@ end
 local function write(active, key, value)
     active:SetSetting((key:gsub("^rows%.", "")), value)
     active:LoadSettings()
+    if key == "auraDisplay" and SoundAlerter.AuraDisplay then SoundAlerter.AuraDisplay:Refresh(true) end
 end
 
 local function copyToAll(unit)
@@ -90,7 +94,8 @@ function SoundAlerter:BuildCastFeedOptions()
     local Page = SoundAlerter.Page
     local rows = {
         Page.Toggle("locked", "Lock position", "Unlock to drag the rows. A shaded outline marks each row while unlocked.", false, "General"),
-        Page.Toggle("showInstants", "Show instant casts", "Include casts that have no cast time. The client hides other units' instant casts from addons, so these mostly appear only for units whose casts are readable.", false, "General"),
+        Page.Toggle("showInstants", "Show instant casts", "Include casts that have no cast time. The client sends no cast event for most enemy instants, so only readable ones appear here (yours and your group's). The enemy buff and duel debuff option below is the way to see enemy instants.", false, "General"),
+        Page.Visible(SA_Secret.Supported, Page.Toggle("auraDisplay", "Enemy buffs, duel debuffs", "Experimental. Flashes new buffs on your target and focus, and in duels new debuffs on you, beside their rows. Needs Show hidden enemy spells on (General).", false, "Experimental")),
         Page.Toggle("showGaps", "Show time between casts", "Show the time between two casts (MM:SS:ms) between their icons. Icons spread out to make room.", false, "General"),
         Page.Action("Test", "Spawn a few sample casts.", function()
             local active = feed()
@@ -99,7 +104,9 @@ function SoundAlerter:BuildCastFeedOptions()
         Page.Range("iconSize", "Icon size", "Icon size before each row's scale.", 16, 64, 1, false, "Look", " px"),
     }
     for _, unit in ipairs(UNITS) do
-        rows[#rows + 1] = Page.Toggle("rows." .. unit .. ".enabled", LABELS[unit], "Give this unit its own row.", false, "Rows")
+        local toggle = Page.Toggle("rows." .. unit .. ".enabled", LABELS[unit], ROW_HINTS[unit] or "Give this unit its own row.", false, "Rows")
+        if unit == "enemies" then toggle = Page.Visible(SA_Secret.Supported, toggle) end
+        rows[#rows + 1] = toggle
     end
     rows[#rows + 1] = Page.Range("spacing", "Spacing", "Minimum gap between icons.", 0, 24, 1, true, "Look", " px")
     rows[#rows + 1] = Page.Range("length", "Row length", "Distance icons travel before they disappear.", 100, 1000, 10, true, "Look", " px")
@@ -114,16 +121,22 @@ function SoundAlerter:BuildCastFeedOptions()
     for _, unit in ipairs(UNITS) do
         local group = LABELS[unit] .. " row"
         local enabledKey = "rows." .. unit .. ".enabled"
-        rows[#rows + 1] = Page.When(enabledKey, Page.Select("rows." .. unit .. ".direction", "Direction", "Direction the icons travel. New casts appear at the opposite edge.", DIRECTIONS, true, group))
-        rows[#rows + 1] = Page.When(enabledKey, Page.Range("rows." .. unit .. ".scale", "Scale", "Scales this row's icons, spacing and length together.", 0.5, 3, 0.05, true, group, "x"))
-        rows[#rows + 1] = Page.When(enabledKey, Page.Action("Copy to all rows", "Give every row this row's direction and scale.", function() copyToAll(unit) end, true, group))
+        local group_rows = {
+            Page.When(enabledKey, Page.Select("rows." .. unit .. ".direction", "Direction", "Direction the icons travel. New casts appear at the opposite edge.", DIRECTIONS, true, group)),
+            Page.When(enabledKey, Page.Range("rows." .. unit .. ".scale", "Scale", "Scales this row's icons, spacing and length together.", 0.5, 3, 0.05, true, group, "x")),
+            Page.When(enabledKey, Page.Action("Copy to all rows", "Give every row this row's direction and scale.", function() copyToAll(unit) end, true, group)),
+        }
+        for _, row in ipairs(group_rows) do
+            if unit == "enemies" then row = Page.Visible(SA_Secret.Supported, row) end
+            rows[#rows + 1] = row
+        end
     end
 
     return Page.Module({
         key = "CastFeed",
         title = "Cast Feed",
         icon = "Interface\\Icons\\Spell_Nature_Lightning",
-        desc = "Icons of player, target, focus and party casts moving across the screen, one row per unit.",
+        desc = "Icons of player, target, focus, party and nearby enemy casts moving across the screen, one row per unit.",
         blurb = "Every cast by you, your target, focus and party becomes an icon moving along that unit's own row. Hover an icon to freeze its row.",
         order = 2.86,
         module = feed,

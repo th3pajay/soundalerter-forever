@@ -31,6 +31,16 @@ Model.SILENCE_FLAG = {
     ["Interrupts you"] = "interrupt",
 }
 
+Model.EVENT_SOUND = {
+    ["Interrupts you"] = "lockout",
+}
+
+function Model.SoundKeys(event, keys)
+    local sound = Model.EVENT_SOUND[event]
+    if sound then return { sound } end
+    return keys
+end
+
 Model.CLASS_ORDER = { "Druid", "Hunter", "Mage", "Paladin", "Priest", "Rogue", "Shaman", "Warlock", "Warrior", "Races", "Other" }
 
 local EVENT_INDEX = {}
@@ -117,6 +127,16 @@ function Model.Build(spellList, meta)
         if #group.spells > 0 then model.classes[#model.classes + 1] = group end
     end
     return model
+end
+
+local shared = {}
+
+function Model.Shared(spellList, meta)
+    if shared.model == nil or shared.list ~= spellList or shared.meta ~= meta then
+        shared.list, shared.meta = spellList, meta
+        shared.model = Model.Build(spellList, meta)
+    end
+    return shared.model
 end
 
 function Model.ChipOn(db, spell, event)
@@ -213,4 +233,212 @@ function Model.ApplyPreset(db, model, presetID)
         end
     end
     return false
+end
+
+Model.SILENCE_ROWS = {
+    { key = "aruaApplied", label = "Buff applied", hint = "Mutes every alert when an enemy gains a buff." },
+    { key = "auraRemoved", label = "Buff removed", hint = "Mutes every alert when an enemy buff ends." },
+    { key = "castStart", label = "Spell casting", hint = "Mutes every alert when an enemy starts a cast." },
+    { key = "castSuccess", label = "Enemy cooldowns", hint = "Mutes every alert for enemy cooldown abilities." },
+    { key = "chatalerts", label = "Chat alerts", hint = "Mutes every chat announcement." },
+    { key = "interrupt", label = "Interrupts", hint = "Mutes alerts for interrupted friendly spells." },
+    { key = "dArenaPartner", label = "Arena partner CC", hint = "Mutes alerts when your arena partner is crowd controlled." },
+    { key = "dSelfDebuff", label = "Debuffs on you", hint = "Mutes alerts when you are debuffed or crowd controlled." },
+    { key = "dEnemyDebuff", label = "Enemy debuffs", hint = "Mutes alerts for debuffs and crowd control on enemies." },
+    { key = "dEnemyDebuffDown", label = "Enemy debuff expired", hint = "Mutes alerts when a debuff or crowd control on an enemy ends." },
+}
+
+Model.ARENA_ROWS = {
+    { key = "class", label = "Call the class that trinkets", hint = "Says the class when an enemy trinkets in arena.", preview = "arenaClass" },
+    { key = "drinking", label = "Drinking", hint = "Says it when an enemy drinks in arena.", preview = "drinking" },
+}
+
+Model.INTERRUPT_ROWS = {
+    { key = "interruptFocusVoice", label = "Own sound for focus", hint = "Plays focusinterrupted for focus interrupts." },
+    { key = "interruptReadyVoice", label = "Say when interrupt is ready", hint = "Estimated from the spell's usual cooldown." },
+}
+
+Model.LOSS_MASTER = { key = "lossOfControlVoice", label = "Enable", hint = "Speaks the control effect that hits you." }
+
+Model.LOSS_ROWS = {
+    { key = "lossOfControlDedupe", label = "Skip if a spell alert just spoke" },
+    { key = "lossOfControlStun", label = "Stun" },
+    { key = "lossOfControlFear", label = "Fear" },
+    { key = "lossOfControlRoot", label = "Root" },
+    { key = "lossOfControlSilence", label = "Silence" },
+    { key = "lossOfControlDisarm", label = "Disarm" },
+    { key = "lossOfControlIncapacitate", label = "Incapacitate" },
+    { key = "lossOfControlInterrupt", label = "Spell lockout" },
+}
+
+Model.INTERRUPT_MIN = { key = "interruptMinCast", label = "Minimum cast time", hint = "Ignore interrupts of shorter casts. 0 announces all.", min = 0, max = 3, step = 0.1, unit = " s" }
+Model.INTERRUPT_PETS = { key = "interruptPets", label = "Count pet interrupts" }
+Model.ENGINE_ROW = { key = "engineAuraSounds", label = "Let the game play debuff alerts", hint = "Experimental. Covers you and an enemy target or focus. Skips Statistics. /sa aurasound tests it." }
+
+Model.CHANNELS = {
+    { key = "SAY", label = "Say" },
+    { key = "PARTY", label = "Party" },
+    { key = "RAID", label = "Raid" },
+    { key = "BATTLEGROUND", label = "Battleground" },
+    { key = "NONE", label = "None (chat alerts off)" },
+}
+
+Model.CHAT_EVENTS = {
+    { key = "stealthenemy", label = "Stealth on enemy", spell = 1784 },
+    { key = "prowlenemy", label = "Prowl on enemy", spell = 5215 },
+    { key = "vanishenemy", label = "Vanish", spell = 1856 },
+    { key = "blindenemy", label = "Blind on enemy", spell = 2094 },
+    { key = "blindselffriend", label = "Blind on you or a friend", spell = 2094 },
+    { key = "hexenemy", label = "Hex on enemy", spell = 450600 },
+    { key = "hexselffriend", label = "Hex on you or a friend", spell = 450600 },
+    { key = "fearenemy", label = "Fear on enemy", spell = 5484 },
+    { key = "fearselffriend", label = "Fear on you or a friend", spell = 5484 },
+    { key = "sapenemy", label = "Sap on enemy", spell = 6770 },
+    { key = "polyenemy", label = "Polymorph", spell = 118 },
+    { key = "bubbleenemy", label = "Divine Shield", spell = 642 },
+    { key = "trinketalert", label = "PvP trinket", spell = 1259718 },
+    { key = "interruptenemy", label = "You interrupt an enemy" },
+    { key = "interruptemote", label = "Roar when you interrupt" },
+    { key = "interruptself", label = "An enemy interrupts you" },
+    { key = "chatdownself", label = "Enemy debuff down (from you)" },
+    { key = "chatdownfriend", label = "Enemy debuff down (from a friend)" },
+    { key = "chatauraApplied", label = "Enemy defensives and buffs" },
+    { key = "chatauraRemoved", label = "Enemy defensives expired" },
+    { key = "chatcastStart", label = "Enemy cast start" },
+}
+
+Model.CHAT_FILTERS = {
+    { key = "stealthTF", label = "Stealth: ignore target and focus", requires = "stealthenemy" },
+    { key = "prowlTF", label = "Prowl: ignore target and focus", requires = "prowlenemy" },
+    { key = "vanishTF", label = "Vanish: ignore target and focus", requires = "vanishenemy" },
+}
+
+Model.CHAT_TARGET_ONLY = { key = "caonlyTF", label = "Target and focus only", hint = "Announce only when your target or focus is the source." }
+
+Model.CHAT_TEXTS = {
+    { key = "enemychat", label = "To enemy", hint = "#spell# up on #enemy# reads [Blind] up on Enemyname." },
+    { key = "friendchat", label = "From enemy to friend", hint = "#enemy# casted #spell# on #friend#." },
+    { key = "selfchat", label = "From enemy to you", hint = "#enemy# casted #spell# on me!" },
+    { key = "enemybuffchat", label = "Enemy buffs and cooldowns", hint = "#enemy# casted #spell#." },
+    { key = "auraRemovedChat", label = "Enemy defensives expired", hint = "#spell# wore off #enemy#." },
+    { key = "castStartChat", label = "Enemy cast start", hint = "#enemy# is casting #spell#." },
+    { key = "InterruptEnemyText", label = "You interrupt an enemy", hint = "Also knows #interruptedspellname#.", requires = "interruptenemy" },
+    { key = "InterruptSelfText", label = "An enemy interrupts you", hint = "Also knows #interruptedspellname#.", requires = "interruptself" },
+    { key = "sapselftext", label = "Sap on you", hint = "Avoid #enemy#: the sapper is unknown while stealthed.", requires = "sapenemy" },
+    { key = "sapfriendtext", label = "Sap on a friend", hint = "Avoid #enemy#: the sapper is unknown while stealthed.", requires = "sapenemy" },
+    { key = "trinketalerttext", label = "PvP trinket", hint = "#enemy# casted #spell#!", requires = "trinketalert" },
+}
+
+Model.CHAT_SAMPLE = {
+    enemy = "Cutthroat", target = "Starmistx", friend = "Starmistx", spell = "[Polymorph]",
+    interruptedspellname = "[Polymorph]", interruptedspell = "[Polymorph]",
+}
+
+Model.CHAT_PREVIEW = {
+    { "To enemy", "enemychat" },
+    { "Enemy to friend", "friendchat" },
+    { "Enemy to you", "selfchat" },
+    { "Enemy cooldown", "enemybuffchat" },
+    { "Defensive expired", "auraRemovedChat" },
+    { "Cast start", "castStartChat" },
+    { "You interrupt", "InterruptEnemyText" },
+    { "You are interrupted", "InterruptSelfText" },
+}
+
+function Model.ChatPreview(db, expand)
+    local lines = {}
+    for _, entry in ipairs(Model.CHAT_PREVIEW) do
+        local text = expand(db[entry[2]], Model.CHAT_SAMPLE)
+        if text ~= "" then lines[#lines + 1] = { entry[1], text } end
+    end
+    return lines
+end
+
+function Model.ChatEventCount(db)
+    local on = 0
+    for _, row in ipairs(Model.CHAT_EVENTS) do
+        if db[row.key] then on = on + 1 end
+    end
+    return on, #Model.CHAT_EVENTS
+end
+
+function Model.Tally(db, model)
+    local tally = { on = 0, total = 0, byClass = {} }
+    for _, group in ipairs(model.classes) do
+        local on, total = Model.Count(db, group.spells)
+        tally.byClass[group.name] = { on = on, total = total }
+        tally.on = tally.on + on
+        tally.total = tally.total + total
+    end
+    return tally
+end
+
+function Model.SilencedCount(db)
+    local count = 0
+    for _, row in ipairs(Model.SILENCE_ROWS) do
+        if row.key ~= "chatalerts" and db[row.key] then count = count + 1 end
+    end
+    return count
+end
+
+function Model.Filter(model, class, query)
+    if query and query ~= "" then
+        local hits = {}
+        for _, spell in ipairs(model.spells) do
+            if Model.Matches(spell, query) then hits[#hits + 1] = spell end
+        end
+        return hits
+    end
+    local group = model.byClass[class]
+    return group and group.spells or {}
+end
+
+function Model.ChangedSpells(db, model, snapshot)
+    local changed = {}
+    for _, spell in ipairs(model.spells) do
+        for _, key in ipairs(spell.keys) do
+            if (db[key] and true or false) ~= snapshot[key] then
+                changed[spell.id] = true
+                break
+            end
+        end
+    end
+    return changed
+end
+
+function Model.Normalize(query)
+    return ((query or ""):lower():gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function copyValue(value)
+    if type(value) ~= "table" then return value end
+    local copy = {}
+    for key, item in pairs(value) do copy[key] = copyValue(item) end
+    return copy
+end
+
+function Model.ResetKeys(model)
+    local keys = {}
+    local function add(key) keys[#keys + 1] = key end
+    for key in pairs(model.allKeys) do add(key) end
+    for _, row in ipairs(Model.SILENCE_ROWS) do add(row.key) end
+    for _, row in ipairs(Model.ARENA_ROWS) do add(row.key) end
+    for _, row in ipairs(Model.INTERRUPT_ROWS) do add(row.key) end
+    add(Model.LOSS_MASTER.key)
+    for _, row in ipairs(Model.LOSS_ROWS) do add(row.key) end
+    add(Model.INTERRUPT_MIN.key)
+    add(Model.INTERRUPT_PETS.key)
+    add(Model.ENGINE_ROW.key)
+    add(Model.CHAT_TARGET_ONLY.key)
+    add("chatgroups")
+    for _, row in ipairs(Model.CHAT_EVENTS) do add(row.key) end
+    for _, row in ipairs(Model.CHAT_FILTERS) do add(row.key) end
+    for _, row in ipairs(Model.CHAT_TEXTS) do add(row.key) end
+    return keys
+end
+
+function Model.Reset(db, defaults, model)
+    for _, key in ipairs(Model.ResetKeys(model)) do
+        db[key] = copyValue(defaults[key])
+    end
 end

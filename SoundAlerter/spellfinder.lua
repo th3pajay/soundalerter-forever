@@ -1,4 +1,3 @@
-local AceGUI = LibStub("AceGUI-3.0")
 local SoundAlerter = SoundAlerter
 
 local pairs, tonumber = pairs, tonumber
@@ -1041,6 +1040,7 @@ local FINDER_KEYS = {
     sortDesc = true,
     kindFilter = true,
     knownFilter = true,
+    position = true,
 }
 
 function SoundAlerter:GetFinderSettings()
@@ -1095,18 +1095,35 @@ function SoundAlerter:ClearDescriptionIndex()
     self:ClearSearchCache()
 end
 
-function SoundAlerter:GetDescriptionStatus()
+local descriptionInfo = {}
+
+function SoundAlerter:GetDescriptionInfo()
     local db = self.spellDatabase
+    local result = descriptionInfo
     if not db.descriptions then
+        result.built = false
+        return result
+    end
+    local total = math_max(db.totalSpells or 0, 1)
+    result.built = true
+    result.indexed = db.descIndexed or 0
+    result.empty = db.descEmptyCount or 0
+    result.total = db.totalSpells or 0
+    result.percent = math_min(100, (result.indexed + result.empty) / total * 100)
+    result.running = self:IsDescriptionIndexRunning()
+    result.kb = (db.descBytes or 0) / 1024
+    return result
+end
+
+function SoundAlerter:GetDescriptionStatus()
+    local description = self:GetDescriptionInfo()
+    if not description.built then
         return "|cFF888888Description index: not built|r"
     end
 
-    local total = math_max(db.totalSpells or 0, 1)
-    local done = (db.descIndexed or 0) + (db.descEmptyCount or 0)
-    local percent = math_min(100, done / total * 100)
-    local state = self:IsDescriptionIndexRunning() and "|cFFFFAA00indexing|r" or "|cFF00FF00idle|r"
+    local state = description.running and "|cFFFFAA00indexing|r" or "|cFF00FF00idle|r"
     return string_format("Description index: %s, %d texts + %d empty of %d spells (%.0f%%), %.0f KB",
-        state, db.descIndexed or 0, db.descEmptyCount or 0, db.totalSpells or 0, percent, (db.descBytes or 0) / 1024)
+        state, description.indexed, description.empty, description.total, description.percent, description.kb)
 end
 
 function SoundAlerter:SuggestSpellNames(prefix, limit)
@@ -1205,12 +1222,22 @@ function SoundAlerter:ClearSearchCache()
     cacheAge = {}
 end
 
-local FINDER_WIDTH = 820
-local FINDER_MIN_WIDTH = 640
-local DETAIL_WIDTH = 270
-local PANE_GAP = 8
-local TOOLBAR_GAP = 6
-local ROW_CAP = 50
+local List = SA_FinderList
+local FINDER_WIDTH = List.WIDTH
+local FINDER_MIN_WIDTH = List.MIN_WIDTH
+
+local iconCache = {}
+local propsCache = {}
+
+local function SpellIcon(spellID)
+    local icon = iconCache[spellID]
+    if not icon then
+        local _, _, texture = GetSpellInfo(spellID)
+        icon = texture
+        iconCache[spellID] = icon
+    end
+    return icon
+end
 
 local function RowDescription(spellID)
     C_Spell.RequestLoadSpellData(spellID)
@@ -1221,42 +1248,7 @@ local function RowDescription(spellID)
     return nil
 end
 
-local function HideFinderToast()
-    GameTooltip:Hide()
-end
-
-local function ShowFinderToast(widget, text, r, g, b)
-    GameTooltip:SetOwner(widget.frame, "ANCHOR_CURSOR")
-    GameTooltip:AddLine(text, r, g, b)
-    GameTooltip:Show()
-    SoundAlerter:ScheduleTimer(HideFinderToast, 1.5)
-end
-
-local function OnFinderRowClick(widget)
-    SoundAlerter:SelectFinderRow(widget)
-end
-
-local function OnFinderRowEnter(widget)
-    local spell = widget:GetUserData("spell")
-    if not spell then
-        return
-    end
-    GameTooltip:SetOwner(widget.frame, "ANCHOR_CURSOR")
-    local spellLink = GetSpellLink(spell.spellID)
-    if spellLink then
-        GameTooltip:SetHyperlink(spellLink)
-    else
-        GameTooltip:AddLine(spell.name, 1, 1, 1)
-        GameTooltip:AddLine("Spell ID: " .. spell.spellID, 0.5, 0.5, 1)
-    end
-    GameTooltip:Show()
-end
-
-local function OnFinderRowLeave()
-    GameTooltip:Hide()
-end
-
-function SoundAlerter:InsertSpellText(spell, description, widget)
+function SoundAlerter:InsertSpellText(spell, description, window)
     local editBox = ChatEdit_GetActiveWindow()
     if not editBox and ChatFrame1EditBox and ChatFrame1EditBox:IsShown() then
         editBox = ChatFrame1EditBox
@@ -1274,7 +1266,24 @@ function SoundAlerter:InsertSpellText(spell, description, widget)
     local text, shortened = FinderFormat.ChatText(spell, description, maxLetters - #editBox:GetText())
     editBox:Insert(text)
     editBox:SetFocus()
-    ShowFinderToast(widget, shortened and "Inserted into chat (description shortened to fit)" or "Inserted into chat!", 0, 1, 0)
+    window:Toast(shortened and "Inserted into chat (description shortened to fit)" or "Inserted into chat!", 0, 1, 0)
+end
+
+function SoundAlerter:InsertFinderSelection(window, spell, withDescription)
+    if not withDescription then
+        self:InsertSpellText(spell, nil, window)
+        return
+    end
+    local description = RowDescription(spell.spellID)
+    if not description then
+        window:Toast("No description available for this spell.", 1, 0.3, 0.3)
+        return
+    end
+    self:InsertSpellText(spell, description, window)
+end
+
+function SoundAlerter:ClearFinderCaches()
+    propsCache = {}
 end
 
 function SoundAlerter:FilterResults(results, kind, known)
@@ -1284,10 +1293,20 @@ function SoundAlerter:FilterResults(results, kind, known)
     local kept = 0
     for index = 1, #results do
         local spell = results[index]
-        local props = {
-            passive = kind ~= "all" and SafeRead(IsSpellPassive, spell.spellID) or nil,
-            known = known ~= "all" and SafeRead(IsSpellKnown, spell.spellID) or nil,
-        }
+        local spellID = spell.spellID
+        local props = propsCache[spellID]
+        if not props then
+            props = {}
+            propsCache[spellID] = props
+        end
+        if kind ~= "all" and not props.passiveRead then
+            props.passive = SafeRead(IsSpellPassive, spellID)
+            props.passiveRead = true
+        end
+        if known ~= "all" and not props.knownRead then
+            props.known = SafeRead(IsSpellKnown, spellID)
+            props.knownRead = true
+        end
         if FinderFormat.PassesFilters(props, kind, known) then
             kept = kept + 1
             results[kept] = spell
@@ -1298,31 +1317,25 @@ function SoundAlerter:FilterResults(results, kind, known)
     end
 end
 
-function SoundAlerter:UpdateFinderStatus(frame, count, unfiltered)
+function SoundAlerter:FinderStatusText(count, unfiltered)
     local descriptionStatus
     if self:GetSearchScope() ~= "names" or self.spellDatabase.descriptions then
         descriptionStatus = self:GetDescriptionStatus()
     end
-    frame.statusLabel:SetText(FinderFormat.Status(count, self:GetDatabaseStatus(), descriptionStatus, unfiltered))
-    frame.toolbar:DoLayout()
-    frame:DoLayout()
+    return FinderFormat.Status(count, self:GetDatabaseStatus(), descriptionStatus, unfiltered)
 end
 
-function SoundAlerter:ShowFinderEmpty(frame, term, hiddenByFilters)
-    local label = AceGUI:Create("Label")
-    label:SetText(FinderFormat.Empty({
+function SoundAlerter:FinderEmptyText(term, hiddenByFilters)
+    return FinderFormat.Empty({
         building = self.spellDatabase.isBuilding,
         term = term,
         scope = self:GetSearchScope(),
         fuzzy = self:GetFinderSettings().fuzzy,
         hiddenByFilters = hiddenByFilters,
-    }))
-    label:SetFullWidth(true)
-    frame.scrollFrame:AddChild(label)
+    })
 end
 
 function SoundAlerter:ShowSpellDetail(frame, spell, retried)
-    local detail = frame.detail
     if frame.detailTimer then
         self:CancelTimer(frame.detailTimer, true)
         frame.detailTimer = nil
@@ -1330,31 +1343,20 @@ function SoundAlerter:ShowSpellDetail(frame, spell, retried)
     frame.selectedSpell = spell
 
     if not spell then
-        detail.title:SetText(" ")
-        detail.subtitle:SetText(" ")
-        detail.facts:SetText(" ")
-        detail.props:SetText(" ")
-        detail.idBox:SetText("")
-        detail.idBox:SetDisabled(true)
-        detail.description:SetText(FinderFormat.NoSelection())
-        detail.insert:SetDisabled(true)
-        detail.insertDescription:SetDisabled(true)
-        frame.detailGroup:DoLayout()
+        frame:SetDetail(nil)
         return
     end
 
     local _, _, texture, castTime, minRange, maxRange = GetSpellInfo(spell.spellID)
     local description = RowDescription(spell.spellID)
-    detail.title:SetText(FinderFormat.Title(spell, texture))
-    detail.subtitle:SetText(FinderFormat.Subtitle(spell))
-    detail.facts:SetText(FinderFormat.Facts({ iconID = texture, castTime = castTime, minRange = minRange, maxRange = maxRange }))
-    detail.props:SetText(FinderFormat.Properties(ReadSpellProps(spell.spellID)))
-    detail.idBox:SetDisabled(false)
-    detail.idBox:SetText(tostring(spell.spellID))
-    detail.description:SetText(FinderFormat.Description(description, not description and not retried))
-    detail.insert:SetDisabled(false)
-    detail.insertDescription:SetDisabled(description == nil)
-    frame.detailGroup:DoLayout()
+    frame:SetDetail({
+        spell = spell,
+        texture = texture,
+        facts = { iconID = texture, castTime = castTime, minRange = minRange, maxRange = maxRange },
+        props = ReadSpellProps(spell.spellID),
+        description = description,
+        loading = not description and not retried,
+    })
 
     if not description and not retried then
         frame.detailTimer = self:ScheduleTimer("RetryFinderDescription", 0.5, frame)
@@ -1366,68 +1368,6 @@ function SoundAlerter:RetryFinderDescription(frame)
     if frame.selectedSpell then
         self:ShowSpellDetail(frame, frame.selectedSpell, true)
     end
-end
-
-function SoundAlerter:SelectFinderRow(widget)
-    local frame = widget:GetUserData("frame")
-    local spell = widget:GetUserData("spell")
-    if not frame or not spell then
-        return
-    end
-
-    local previous = frame.selectedRow
-    if previous and previous ~= widget then
-        local previousSpell = previous:GetUserData("spell")
-        if previousSpell then
-            previous:SetText(FinderFormat.Row(previousSpell, select(3, GetSpellInfo(previousSpell.spellID)), false))
-        end
-    end
-
-    frame.selectedRow = widget
-    widget:SetText(FinderFormat.Row(spell, select(3, GetSpellInfo(spell.spellID)), true))
-    self:ShowSpellDetail(frame, spell)
-end
-
-function SoundAlerter:RenderSpellRows(frame, results, cap)
-    local scrollFrame = frame.scrollFrame
-    local resultCount = #results
-    local displayCount = math_min(resultCount, cap or ROW_CAP)
-    local BATCH_SIZE = 15
-
-    local generation = frame.renderGen
-    local nextIndex = 1
-    local function RenderBatch()
-        if frame.renderGen ~= generation then
-            return
-        end
-        frame.renderTimer = nil
-        local batchEnd = math_min(nextIndex + BATCH_SIZE - 1, displayCount)
-        for i = nextIndex, batchEnd do
-            local spell = results[i]
-            local row = AceGUI:Create("InteractiveLabel")
-            row:SetFullWidth(true)
-            row:SetUserData("frame", frame)
-            row:SetUserData("spell", spell)
-            row:SetText(FinderFormat.Row(spell, select(3, GetSpellInfo(spell.spellID)), false))
-            row:SetCallback("OnClick", OnFinderRowClick)
-            row:SetCallback("OnEnter", OnFinderRowEnter)
-            row:SetCallback("OnLeave", OnFinderRowLeave)
-            scrollFrame:AddChild(row)
-            if i == 1 then
-                self:SelectFinderRow(row)
-            end
-        end
-        nextIndex = batchEnd + 1
-        if nextIndex <= displayCount then
-            frame.renderTimer = self:ScheduleTimer(RenderBatch, 0.02)
-        elseif resultCount > displayCount then
-            local moreLabel = AceGUI:Create("Label")
-            moreLabel:SetText(FinderFormat.More(displayCount, resultCount))
-            moreLabel:SetFullWidth(true)
-            scrollFrame:AddChild(moreLabel)
-        end
-    end
-    RenderBatch()
 end
 
 local function ExtractRankToken(searchTerm)
@@ -1446,11 +1386,6 @@ end
 
 function SoundAlerter:RunSearch(frame, searchTerm)
     frame.lastSearchTerm = searchTerm
-    frame.renderGen = (frame.renderGen or 0) + 1
-    if frame.renderTimer then
-        self:CancelTimer(frame.renderTimer, true)
-        frame.renderTimer = nil
-    end
 
     local queryTerm, rankFilter = ExtractRankToken(searchTerm)
     if not rankFilter then
@@ -1463,7 +1398,6 @@ function SoundAlerter:RunSearch(frame, searchTerm)
     end
     local cached = self:SearchSpells(queryTerm, rankFilter)
     local results = frame.results or {}
-    frame.results = results
     for i = 1, #cached do
         results[i] = cached[i]
     end
@@ -1483,19 +1417,7 @@ function SoundAlerter:RunSearch(frame, searchTerm)
         end
     end
 
-    frame.selectedRow = nil
-    frame.scrollFrame:ReleaseChildren()
-    self:ShowSpellDetail(frame, nil)
-
-    local resultCount = #results
-    if resultCount == 0 then
-        self:ShowFinderEmpty(frame, searchTerm, unfiltered)
-        self:UpdateFinderStatus(frame, 0, unfiltered)
-        return
-    end
-
-    self:UpdateFinderStatus(frame, resultCount, unfiltered)
-    self:RenderSpellRows(frame, results, ROW_CAP)
+    frame:ShowResults(results, unfiltered, searchTerm)
 end
 
 function SoundAlerter:FitFinderWidth(frame)
@@ -1507,420 +1429,115 @@ function SoundAlerter:FitFinderWidth(frame)
     end
     local available = UIParent:GetWidth() - right - 12
     frame:SetWidth(math_max(FINDER_MIN_WIDTH, math_min(FINDER_WIDTH, available)))
-    frame:DoLayout()
 end
 
-function SoundAlerter:RenderSearchPane(container, frame)
-    local toolbar = AceGUI:Create("SimpleGroup")
-    frame.toolbar = toolbar
-    toolbar:SetLayout("Flow")
-    container:AddChild(toolbar)
-    toolbar.frame:ClearAllPoints()
-    toolbar.frame:SetPoint("TOPLEFT", container.content, "TOPLEFT", 0, 0)
-    toolbar.frame:SetPoint("TOPRIGHT", container.content, "TOPRIGHT", 0, 0)
+local FINDER_OPTION_KEYS = {
+    fuzzy = true,
+    autocomplete = true,
+    rankFilter = true,
+    sortMode = true,
+    sortDesc = true,
+    kindFilter = true,
+    knownFilter = true,
+}
 
-    local searchBox = AceGUI:Create("EditBox")
-    searchBox:SetLabel(self:GetSearchScope() == "descriptions" and "Description text:" or "Spell Name:")
-    searchBox:SetRelativeWidth(0.8)
-    searchBox:SetText(frame.lastSearchTerm or "")
-    toolbar:AddChild(searchBox)
-
-    local searchBtn = AceGUI:Create("Button")
-    searchBtn:SetText("Search")
-    searchBtn:SetRelativeWidth(0.19)
-    toolbar:AddChild(searchBtn)
-
-    frame.searchBox = searchBox
-
-    local suggestGroup = AceGUI:Create("SimpleGroup")
-    suggestGroup:SetFullWidth(true)
-    suggestGroup:SetLayout("Flow")
-    toolbar:AddChild(suggestGroup)
-
-    local suggestions = {}
-    local selectedIdx = nil
-
-    local function RenderSuggestions()
-        suggestGroup:ReleaseChildren()
-        for i, name in ipairs(suggestions) do
-            local label = AceGUI:Create("InteractiveLabel")
-            label:SetWidth(190)
-            label:SetText(i == selectedIdx and ("|cFFFFD100" .. name .. "|r") or name)
-            label:SetCallback("OnClick", function()
-                frame.acceptSuggestion(i, true)
-            end)
-            suggestGroup:AddChild(label)
-        end
-        toolbar:DoLayout()
-        container:DoLayout()
+function SoundAlerter:SetFinderOption(key, value)
+    if not FINDER_OPTION_KEYS[key] then
+        error("SpellFinder:SetFinderOption - unknown option '" .. tostring(key) .. "'", 2)
     end
-
-    local function ClearSuggestions()
-        if #suggestions > 0 then
-            suggestions = {}
-            selectedIdx = nil
-            RenderSuggestions()
-        end
-    end
-
-    frame.clearSuggestions = ClearSuggestions
-
-    local function UpdateSuggestions(text)
-        if not self:GetFinderSettings().autocomplete or self:GetSearchScope() == "descriptions"
-            or not text or #text < 2 then
-            ClearSuggestions()
-            return
-        end
-
-        local fresh = self:SuggestSpellNames(text, 8)
-        if #fresh == 1 and string_lower(fresh[1]) == string_lower(text) then
-            fresh = {}
-        end
-
-        local unchanged = #fresh == #suggestions
-        if unchanged then
-            for i = 1, #fresh do
-                if fresh[i] ~= suggestions[i] then
-                    unchanged = false
-                    break
-                end
-            end
-        end
-        if unchanged then
-            return
-        end
-
-        suggestions = fresh
-        selectedIdx = nil
-        RenderSuggestions()
-    end
-
-    function frame.acceptSuggestion(index, andSearch)
-        local name = suggestions[index]
-        if not name then
-            return
-        end
-        suggestions = {}
-        selectedIdx = nil
-        RenderSuggestions()
-        searchBox:SetText(name)
-        searchBox:SetFocus()
-        if searchBox.editbox then
-            searchBox.editbox:SetCursorPosition(#name)
-        end
-        if andSearch then
-            self:PerformSearch(frame, name)
-        end
-    end
-
-    if searchBox.editbox then
-        searchBox.editbox:HookScript("OnTabPressed", function()
-            if #suggestions > 0 then
-                frame.acceptSuggestion(selectedIdx or 1, false)
-            end
-        end)
-        searchBox.editbox:HookScript("OnArrowPressed", function(_, key)
-            if #suggestions == 0 then
-                return
-            end
-            if key == "DOWN" then
-                selectedIdx = selectedIdx and (selectedIdx % #suggestions) + 1 or 1
-            elseif key == "UP" then
-                selectedIdx = selectedIdx and ((selectedIdx - 2) % #suggestions) + 1 or #suggestions
-            else
-                return
-            end
-            RenderSuggestions()
-        end)
-    end
-
-    local scopeDropdown = AceGUI:Create("Dropdown")
-    scopeDropdown:SetLabel("Search in:")
-    scopeDropdown:SetRelativeWidth(0.28)
-    scopeDropdown:SetList({names = "Names", both = "Names + descriptions", descriptions = "Descriptions only"},
-        {"names", "both", "descriptions"})
-    scopeDropdown:SetValue(self:GetSearchScope())
-    toolbar:AddChild(scopeDropdown)
-
-    self:EnsureSpellDatabase()
-    local rankList = {all = "All ranks", none = "No rank"}
-    local rankOrder = {"all", "none"}
-    for rank = 1, math_max(self.spellDatabase.maxRank or 0, 1) do
-        local key = tostring(rank)
-        rankList[key] = "Rank " .. key
-        rankOrder[#rankOrder + 1] = key
-    end
-
-    local rankDropdown = AceGUI:Create("Dropdown")
-    rankDropdown:SetLabel("Rank:")
-    rankDropdown:SetRelativeWidth(0.18)
-    rankDropdown:SetList(rankList, rankOrder)
-    local savedRank = self:GetFinderSettings().rankFilter or "all"
-    rankDropdown:SetValue(rankList[savedRank] and savedRank or "all")
-    toolbar:AddChild(rankDropdown)
-
-    local kindDropdown = AceGUI:Create("Dropdown")
-    kindDropdown:SetLabel("Type:")
-    kindDropdown:SetRelativeWidth(0.24)
-    kindDropdown:SetList({all = "All spells", active = "Active only", passive = "Passive only"}, {"all", "active", "passive"})
-    local savedKind = self:GetFinderSettings().kindFilter
-    kindDropdown:SetValue((savedKind == "active" or savedKind == "passive") and savedKind or "all")
-    toolbar:AddChild(kindDropdown)
-
-    local knownDropdown = AceGUI:Create("Dropdown")
-    knownDropdown:SetLabel("Known:")
-    knownDropdown:SetRelativeWidth(0.28)
-    knownDropdown:SetList({all = "Any", known = "Known by you", unknown = "Not known by you"}, {"all", "known", "unknown"})
-    local savedKnown = self:GetFinderSettings().knownFilter
-    knownDropdown:SetValue((savedKnown == "known" or savedKnown == "unknown") and savedKnown or "all")
-    toolbar:AddChild(knownDropdown)
-
-    local sortDropdown = AceGUI:Create("Dropdown")
-    sortDropdown:SetLabel("Sort By:")
-    sortDropdown:SetRelativeWidth(0.24)
-    sortDropdown:SetList({name = "Name", spellid = "Spell ID", rank = "Rank", relevance = "Relevance"},
-        {"name", "spellid", "rank", "relevance"})
-    local savedSort = self:GetFinderSettings().sortMode
-    sortDropdown:SetValue(SORT_COMPARATORS[savedSort] and savedSort or "name")
-    toolbar:AddChild(sortDropdown)
-
-    frame.sortDropdown = sortDropdown
-
-    local descendingBox = AceGUI:Create("CheckBox")
-    descendingBox:SetLabel("Descending")
-    descendingBox:SetRelativeWidth(0.22)
-    descendingBox:SetValue(self:GetFinderSettings().sortDesc or false)
-    toolbar:AddChild(descendingBox)
-
-    local fuzzyBox = AceGUI:Create("CheckBox")
-    fuzzyBox:SetLabel("Fuzzy")
-    fuzzyBox:SetRelativeWidth(0.18)
-    fuzzyBox:SetValue(self:GetFinderSettings().fuzzy or false)
-    toolbar:AddChild(fuzzyBox)
-
-    local autocompleteBox = AceGUI:Create("CheckBox")
-    autocompleteBox:SetLabel("Autocomplete")
-    autocompleteBox:SetRelativeWidth(0.28)
-    autocompleteBox:SetValue(self:GetFinderSettings().autocomplete or false)
-    toolbar:AddChild(autocompleteBox)
-
-    local statusLabel = AceGUI:Create("Label")
-    statusLabel:SetFullWidth(true)
-    toolbar:AddChild(statusLabel)
-    frame.statusLabel = statusLabel
-
-    local function RefreshResults()
-        local text = frame.searchBox:GetText()
-        if text and text ~= "" then
-            self:PerformSearch(frame, text)
-        end
-    end
-
-    local function SetFindSpellOption(key, value)
-        self:SetFinderSetting(key, value)
-        RefreshResults()
-    end
-
-    sortDropdown:SetCallback("OnValueChanged", function(widget, event, value)
-        SetFindSpellOption("sortMode", value)
-    end)
-
-    rankDropdown:SetCallback("OnValueChanged", function(widget, event, value)
-        SetFindSpellOption("rankFilter", value)
-    end)
-
-    kindDropdown:SetCallback("OnValueChanged", function(widget, event, value)
-        SetFindSpellOption("kindFilter", value)
-    end)
-
-    knownDropdown:SetCallback("OnValueChanged", function(widget, event, value)
-        SetFindSpellOption("knownFilter", value)
-    end)
-
-    descendingBox:SetCallback("OnValueChanged", function(widget, event, value)
-        SetFindSpellOption("sortDesc", value and true or false)
-    end)
-
-    function frame.onScopeChanged()
-        local scope = self:GetSearchScope()
-        scopeDropdown:SetValue(scope)
-        searchBox:SetLabel(scope == "descriptions" and "Description text:" or "Spell Name:")
-        if scope == "descriptions" then
-            ClearSuggestions()
-        else
-            UpdateSuggestions(searchBox:GetText())
-        end
-        if self:IsFinderOpen() then
-            RefreshResults()
-        end
-    end
-
-    scopeDropdown:SetCallback("OnValueChanged", function(widget, event, value)
-        self:SetSearchScope(value)
-    end)
-
-    fuzzyBox:SetCallback("OnValueChanged", function(widget, event, value)
-        self:SetFinderSetting("fuzzy", value and true or false)
+    self:SetFinderSetting(key, value)
+    if key == "fuzzy" then
         if value then
             self:SetFinderSetting("sortMode", "relevance")
-            sortDropdown:SetValue("relevance")
         end
-        RefreshResults()
-    end)
-
-    autocompleteBox:SetCallback("OnValueChanged", function(widget, event, value)
-        self:SetFinderSetting("autocomplete", value and true or false)
-        UpdateSuggestions(frame.searchBox:GetText())
-    end)
-
-    searchBox:SetCallback("OnTextChanged", function(widget, event, text)
-        UpdateSuggestions(text)
-    end)
-
-    searchBox:SetCallback("OnEnterPressed", function(widget)
-        if selectedIdx then
-            frame.acceptSuggestion(selectedIdx, true)
-            return
-        end
-        ClearSuggestions()
-        self:PerformSearch(frame, frame.searchBox:GetText())
-    end)
-
-    searchBtn:SetCallback("OnClick", function()
-        ClearSuggestions()
-        self:PerformSearch(frame, frame.searchBox:GetText())
-    end)
-
-    local body = AceGUI:Create("SimpleGroup")
-    body.noAutoHeight = true
-    body:SetLayout("Manual")
-    container:AddChild(body)
-    body.frame:ClearAllPoints()
-    body.frame:SetPoint("TOPLEFT", toolbar.frame, "BOTTOMLEFT", 0, -TOOLBAR_GAP)
-    body.frame:SetPoint("BOTTOMRIGHT", container.content, "BOTTOMRIGHT", 0, 0)
-
-    local scrollFrame = AceGUI:Create("ScrollFrame")
-    scrollFrame:SetLayout("List")
-    body:AddChild(scrollFrame)
-
-    frame.scrollFrame = scrollFrame
-
-    local detailGroup = AceGUI:Create("SimpleGroup")
-    frame.detailGroup = detailGroup
-    detailGroup.noAutoHeight = true
-    detailGroup:SetLayout("List")
-    body:AddChild(detailGroup)
-    detailGroup.frame:ClearAllPoints()
-    detailGroup.frame:SetPoint("TOPRIGHT", body.content, "TOPRIGHT", 0, 0)
-    detailGroup.frame:SetPoint("BOTTOMRIGHT", body.content, "BOTTOMRIGHT", 0, 0)
-    detailGroup:SetWidth(DETAIL_WIDTH)
-    scrollFrame.frame:ClearAllPoints()
-    scrollFrame.frame:SetPoint("TOPLEFT", body.content, "TOPLEFT", 0, 0)
-    scrollFrame.frame:SetPoint("BOTTOMRIGHT", detailGroup.frame, "BOTTOMLEFT", -PANE_GAP, 0)
-
-    local detail = {}
-    frame.detail = detail
-
-    detail.title = AceGUI:Create("Label")
-    detail.title:SetFullWidth(true)
-    detail.title:SetFontObject(GameFontNormalLarge)
-    detailGroup:AddChild(detail.title)
-
-    detail.subtitle = AceGUI:Create("Label")
-    detail.subtitle:SetFullWidth(true)
-    detailGroup:AddChild(detail.subtitle)
-
-    detail.facts = AceGUI:Create("Label")
-    detail.facts:SetFullWidth(true)
-    detailGroup:AddChild(detail.facts)
-
-    detail.props = AceGUI:Create("Label")
-    detail.props:SetFullWidth(true)
-    detailGroup:AddChild(detail.props)
-
-    detail.idBox = AceGUI:Create("EditBox")
-    detail.idBox:SetLabel("Spell ID (click, then Ctrl+C)")
-    detail.idBox:SetFullWidth(true)
-    detail.idBox:DisableButton(true)
-    if detail.idBox.editbox then
-        detail.idBox.editbox:HookScript("OnEditFocusGained", function(editbox)
-            editbox:HighlightText()
-        end)
+        self:ClearSearchCache()
     end
-    detailGroup:AddChild(detail.idBox)
+end
 
-    detail.description = AceGUI:Create("Label")
-    detail.description:SetFullWidth(true)
-    detailGroup:AddChild(detail.description)
+function SoundAlerter:SyncFinderControls()
+    local finder = self.findSpellFrame
+    if finder and finder.RefreshControls then
+        finder:RefreshControls()
+    end
+end
 
-    local buttons = AceGUI:Create("SimpleGroup")
-    buttons:SetFullWidth(true)
-    buttons:SetLayout("Flow")
-    detailGroup:AddChild(buttons)
+function SoundAlerter:FinderRankOptions()
+    self:EnsureSpellDatabase()
+    local maxRank = self.spellDatabase.maxRank or 0
+    if self.finderRankCount ~= maxRank then
+        self.finderRankCount = maxRank
+        self.finderRankOptions = List.RankOptions(maxRank)
+    end
+    return self.finderRankOptions
+end
 
-    detail.insert = AceGUI:Create("Button")
-    detail.insert:SetText("Insert in chat")
-    detail.insert:SetRelativeWidth(0.5)
-    detail.insert:SetCallback("OnClick", function(widget)
-        local spell = frame.selectedSpell
-        if spell then
-            self:InsertSpellText(spell, nil, widget)
-        end
-    end)
-    buttons:AddChild(detail.insert)
-
-    detail.insertDescription = AceGUI:Create("Button")
-    detail.insertDescription:SetText("With description")
-    detail.insertDescription:SetRelativeWidth(0.5)
-    detail.insertDescription:SetCallback("OnClick", function(widget)
-        local spell = frame.selectedSpell
-        if not spell then
-            return
-        end
-        local description = RowDescription(spell.spellID)
-        if not description then
-            ShowFinderToast(widget, "No description available for this spell.", 1, 0.3, 0.3)
-            return
-        end
-        self:InsertSpellText(spell, description, widget)
-    end)
-    buttons:AddChild(detail.insertDescription)
-
-    self:ShowSpellDetail(frame, nil)
-
+function SoundAlerter:OnFindSpellShown(frame)
+    self:FitFinderWidth(frame)
+    self:PrepareSearchExtras()
+    frame:RefreshControls()
     if frame.lastSearchTerm and frame.lastSearchTerm ~= "" then
-        self:PerformSearch(frame, frame.lastSearchTerm)
-    else
-        self:ShowFinderEmpty(frame, "")
-        self:UpdateFinderStatus(frame, nil)
+        frame:RunSearch()
     end
+end
+
+function SoundAlerter:OnFindSpellHidden(frame)
+    if frame.detailTimer then
+        self:CancelTimer(frame.detailTimer, true)
+        frame.detailTimer = nil
+    end
+    self:ReleaseSearchExtras()
+    self:ClearFinderCaches()
 end
 
 function SoundAlerter:CreateFindSpellFrame()
-    local frame = AceGUI:Create("Window")
-    frame:SetTitle("SoundAlerter - Find Spell")
-    frame:SetLayout("Manual")
-    frame:SetWidth(FINDER_WIDTH)
-    frame:SetHeight(560)
-
-    if frame.frame then
-        frame.frame:SetFrameStrata("DIALOG")
-        frame.frame:Raise()
-    end
-
-    frame.lastSearchTerm = ""
-
-    self:RenderSearchPane(frame, frame)
+    local addon = self
+    local host = {
+        settings = function() return addon:GetFinderSettings() end,
+        rankOptions = function() return addon:FinderRankOptions() end,
+        suggest = function(text) return addon:SuggestSpellNames(text, List.SUGGESTION_LIMIT) end,
+        search = function(window, term) addon:PerformSearch(window, term) end,
+        detail = function(window, spell) addon:ShowSpellDetail(window, spell) end,
+        insert = function(spell, withDescription, window) addon:InsertFinderSelection(window, spell, withDescription) end,
+        status = function(count, unfiltered) return addon:FinderStatusText(count, unfiltered) end,
+        empty = function(term, hidden) return addon:FinderEmptyText(term, hidden) end,
+        icon = SpellIcon,
+        spellLink = GetSpellLink,
+        after = function(delay, fn) return addon:ScheduleTimer(fn, delay) end,
+        cancel = function(handle) addon:CancelTimer(handle, true) end,
+        set = function(key, value) addon:SetFinderOption(key, value) end,
+        setScope = function(value) addon:SetSearchScope(value) end,
+        onShown = function(window) addon:OnFindSpellShown(window) end,
+        onHidden = function(window) addon:OnFindSpellHidden(window) end,
+        savePosition = function(point, relative, x, y)
+            addon:GetFinderSettings().position = { point = point, relative = relative, x = x, y = y }
+        end,
+    }
+    local window = SA_FinderWindow.Create(host)
     self:PrepareSearchExtras()
+    return window
+end
 
-    if frame.frame then
-        frame.frame:HookScript("OnShow", function()
-            self:OnFindSpellShown(frame)
-        end)
-        frame.frame:HookScript("OnHide", function()
-            self:OnFindSpellHidden(frame)
+function SoundAlerter:OpenSpellFinder()
+    if not self.findSpellFrame then
+        self.findSpellFrame = self:CreateFindSpellFrame()
+    end
+    local finder = self.findSpellFrame
+    local mainFrame = LibStub("AceConfigDialog-3.0").OpenFrames["SoundAlerter"]
+    local saved = self:GetFinderSettings().position
+    if saved and saved.point then
+        finder:Place(saved.point, saved.relative, saved.x, saved.y)
+    elseif mainFrame and mainFrame.frame then
+        finder:Dock(mainFrame.frame)
+    end
+    if mainFrame and mainFrame.frame and not mainFrame.frame.soundAlerterFinderHideHooked then
+        mainFrame.frame.soundAlerterFinderHideHooked = true
+        mainFrame.frame:HookScript("OnHide", function()
+            if SoundAlerter.findSpellFrame then
+                SoundAlerter.findSpellFrame:Hide()
+            end
         end)
     end
-
-    return frame
+    finder:Show()
+    finder.frame:Raise()
+    finder.box:SetFocus()
 end

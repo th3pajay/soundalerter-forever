@@ -28,6 +28,11 @@ local function write(key, value)
     local scope, name = key:match("^(%a+)%.(.+)$")
     if scope == "p" then
         current[name] = value
+        if name == "hiddenSpells" then
+            SA_Secret.SetEnabled(value)
+            SA_Secret.Reset()
+            if SoundAlerter.AuraDisplay then SoundAlerter.AuraDisplay:Refresh() end
+        end
     elseif scope == "m" then
         local active = tracking()
         if active then active:SetSetting(name, value) end
@@ -59,7 +64,7 @@ local function importAlerts()
     local parsed, message = SA_CustomExport.Decode(current.exportbox)
     if not parsed then
         SoundAlerter:Print(message)
-        return
+        return false
     end
     current.custom = parsed
     SoundAlerter:OnOptionsCreate()
@@ -73,6 +78,9 @@ local function summary(settings)
         settings.m and ("minimap tracking " .. (settings.m.enabled and "on" or "off")) or nil)
     if SoundAlerter.BlizzardAudioAlertsEnabled and SoundAlerter:BlizzardAudioAlertsEnabled() then
         text = text .. "\n|cffFF6600The game's own combat audio alerts are on, so spoken alerts may play twice.|r"
+    end
+    if SA_Secret.Supported() then
+        text = text .. "\n" .. SA_Secret.StatusText()
     end
     return text
 end
@@ -98,7 +106,9 @@ function SoundAlerter:BuildGeneralOptions()
             Page.Toggle("m.enabled", "Track target and focus on the minimap", "Keeps target and focus on the minimap after every loading screen.", false, "Minimap tracking"),
             Page.When("m.enabled", Page.Toggle("m.target", "Track target", "", true, "Minimap tracking")),
             Page.When("m.enabled", Page.Toggle("m.focus", "Track focus", "", true, "Minimap tracking")),
+            Page.Visible(SA_Secret.Supported, Page.Toggle("p.hiddenSpells", "Show hidden enemy spells", "Draws the real name and icon of casts the client hides, in the cast feed, toasts and aura display. /sa secrets shows the state.", false, "Hidden spells")),
             Page.Toggle("p.flatWindow", "Dark flat options window", "Restyle the options window in the same dark flat look as the pages. Turning it off fully applies after /reload.", true, "Window"),
+            Page.Toggle("p.menuAnimations", "Animate the options window", "Page slide-in, hover tint, switch glide, change flash and press feedback. Off shows everything instantly.", true, "Window"),
             Page.When("p.debugmode", Page.Toggle("p.spelldebug", "Spell ID output debugging", "Print the spell ID of every spell the addon sees. Needs Debug Mode, set in Developer tools.", true, "Debug")),
             Page.When("p.debugmode", import),
             Page.When("p.debugmode", Page.Action("Export custom sound alerts", "Write your custom sound alerts into the export text below.", exportAlerts, true, "Import and export")),

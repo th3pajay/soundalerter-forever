@@ -68,6 +68,8 @@ end
 
 function SoundAlerter:ChangeProfile()
 	sadb = self.db1.profile
+	SA_Secret.SetEnabled(sadb.hiddenSpells)
+	SA_Secret.Reset()
 	self:InvalidateTrackedAuraIDs()
 	self:UpdateScoreboardTracking()
 	self:ApplyTotemPlates()
@@ -97,6 +99,10 @@ function SoundAlerter:ChangeProfile()
 
 	if self.CastFeed then
 		self.CastFeed:OnProfileChanged()
+	end
+
+	if self.AuraDisplay then
+		self.AuraDisplay:Refresh(true)
 	end
 
 	if self.CombatTimer then
@@ -164,7 +170,8 @@ function SoundAlerter:OnInitialize()
         end
     end
 
-    self.db1 = LibStub("AceDB-3.0"):New("SoundAlerterDB", dbDefaults, "Default");
+    local defaultProfile = SA_ProfileModel.NewCharacterDefault(SoundAlerterDB) or "Default"
+    self.db1 = LibStub("AceDB-3.0"):New("SoundAlerterDB", dbDefaults, defaultProfile)
     SA_ProfileCleanup.Run(SoundAlerterDB)
     sadb = self.db1.profile
 
@@ -222,9 +229,6 @@ function SoundAlerter:OnEnable()
     self:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
     self:RegisterEvent("UNIT_AURA")
     self:RegisterEvent("PLAYER_FOCUS_CHANGED")
-    self:RegisterEvent("UNIT_SPELLCAST_START")
-    self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-    self:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
     self:RegisterEvent("PLAYER_TARGET_CHANGED")
     self:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
     self:RegisterEvent("UNIT_NAME_UPDATE")
@@ -244,7 +248,9 @@ function SoundAlerter:OnEnable()
     self.identityRetryAt = {}
     self.enemyOnYouAt = {}
     self.guidToClassCache = {}
-    self.trackedNameplates = {}
+    SA_Plates.Reset()
+    SA_Secret.SetEnabled(sadb.hiddenSpells)
+    self:SubscribeCastEvents()
     self.enterWorldTime = 0
 
     self:ApplyNameplateRange()
@@ -263,6 +269,7 @@ function SoundAlerter:OnEnable()
     self:InitializeModule("CastingBars")
     self:InitializeModule("SpellTracker")
     self:InitializeModule("CastFeed")
+    self:InitializeModule("AuraDisplay")
     self:InitializeModule("CombatTimer")
     self:InitializeModule("SpeedMeter")
     self:InitializeModule("MinimapTracking")
@@ -568,6 +575,13 @@ function SoundAlerter:PLAYER_LOGOUT()
     end
 end
 
+function SoundAlerter:SecretsCommand()
+    self:Print("|cffFFD700=== Hidden-spell display ===|r")
+    for _, line in ipairs(SA_Secret.Report()) do
+        self:Print("  " .. line)
+    end
+end
+
 function SoundAlerter:HandleCommand(input)
     local command, rest = input:match("^(%S*)%s*(.-)$")
     command = command:lower()
@@ -592,6 +606,7 @@ function SoundAlerter:HandleCommand(input)
         self:Print("  |cffFFFFFF/sa probe|r - Print what the client lets the addon read (turn on Debug Mode first to record events)")
         self:Print("  |cffFFFFFF/sa snooze [minutes]|r / |cffFFFFFF/sa unsnooze|r - Silence proximity and enemy awareness alerts for a while")
         self:Print("  |cffFFFFFF/sa watch [guild] <name>|r / |cffFFFFFF/sa unwatch [guild] <name>|r / |cffFFFFFF/sa watchlist|r - Manage the watchlist")
+        self:Print("  |cffFFFFFF/sa secrets|r - Show whether the hidden-spell display routes work on this client")
         self:Print("  |cffFFFFFF/sa aurasound|r - Test engine aura sounds; |cffFFFFFF/sa aurasound play <spellID> [unit]|r listens for 30 s")
         self:Print("  |cffFFFFFF/sa help|r - Show this command list")
         if self.ProximityToasts then
@@ -648,6 +663,8 @@ function SoundAlerter:HandleCommand(input)
         else
             self:Print("|cffFF0000Notices module not loaded.|r")
         end
+    elseif command == "secrets" then
+        self:SecretsCommand()
     elseif command == "apicheck" then
         self:RunApiCheck()
     elseif command == "zonelog" then
@@ -789,6 +806,8 @@ function SoundAlerter:CleanupProximityCaches()
             self.identityRetryAt[guid] = nil
         end
     end
+
+    SA_Plates.PrunePending(currentTime - 60)
 
     for key, timestamp in pairs(self.enemyOnYouAt) do
         if currentTime - timestamp > 60 then
@@ -1616,7 +1635,7 @@ function SoundAlerter:RescanTrackedNameplates()
     local now = GetTime()
     local cooldown = sadb.proximityCooldown or 60
     local alerted = self.proximityAlertCache
-    for guid, unit in pairs(self.trackedNameplates) do
+    for unit, guid in pairs(SA_Plates.Enemies()) do
         local last = alerted[guid]
         if not last or now - last >= cooldown then
             self:CheckProximityAlert(unit)
@@ -1787,6 +1806,7 @@ function SoundAlerter:CheckProximityAlert(unit, allySpotted)
     end
 
     if not (Plain(unitName) and Plain(unitClass)) then
+        SA_Plates.MarkPending(guid, currentTime)
         self:ScheduleIdentityRetry(unit, guid, allySpotted)
         return
     end
@@ -1799,6 +1819,7 @@ function SoundAlerter:CheckProximityAlert(unit, allySpotted)
 
     self.guidToClassCache[guid] = unitClass
     self.proximityAlertCache[guid] = currentTime
+    SA_Plates.ClearPending(guid)
 
     local classAudioFile = CLASS_AUDIO_MAP[unitClass]
     if classAudioFile then
@@ -1816,10 +1837,7 @@ function SoundAlerter:CheckProximityAlert(unit, allySpotted)
     end
 
     if self.ProximityToasts and self.ProximityToasts:GetSettings().enabled then
-        local nearbyCount = 0
-        for _ in pairs(self.trackedNameplates) do
-            nearbyCount = nearbyCount + 1
-        end
+        local nearbyCount = SA_Plates.Count()
         self.ProximityToasts:ShowToast(unitName, unitClass, approxRange, guid, unitLevel, not allySpotted and unit or nil, nil, nil, nearbyCount)
     end
 
@@ -1850,29 +1868,25 @@ end
 
 function SoundAlerter:NAME_PLATE_UNIT_ADDED(event, unit)
     if sadb.debugmode then self:ProbeNameplate(unit) end
+    SA_Plates.Remove(unit)
     if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
 
     local guid = UnitGUID(unit)
     if not Plain(guid) then return end
 
-    self.trackedNameplates[guid] = unit
+    SA_Plates.Add(unit, guid)
 
     self:CheckWatchlist(unit)
     self:CheckProximityAlert(unit)
 end
 
 function SoundAlerter:NAME_PLATE_UNIT_REMOVED(event, unit)
-    local guid = UnitGUID(unit)
-    if not Plain(guid) then return end
-
-    self.trackedNameplates[guid] = nil
+    SA_Plates.Remove(unit)
     self:ClearAuraTracking(unit)
 end
 
 function SoundAlerter:IsTrackedNameplate(unit)
-    local guid = UnitGUID(unit)
-    if not Plain(guid) then return false end
-    return self.trackedNameplates[guid] ~= nil
+    return SA_Plates.IsEnemy(unit)
 end
 
 local ARENA_TARGET_UNITS = { "arena1target", "arena2target", "arena3target", "arena4target", "arena5target" }
@@ -1883,6 +1897,45 @@ local function IsRelevantCastUnit(unit)
     return kind == "nameplate" or kind == "arena"
 end
 
+local CAST_END_WINDOW = 12
+local castStartedAt = {}
+
+function SoundAlerter:AlertInstantOnYou(unit)
+    local started = castStartedAt[unit]
+    if started then
+        castStartedAt[unit] = nil
+        if GetTime() - started <= CAST_END_WINDOW then return end
+    end
+    self:AlertEnemyOnYou(unit, "casting")
+end
+
+function SoundAlerter:RetryPendingIdentity(unit)
+    local guid = SA_Plates.GUID(unit)
+    if guid and SA_Plates.IsPending(guid) and sadb.proximityEnabled then
+        self:CheckProximityAlert(unit)
+    end
+end
+
+function SoundAlerter:SubscribeCastEvents()
+    local retry = function(unit) self:RetryPendingIdentity(unit) end
+    SA_CastDispatch.Subscribe("pendingidentity", {
+        UNIT_SPELLCAST_START = retry,
+        UNIT_SPELLCAST_CHANNEL_START = retry,
+        UNIT_SPELLCAST_SUCCEEDED = retry,
+    })
+    SA_CastDispatch.Subscribe("alerts", {
+        UNIT_SPELLCAST_START = function(unit, castGUID, spellID)
+            self:UNIT_SPELLCAST_START("UNIT_SPELLCAST_START", unit, castGUID, spellID)
+        end,
+        UNIT_SPELLCAST_SUCCEEDED = function(unit, castGUID, spellID)
+            self:UNIT_SPELLCAST_SUCCEEDED("UNIT_SPELLCAST_SUCCEEDED", unit, castGUID, spellID)
+        end,
+        UNIT_SPELLCAST_INTERRUPTED = function(unit, castGUID, spellID, interruptedBy)
+            self:UNIT_SPELLCAST_INTERRUPTED("UNIT_SPELLCAST_INTERRUPTED", unit, castGUID, spellID, interruptedBy)
+        end,
+    })
+end
+
 function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
     if unit == "target" or unit == "focus" or unit == "mouseover" then
         lastEnemyCast[unit] = not issecretvalue(spellID) and spellID or nil
@@ -1891,6 +1944,7 @@ function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
     if not unit or not IsRelevantCastUnit(unit) then return end
     if not self:IsAlertZoneAllowed() then return end
     if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
+    castStartedAt[unit] = GetTime()
     self:AlertEnemyOnYou(unit, "casting")
     if issecretvalue(spellID) then return end
 
@@ -1935,6 +1989,7 @@ function SoundAlerter:UNIT_SPELLCAST_SUCCEEDED(event, unit, castGUID, spellID)
     if not unit or not IsRelevantCastUnit(unit) then return end
     if not self:IsAlertZoneAllowed() then return end
     if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
+    self:AlertInstantOnYou(unit)
     if issecretvalue(spellID) then return end
 
     local isTargetOrFocus = (unit == "target" or unit == "focus")
@@ -1988,6 +2043,7 @@ end
 
 function SoundAlerter:UNIT_SPELLCAST_INTERRUPTED(event, unit, castGUID, spellID, interruptedBy)
     if unit ~= "player" and unit ~= "target" and unit ~= "focus" and unit ~= "mouseover" then return end
+    castStartedAt[unit] = nil
     if not self:IsAlertZoneAllowed() then return end
     if sadb.debugmode then
         self:ProbeValue("interrupted " .. unit .. " spell/by", spellID, interruptedBy)

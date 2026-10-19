@@ -229,10 +229,13 @@ local function MakeToggle(parent, onChange)
         self.value = value and true or false
         local color = self.value and COLOR.on or COLOR.track
         track:SetVertexColor(color[1], color[2], color[3], 1)
-        knob:ClearAllPoints()
-        knob:SetPoint("LEFT", button, "LEFT", self.value and 20 or 2, 0)
+        SA_MenuFX.Glide(knob, button, self.value and 20 or 2, self.animate)
     end
-    button:SetScript("OnClick", function() onChange(not control.value) end)
+    button:SetScript("OnClick", function()
+        control.animate = true
+        onChange(not control.value)
+        control.animate = false
+    end)
     control:Set(false)
     return control
 end
@@ -343,6 +346,7 @@ local function MakeButton(parent, text, onClick)
     label:SetText(text)
     button:SetWidth(math.max(70, label:GetStringWidth() + 24))
     button:SetScript("OnClick", onClick)
+    SA_MenuFX.Press(button, fill, label)
     return { frame = button, label = label }
 end
 
@@ -365,6 +369,7 @@ local function MakeStepper(parent, row, onChange)
             local target = (control.index - 1 + direction) % count + 1
             onChange(control.options[target][1])
         end)
+        SA_MenuFX.Press(button, fill, label)
         return button
     end
     arrow("LEFT", "<", -1)
@@ -406,6 +411,7 @@ local function MakeSelect(parent, row, onChange)
         label:SetPoint("CENTER", button, "CENTER", 0, 0)
         entry = { frame = button, fill = fill, label = label }
         button:SetScript("OnClick", function() onChange(entry.value) end)
+        SA_MenuFX.Press(button, fill, label)
         buttons[index] = entry
         return entry
     end
@@ -534,6 +540,13 @@ end
 function Methods:Change(key, value)
     self.spec.set(key, value)
     self:Refresh()
+    for index = 1, #self.rows do
+        local entry = self.rows[index]
+        if entry.spec.key == key then
+            SA_MenuFX.Flash(entry.flash)
+            break
+        end
+    end
 end
 
 function Methods:Reset()
@@ -680,6 +693,12 @@ function Methods:AddRow(row, advanced)
     local highlight = Paint(frame, COLOR.accent, 0.12)
     highlight:SetAllPoints(frame)
     highlight:Hide()
+    local tint = Paint(frame, COLOR.line, 0.5)
+    tint:SetAllPoints(frame)
+    tint:Hide()
+    local flash = Paint(frame, COLOR.accent, 0.3, "BORDER")
+    flash:SetAllPoints(frame)
+    flash:Hide()
     local rule = Paint(frame, COLOR.line, 0.55)
     rule:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
     rule:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
@@ -736,12 +755,12 @@ function Methods:AddRow(row, advanced)
                 control.armed = false
                 control.label:SetText(labelNow())
             end
-            if row.onClick then row.onClick() end
+            if row.onClick and row.onClick() == false then SA_MenuFX.Shake(control.frame) end
             page:Refresh()
         end)
     end
 
-    local entry = { spec = row, frame = frame, control = control, height = height, highlight = highlight }
+    local entry = { spec = row, frame = frame, control = control, height = height, highlight = highlight, flash = flash }
     if row.kind == "block" then
         local block = Text(frame, 12, COLOR.text)
         block:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -4)
@@ -779,6 +798,7 @@ function Methods:AddRow(row, advanced)
     local function hover() page:SetInfo(row) end
     frame:SetScript("OnEnter", hover)
     control.frame:HookScript("OnEnter", hover)
+    SA_MenuFX.Hover(frame, tint, control.frame)
     if row.onSelect then
         frame:SetScript("OnMouseUp", function()
             row.onSelect()
@@ -999,6 +1019,7 @@ function WidgetMethods:SetCustomData(spec)
     page.frame:Show()
     page:Refresh()
     page:UpdateScroll()
+    SA_MenuFX.SlideIn(page.frame, self.frame)
 end
 
 local function Constructor()
@@ -1011,5 +1032,336 @@ local function Constructor()
 end
 
 AceGUI:RegisterWidgetType(WIDGET, Constructor, 1)
+
+local function Tint(region, color, alpha)
+    if region.SetTextColor then
+        region:SetTextColor(color[1], color[2], color[3], alpha or 1)
+    else
+        region:SetVertexColor(color[1], color[2], color[3], alpha or 1)
+    end
+end
+
+local function Flow(parent, items, width, gap, x, y, step)
+    local cursor = 0
+    for _, item in ipairs(items) do
+        local size = item.frame:GetWidth()
+        if cursor > 0 and cursor + size > width then
+            cursor = 0
+            y = y + step
+        end
+        item.frame:ClearAllPoints()
+        item.frame:SetPoint("TOPLEFT", parent, "TOPLEFT", x + cursor, -y)
+        cursor = cursor + size + gap
+    end
+    return y + step
+end
+
+local function MakeChip(parent, label, onClick)
+    local button = CreateFrame("Button", nil, parent)
+    button:SetHeight(22)
+    local fill = Paint(button, COLOR.line)
+    fill:SetAllPoints(button)
+    local text = Text(button, 12, COLOR.muted, "CENTER")
+    text:SetPoint("CENTER", button, "CENTER", 0, 0)
+    text:SetText(label)
+    button:SetWidth(text:GetStringWidth() + 24)
+    button:SetScript("OnClick", onClick)
+    SA_MenuFX.Press(button, fill, text)
+    local chip = { frame = button, label = text }
+    function chip:SetLabel(value)
+        text:SetText(value)
+        button:SetWidth(text:GetStringWidth() + 24)
+    end
+    function chip:Set(on, active)
+        Tint(fill, on and COLOR.on or COLOR.line, on and 0.3 or 1)
+        Tint(text, on and COLOR.on or COLOR.muted)
+        button:SetAlpha(active == false and 0.45 or 1)
+    end
+    return chip
+end
+
+local CARD_TITLE = 30
+
+local function NewView(parent)
+    local view = { height = 0 }
+    local frame = CreateFrame("Frame", nil, parent)
+    frame:SetAllPoints(parent)
+    local scroll = CreateFrame("ScrollFrame", nil, frame)
+    scroll:SetAllPoints(frame)
+    local child = CreateFrame("Frame", nil, scroll)
+    child:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, 0)
+    child:SetSize(400, 100)
+    scroll:SetScrollChild(child)
+    scroll:EnableMouseWheel(true)
+    local thumb = Paint(scroll, COLOR.track, 1, "OVERLAY")
+    thumb:SetWidth(3)
+    view.frame, view.scroll, view.child, view.thumb = frame, scroll, child, thumb
+
+    function view:UpdateScroll()
+        local range = math.max(0, self.height - scroll:GetHeight())
+        local offset = math.min(scroll:GetVerticalScroll(), range)
+        scroll:SetVerticalScroll(offset)
+        thumb:SetShown(range > 0)
+        if range > 0 then
+            local track = scroll:GetHeight()
+            local size = math.max(24, track * track / self.height)
+            thumb:SetHeight(size)
+            thumb:ClearAllPoints()
+            thumb:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -1, -(track - size) * (offset / range))
+        end
+    end
+
+    function view:SetContentHeight(height)
+        self.height = height
+        child:SetHeight(height)
+        self:UpdateScroll()
+    end
+
+    function view:ScrollTo(offset)
+        local range = math.max(0, self.height - scroll:GetHeight())
+        scroll:SetVerticalScroll(math.max(0, math.min(range, offset)))
+        self:UpdateScroll()
+    end
+
+    scroll:SetScript("OnMouseWheel", function(_, delta)
+        view:ScrollTo(scroll:GetVerticalScroll() - delta * SCROLL_STEP)
+    end)
+    scroll:SetScript("OnSizeChanged", function(_, width)
+        local usable = math.max(1, width - 12)
+        child:SetWidth(usable)
+        if view.onWidth then view.onWidth(usable) end
+        view:UpdateScroll()
+    end)
+    return view
+end
+
+local function NewHeading(parent, text)
+    local label = Text(parent, 11, COLOR.accent)
+    label:SetText(text)
+    return label
+end
+
+local function NewLink(parent, text, onClick)
+    local button = CreateFrame("Button", nil, parent)
+    local label = Text(button, 11, COLOR.muted, "RIGHT")
+    label:SetAllPoints(button)
+    label:SetText(text)
+    button:SetSize(label:GetStringWidth() + 6, 16)
+    button:SetScript("OnClick", onClick)
+    button:SetScript("OnEnter", function() Tint(label, COLOR.accent) end)
+    button:SetScript("OnLeave", function() Tint(label, COLOR.muted) end)
+    return { frame = button, label = label }
+end
+
+local function NewDivider(parent, caption)
+    local line = Paint(parent, COLOR.line)
+    line:SetHeight(1)
+    local label = Text(parent, 10.5, COLOR.muted)
+    label:SetText(caption)
+    return { line = line, label = label }
+end
+
+local function PlaceDivider(divider, parent, width, y)
+    divider.line:ClearAllPoints()
+    divider.line:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -y)
+    divider.line:SetPoint("TOPRIGHT", parent, "TOPLEFT", width, -y)
+    divider.label:ClearAllPoints()
+    divider.label:SetPoint("TOPLEFT", parent, "TOPLEFT", 4, -(y + 8))
+    return y + 28
+end
+
+local function NewCard(parent, title, columns)
+    local frame = CreateFrame("Frame", nil, parent)
+    local fill = Paint(frame, COLOR.card)
+    fill:SetAllPoints(frame)
+    Outline(frame, COLOR.line)
+    local caption = Text(frame, 12, COLOR.text)
+    caption:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -10)
+    caption:SetText(title)
+    return { frame = frame, rows = {}, columns = columns or 1, title = caption }
+end
+
+local function PlaceCard(card, parent, x, y, width)
+    local columns = card.columns
+    local columnWidth = (width - 16 - (columns - 1) * 16) / columns
+    local bottom = CARD_TITLE
+    if columns == 1 then
+        for _, row in ipairs(card.rows) do
+            row.frame:ClearAllPoints()
+            row.frame:SetPoint("TOPLEFT", card.frame, "TOPLEFT", 8, -bottom)
+            row.frame:SetWidth(columnWidth)
+            bottom = bottom + row.height
+        end
+    else
+        for index, row in ipairs(card.rows) do
+            local column = (index - 1) % columns
+            local line = math.floor((index - 1) / columns)
+            row.frame:ClearAllPoints()
+            row.frame:SetPoint("TOPLEFT", card.frame, "TOPLEFT", 8 + column * (columnWidth + 16), -(CARD_TITLE + line * ROW_PLAIN))
+            row.frame:SetWidth(columnWidth)
+            bottom = CARD_TITLE + (line + 1) * ROW_PLAIN
+        end
+    end
+    if card.content then bottom = card.content(card, width, bottom) end
+    local height = bottom + 8
+    card.frame:ClearAllPoints()
+    card.frame:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -y)
+    card.frame:SetSize(width, height)
+    return height
+end
+
+local function ShowTip(owner, title, body)
+    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    GameTooltip:SetText(title, 1, 1, 1)
+    if body and body ~= "" then GameTooltip:AddLine(body, 0.6, 0.65, 0.7, true) end
+    GameTooltip:Show()
+end
+
+local function HideTip()
+    GameTooltip:Hide()
+end
+
+local function RowHeight(row)
+    if row.height then return row.height end
+    if row.kind == "select" and row.stack then return 56 end
+    if row.kind == "text" and row.full then return 52 end
+    if row.hint then return 38 end
+    return 28
+end
+
+local function AddRow(card, row, after)
+    local height = RowHeight(row)
+    local frame = CreateFrame("Frame", nil, card.frame)
+    frame:SetHeight(height)
+    frame:EnableMouse(true)
+    local tint = Paint(frame, COLOR.line, 0.5)
+    tint:SetAllPoints(frame)
+    tint:Hide()
+    local flash = Paint(frame, COLOR.accent, 0.3, "BORDER")
+    flash:SetAllPoints(frame)
+    flash:Hide()
+    local rule = Paint(frame, COLOR.line, 0.55)
+    rule:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+    rule:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+    rule:SetHeight(1)
+
+    local entry = { frame = frame, height = height, flash = flash, row = row }
+    local label = Text(frame, 12.5, COLOR.text)
+    label:SetText(row.label or "")
+    entry.labelText = label
+
+    local function changed(value)
+        row.set(value)
+        if after then after(entry, value) end
+        SA_MenuFX.Flash(flash)
+    end
+
+    local control
+    local rightEdge
+    if row.kind == "select" then
+        local options = row.options
+        control = (#options > 4 and MakeStepper or MakeSelect)(frame, { options = options }, changed)
+        if row.stack then
+            label:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -6)
+            control.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -28)
+        else
+            control.frame:SetPoint("RIGHT", frame, "RIGHT", -2, 0)
+            rightEdge = control.frame
+        end
+    elseif row.kind == "text" then
+        control = MakeText(frame, row, changed)
+        if row.full then
+            label:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -5)
+            control.frame:ClearAllPoints()
+            control.frame:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 4, 4)
+            control.frame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 4)
+            control.frame:SetHeight(22)
+        else
+            control.frame:SetWidth(row.width or 190)
+            if row.button then
+                local button = MakeButton(frame, row.button.label, function() row.button.onClick(entry) end)
+                button.frame:SetPoint("RIGHT", frame, "RIGHT", -2, 0)
+                control.frame:SetPoint("RIGHT", button.frame, "LEFT", -6, 0)
+                entry.button = button
+            else
+                control.frame:SetPoint("RIGHT", frame, "RIGHT", -2, 0)
+            end
+            rightEdge = control.frame
+        end
+    elseif row.kind == "button" then
+        local button = MakeButton(frame, row.button, function() row.onClick(entry) end)
+        button.frame:SetPoint("RIGHT", frame, "RIGHT", -2, 0)
+        entry.button = button
+        control = button
+        rightEdge = button.frame
+    else
+        control = MakeToggle(frame, changed)
+        control.frame:SetPoint("RIGHT", frame, "RIGHT", -2, 0)
+        rightEdge = control.frame
+    end
+    entry.control = control
+
+    if rightEdge then
+        label:SetPoint("LEFT", frame, "LEFT", row.indent or 4, row.hint and 7 or 0)
+        label:SetPoint("RIGHT", rightEdge, "LEFT", -8, 0)
+    end
+    if row.hint and not row.stack and not row.full then
+        local hint = Text(frame, 10.5, COLOR.muted)
+        hint:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -2)
+        hint:SetPoint("RIGHT", rightEdge or frame, rightEdge and "LEFT" or "RIGHT", rightEdge and -8 or -90, 0)
+        hint:SetText(row.hint)
+        entry.hintText = hint
+    end
+
+    function entry:SetHint(text, color)
+        if self.hintText then
+            self.hintText:SetText(text or "")
+            Tint(self.hintText, color or COLOR.muted)
+        end
+    end
+
+    function entry:SetActive(active)
+        frame:SetAlpha(active and 1 or 0.45)
+        if control.frame then control.frame:EnableMouse(active and true or false) end
+    end
+
+    local function enter() ShowTip(frame, row.label or "", row.tip or row.hint) end
+    frame:SetScript("OnEnter", enter)
+    frame:SetScript("OnLeave", HideTip)
+    SA_MenuFX.Hover(frame, tint)
+    card.rows[#card.rows + 1] = entry
+    return entry
+end
+
+Page.Kit = {
+    COLOR = COLOR,
+    FLAT = FLAT,
+    FONT = FONT,
+    PAGE_HEIGHT = PAGE_HEIGHT,
+    SCROLL_STEP = SCROLL_STEP,
+    Paint = Paint,
+    Outline = Outline,
+    Text = Text,
+    MakeToggle = MakeToggle,
+    MakeRange = MakeRange,
+    MakeText = MakeText,
+    MakeButton = MakeButton,
+    MakeSelect = MakeSelect,
+    MakeStepper = MakeStepper,
+    AddRow = AddRow,
+    ShowTip = ShowTip,
+    HideTip = HideTip,
+    MakeChip = MakeChip,
+    Tint = Tint,
+    Flow = Flow,
+    CARD_TITLE = CARD_TITLE,
+    NewView = NewView,
+    NewHeading = NewHeading,
+    NewLink = NewLink,
+    NewDivider = NewDivider,
+    PlaceDivider = PlaceDivider,
+    NewCard = NewCard,
+    PlaceCard = PlaceCard,
+}
 
 SoundAlerter.Page = Page

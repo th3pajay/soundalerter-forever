@@ -22,7 +22,7 @@ local GAP_LABEL_PADDING = 2
 local GAP_LABEL_GLYPHS = 5.5
 local INSTANT_ICON = "Interface\\Icons\\Spell_Nature_Lightning"
 
-local ROW_UNITS = { "player", "target", "focus", "party1", "party2", "party3", "party4" }
+local ROW_UNITS = { "player", "target", "focus", "party1", "party2", "party3", "party4", "enemies" }
 
 local ROW_LABELS = {
 	player = "Player",
@@ -32,7 +32,10 @@ local ROW_LABELS = {
 	party2 = "Party 2",
 	party3 = "Party 3",
 	party4 = "Party 4",
+	enemies = "Enemies",
 }
+
+local ENEMIES_SUBSCRIBER = "castfeed:enemies"
 
 local ROW_SET = {}
 for _, unit in ipairs(ROW_UNITS) do
@@ -57,6 +60,7 @@ local FEED_KEYS = {
 	length = true,
 	maxIcons = true,
 	showInstants = true,
+	auraDisplay = true,
 	showGaps = true,
 	gapFontSize = true,
 }
@@ -233,9 +237,36 @@ function Row:ResetPosition()
 	CastFeed.addon.BarUtils:LoadPosition(self.frame, self.settings, "", 0, DEFAULT_Y)
 end
 
+function Row:ApplyDispatch(active)
+	if not active then
+		SA_CastDispatch.Unsubscribe(ENEMIES_SUBSCRIBER)
+		return
+	end
+	if SA_CastDispatch.Subscribed(ENEMIES_SUBSCRIBER) then return end
+
+	local handlers = {}
+	for _, event in ipairs(EVENTS) do
+		handlers[event] = function(unit, castGUID, spellID)
+			self:OnCastEvent(event, unit, castGUID, spellID)
+		end
+	end
+	SA_CastDispatch.Subscribe(ENEMIES_SUBSCRIBER, handlers)
+end
+
+function Row:Accepts(unit)
+	if self.unit ~= "enemies" then return unit == self.unit end
+	if not SA_Secret.Usable("name") or not SA_Plates.IsEnemyUnit(unit) then return false end
+	return not (Plain(UnitIsUnit(unit, "target")) or Plain(UnitIsUnit(unit, "focus")))
+end
+
 function Row:ApplyEvents(active)
 	local eventFrame = self.eventFrame
 	eventFrame:UnregisterAllEvents()
+
+	if self.unit == "enemies" then
+		self:ApplyDispatch(active)
+		return
+	end
 
 	if not active then return end
 
@@ -342,7 +373,9 @@ function Row:AcquireButton(entry)
 	button:SetSize(size, size)
 	button:ClearAllPoints()
 	button.offset = nil
-	if not pcall(button.tex.SetTexture, button.tex, entry.icon) then
+	if pcall(button.tex.SetTexture, button.tex, entry.icon) then
+		if issecretvalue(entry.icon) then SA_Secret.Succeed("sink", true) end
+	else
 		button.tex:SetTexture(134400)
 	end
 	button.entry = entry
@@ -497,7 +530,7 @@ function Row:DropOne()
 	return false
 end
 
-function Row:Begin(key, spellID, status, isFallback, caster, secretID)
+function Row:Begin(key, spellID, status, isFallback, caster, secretID, castUnit)
 	local now = GetTime()
 
 	local existing = self.byKey[key]
@@ -511,7 +544,7 @@ function Row:Begin(key, spellID, status, isFallback, caster, secretID)
 		end
 	end
 
-	local unit = self.unit
+	local unit = castUnit or self.unit
 	local name, icon, label
 	local generic = false
 	if spellID then
@@ -521,6 +554,9 @@ function Row:Begin(key, spellID, status, isFallback, caster, secretID)
 		local info = status == "channeling" and UnitChannelInfo or UnitCastingInfo
 		local castName, _, _, castIcon = info(unit)
 		label, icon = castName, castIcon
+		if label == nil and secretID ~= nil then
+			label = SA_Secret.Name(secretID)
+		end
 		if not issecretvalue(icon) and not icon and secretID ~= nil then
 			local ok, texture = pcall(C_Spell.GetSpellTexture, secretID)
 			if ok and (issecretvalue(texture) or texture) then
@@ -536,6 +572,11 @@ function Row:Begin(key, spellID, status, isFallback, caster, secretID)
 
 	local entry = self:Push(key, now)
 	if not entry then return end
+
+	if secretID ~= nil then
+		if issecretvalue(label) then SA_Secret.Succeed("name", true) end
+		if issecretvalue(icon) then SA_Secret.Succeed("icon", true) end
+	end
 
 	entry.spellID = spellID
 	entry.name = name
@@ -584,7 +625,7 @@ function Row:Push(key, now)
 end
 
 function Row:OnCastEvent(event, unit, castGUID, spellID)
-	if unit ~= self.unit then return end
+	if not self:Accepts(unit) then return end
 
 	local db = CastFeed.db
 	if not db or not db.enabled or not self.settings.enabled then return end
@@ -601,14 +642,14 @@ function Row:OnCastEvent(event, unit, castGUID, spellID)
 	local entry = self.byKey[key]
 
 	if event == "UNIT_SPELLCAST_START" then
-		self:Begin(key, spellID, "casting", isFallback, nil, secretID)
+		self:Begin(key, spellID, "casting", isFallback, nil, secretID, unit)
 	elseif event == "UNIT_SPELLCAST_CHANNEL_START" then
-		self:Begin(key, spellID, "channeling", isFallback, nil, secretID)
+		self:Begin(key, spellID, "channeling", isFallback, nil, secretID, unit)
 	elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
 		if entry and (entry.status == "casting" or entry.status == "cancelled") then
 			self:SetStatus(entry, "success")
 		elseif db.showInstants then
-			self:Begin(key, spellID, "success", isFallback, nil, secretID)
+			self:Begin(key, spellID, "success", isFallback, nil, secretID, unit)
 		end
 	elseif event == "UNIT_SPELLCAST_INTERRUPTED" then
 		if entry and entry.status ~= "success" then

@@ -1,37 +1,24 @@
 local DevTools = {}
 SoundAlerter.DevTools = DevTools
 
-local Format = SA_DevFormat
+local Model = SA_DevModel
 
-local REFRESH_SECONDS = 1
-local MEMORY_SECONDS = 5
-
-local TIMING_MODES = {
-    { key = "search", label = "Search" },
-    { key = "fuzzy", label = "Fuzzy" },
-    { key = "description", label = "Description" },
-    { key = "perform", label = "Search + render" },
-    { key = "autocomplete", label = "Autocomplete" },
-}
-
-local cache = {}
-local statusInfo = {}
-local memoryInfo = {}
-local timingRows = {}
-for i, mode in ipairs(TIMING_MODES) do
-    timingRows[i] = { label = mode.label }
+local info = {}
+local timings = {}
+for index, mode in ipairs(Model.TIMINGS) do
+    timings[index] = { key = mode.key, label = mode.label }
 end
 
 local memoryKB = 0
 local memoryReadAt = nil
 
-local function currentMemoryKB(now)
-    if not memoryReadAt or now - memoryReadAt >= MEMORY_SECONDS then
+local function readMemory(force)
+    local now = GetTime()
+    if force or not memoryReadAt or now - memoryReadAt >= Model.MEMORY_SECONDS then
         UpdateAddOnMemoryUsage()
         memoryKB = GetAddOnMemoryUsage("SoundAlerter")
         memoryReadAt = now
     end
-    return memoryKB
 end
 
 local function addonVersion()
@@ -39,77 +26,99 @@ local function addonVersion()
     return read and read("SoundAlerter", "Version") or "unknown"
 end
 
-local function buildStatus(now)
+function DevTools:Snapshot(wantMemory, forceMemory)
     local stats = SoundAlerter:GetDatabaseStats()
-    statusInfo.isBuilding = stats.isBuilding
-    statusInfo.progress = stats.progress
-    statusInfo.totalSpells = stats.totalSpells
-    statusInfo.lastUpdate = stats.lastUpdate
-    statusInfo.now = time()
-    statusInfo.builtOnVersion = stats.builtOnVersion
-    statusInfo.currentVersion = stats.currentVersion
-    statusInfo.memoryKB = currentMemoryKB(now)
-    statusInfo.debug = SoundAlerter.db1.profile.debugmode
-    statusInfo.addonVersion = addonVersion()
-    return Format.Status(statusInfo)
+    info.isBuilding = stats.isBuilding
+    info.progress = stats.progress
+    info.totalScanned = stats.totalScanned
+    info.maxSpellID = stats.maxSpellID
+    info.maxAge = stats.maxAge
+    info.totalSpells = stats.totalSpells
+    info.uniqueNames = stats.uniqueNames
+    info.rankedSpells = stats.rankedSpells
+    info.lastUpdate = stats.lastUpdate
+    info.builtOnVersion = stats.builtOnVersion
+    info.currentVersion = stats.currentVersion
+    info.source = stats.source
+    info.buildSeconds = stats.buildSeconds
+    info.cacheEntries = stats.cacheEntries
+    info.cacheMax = stats.cacheMax
+    if wantMemory or forceMemory or not memoryReadAt then
+        readMemory(forceMemory)
+    end
+    info.memoryKB = memoryKB
+    info.now = time()
+    info.debug = SoundAlerter.db1.profile.debugmode
+    info.addonVersion = addonVersion()
+    if stats.isBuilding then
+        local _, seconds = SoundAlerter:GetSpellScanInfo()
+        info.scanSeconds = seconds
+    else
+        info.scanSeconds = nil
+    end
+    return info
 end
 
-local function buildDatabase()
-    local stats = SoundAlerter:GetDatabaseStats()
-    stats.now = time()
-    return Format.Database(stats)
-end
-
-local function buildPerformance(now)
-    for i, mode in ipairs(TIMING_MODES) do
-        local row = timingRows[i]
+function DevTools:Timings()
+    for index, mode in ipairs(Model.TIMINGS) do
+        local row = timings[index]
         row.p50, row.p95, row.p99, row.max, row.count = SoundAlerter:GetSearchPercentiles(mode.key)
     end
-
-    local stats = SoundAlerter:GetDatabaseStats()
-    memoryInfo.cacheEntries = stats.cacheEntries
-    memoryInfo.cacheMax = stats.cacheMax
-    memoryInfo.memoryKB = currentMemoryKB(now)
-    return Format.Timings(timingRows) .. "\n\n" .. Format.Memory(memoryInfo)
+    return timings
 end
 
-local BUILDERS = {
-    status = buildStatus,
-    database = buildDatabase,
-    performance = buildPerformance,
-}
+function DevTools:Description()
+    return SoundAlerter:GetDescriptionInfo()
+end
 
-local function cachedText(key)
-    local now = GetTime()
-    local entry = cache[key]
-    if entry and now - entry.at < REFRESH_SECONDS then
-        return entry.text
+function DevTools:Report()
+    local snapshot = self:Snapshot(true, true)
+    return Model.Report(snapshot, self:Timings(), self:Description(), snapshot.addonVersion)
+end
+
+function DevTools:RebuildInfo()
+    local maxID, seconds = SoundAlerter:GetSpellScanInfo()
+    local warning, duration = Model.RebuildWarning(maxID, seconds)
+    return maxID, seconds, warning, duration
+end
+
+function DevTools:Rebuild()
+    local maxID, seconds, _, duration = self:RebuildInfo()
+    local function startScan()
+        self:Invalidate()
+        SoundAlerter:RebuildSpellDatabase()
     end
-
-    if not entry then
-        entry = {}
-        cache[key] = entry
+    if seconds < Model.LONG_SCAN_SECONDS then
+        startScan()
+        return
     end
-    entry.at = now
-    entry.text = BUILDERS[key](now)
-    return entry.text
+    StaticPopupDialogs["SOUNDALERTER_CONFIRM_SPELL_SCAN"] = {
+        text = string.format("|cffFF4040FINAL CONFIRMATION|r\n\nThis starts a full spell index (IDs 1 to %d). It takes at least %s and you may notice stuttering until it finishes. Start the scan now?", maxID, duration),
+        button1 = "Start scan",
+        button2 = CANCEL,
+        OnAccept = startScan,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+    }
+    StaticPopup_Show("SOUNDALERTER_CONFIRM_SPELL_SCAN")
 end
 
-function DevTools:GetStatusText()
-    return cachedText("status")
+function DevTools:SetFinderFlag(key, value)
+    SoundAlerter:SetFinderOption(key, value)
+    SoundAlerter:SyncFinderControls()
 end
 
-function DevTools:GetDatabaseText()
-    return cachedText("database")
+function DevTools:SetScope(value)
+    SoundAlerter:SetSearchScope(value)
 end
 
-function DevTools:GetPerformanceText()
-    return cachedText("performance")
+function DevTools:SetDebug(value)
+    SoundAlerter.db1.profile.debugmode = value
+    self:Invalidate()
 end
 
 function DevTools:Invalidate()
-    for _, entry in pairs(cache) do
-        entry.at = -math.huge
-    end
     memoryReadAt = nil
 end

@@ -23,9 +23,7 @@ Nav.Sections = {
     { name = "Profile", order = 40, keys = { profiles = 41 } },
 }
 
-Nav.SearchFamilies = {
-    { "Spells", "chatalerter" },
-}
+Nav.SearchFamilies = {}
 
 local function notifyChange()
     local registry = LibStub and LibStub("AceConfigRegistry-3.0", true)
