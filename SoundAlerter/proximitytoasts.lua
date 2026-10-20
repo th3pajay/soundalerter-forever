@@ -969,6 +969,69 @@ local function CollectAuras(unitToken)
     return list
 end
 
+local function ProximityToastOnUpdate(self, frameDelta)
+    local now = GetTime()
+
+    if self.isSliding then
+        local t = (now - self.slideStartTime) / SLIDE_DURATION
+        if t >= 1 then
+            self.currentY = self.slideToY
+            self.isSliding = false
+        else
+            local eased = 1 - (1 - t) * (1 - t)
+            self.currentY = self.slideFromY + (self.slideToY - self.slideFromY) * eased
+        end
+        if not IsLocked(self) then
+            self:SetPoint("TOP", UIParent, "TOP", self.slideBaseX, self.currentY)
+        end
+    end
+
+    if self.pauseState.active then
+        return
+    end
+
+    local elapsed = now - self.startTime - self.pauseState.totalTime
+
+    if SoundAlerter.db1.profile.proximityToasts.rainbowBorder then
+        local r, g, b = GetRainbowColor(now)
+        self:SetBackdropBorderColor(r, g, b, 1)
+    elseif self.view and self.view.high then
+        local pulse = 0.55 + 0.45 * math.abs(math.sin(now * 3))
+        self:SetBackdropBorderColor(1, 0.25 * pulse, 0.2 * pulse, 1)
+    end
+
+    if elapsed < FADE_IN_DURATION then
+        local progress = elapsed / FADE_IN_DURATION
+        self:SetAlpha(progress)
+        if not IsLocked(self) then
+            self:SetScale(1.15 - (0.15 * progress))
+        end
+
+    elseif elapsed < (FADE_IN_DURATION + self.displayDuration) then
+        self:SetAlpha(1)
+        if not IsLocked(self) then self:SetScale(1.0) end
+
+        local displayElapsed = elapsed - FADE_IN_DURATION
+        UpdateCountdownSegments(self, displayElapsed)
+
+    elseif elapsed < (FADE_IN_DURATION + self.displayDuration + FADE_OUT_DURATION) then
+        local fadeProgress = (elapsed - FADE_IN_DURATION - self.displayDuration) / FADE_OUT_DURATION
+        self:SetAlpha(1 - fadeProgress)
+
+        if not self.segmentsHidden and self.countdownBar and self.cachedSegmentData then
+            local duration = self.cachedSegmentData.duration
+            for i = 1, duration do
+                self.countdownBar.segments[i]:SetAlpha(0)
+            end
+            self.segmentsHidden = true
+        end
+
+    else
+        self:SetScript("OnUpdate", nil)
+        ProximityToasts:ReleaseToast(self)
+    end
+end
+
 function ProximityToasts:ShowToast(unitName, className, distance, guid, level, unitToken, customTitle, alertType, nearbyCount)
     local sadb = SoundAlerter.db1.profile
 
@@ -1130,68 +1193,7 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
     if not IsLocked(toast) then toast:SetScale(1.0) end
     toast:Show()
 
-    toast:SetScript("OnUpdate", function(self, frameDelta)
-        local now = GetTime()
-
-        if self.isSliding then
-            local t = (now - self.slideStartTime) / SLIDE_DURATION
-            if t >= 1 then
-                self.currentY = self.slideToY
-                self.isSliding = false
-            else
-                local eased = 1 - (1 - t) * (1 - t)
-                self.currentY = self.slideFromY + (self.slideToY - self.slideFromY) * eased
-            end
-            if not IsLocked(self) then
-                self:SetPoint("TOP", UIParent, "TOP", self.slideBaseX, self.currentY)
-            end
-        end
-
-        if self.pauseState.active then
-            return
-        end
-
-        local elapsed = now - self.startTime - self.pauseState.totalTime
-
-        if sadb.proximityToasts.rainbowBorder then
-            local r, g, b = GetRainbowColor(now)
-            self:SetBackdropBorderColor(r, g, b, 1)
-        elseif self.view and self.view.high then
-            local pulse = 0.55 + 0.45 * math.abs(math.sin(now * 3))
-            self:SetBackdropBorderColor(1, 0.25 * pulse, 0.2 * pulse, 1)
-        end
-
-        if elapsed < FADE_IN_DURATION then
-            local progress = elapsed / FADE_IN_DURATION
-            self:SetAlpha(progress)
-            if not IsLocked(self) then
-                self:SetScale(1.15 - (0.15 * progress))
-            end
-
-        elseif elapsed < (FADE_IN_DURATION + self.displayDuration) then
-            self:SetAlpha(1)
-            if not IsLocked(self) then self:SetScale(1.0) end
-
-            local displayElapsed = elapsed - FADE_IN_DURATION
-            UpdateCountdownSegments(self, displayElapsed)
-
-        elseif elapsed < (FADE_IN_DURATION + self.displayDuration + FADE_OUT_DURATION) then
-            local fadeProgress = (elapsed - FADE_IN_DURATION - self.displayDuration) / FADE_OUT_DURATION
-            self:SetAlpha(1 - fadeProgress)
-
-            if not self.segmentsHidden and self.countdownBar and self.cachedSegmentData then
-                local duration = self.cachedSegmentData.duration
-                for i = 1, duration do
-                    self.countdownBar.segments[i]:SetAlpha(0)
-                end
-                self.segmentsHidden = true
-            end
-
-        else
-            self:SetScript("OnUpdate", nil)
-            ProximityToasts:ReleaseToast(self)
-        end
-    end)
+    toast:SetScript("OnUpdate", ProximityToastOnUpdate)
 end
 
 function ProximityToasts:OnProfileChanged()

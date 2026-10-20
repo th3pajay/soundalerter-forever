@@ -109,12 +109,13 @@ end
 do
 SA_ProfileCleanup = {}
 
-SA_ProfileCleanup.PASS = 2
+SA_ProfileCleanup.PASS = 3
 
 SA_ProfileCleanup.DEAD_KEYS = {
     "objectiveAlertsEnabled", "ArenaPartner", "prowlhenemy", "vanishalert", "enemyinterrupts",
     "PresenceofMind", "lavaburst", "sayspell", "saptextself", "blindtext", "blindtextfriend",
     "flagRainbowBorder", "persistentTeamCache", "cspell", "showAdvancedFlag", "showAdvancedProximity",
+    "learnedClasses", "learnedClassesEnabled", "learnedClassesMaxSize", "negativeCacheEnabled", "negativeCacheTTL",
 }
 
 SA_ProfileCleanup.DEAD_RESOURCE_KEYS = {

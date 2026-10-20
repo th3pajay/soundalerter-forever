@@ -67,7 +67,8 @@ local function importAlerts()
         return false
     end
     current.custom = parsed
-    SoundAlerter:OnOptionsCreate()
+    local registry = LibStub("AceConfigRegistry-3.0", true)
+    if registry then registry:NotifyChange("SoundAlerter") end
 end
 
 local function summary(settings)

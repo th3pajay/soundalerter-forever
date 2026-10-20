@@ -474,7 +474,7 @@ function FlagAlerts:GetPlayerClassByName(playerName)
 
     if sadb.persistentCacheEnabled and self.persistentCache[playerName] then
         local cached = self.persistentCache[playerName]
-        cached.lastSeen = GetTime()
+        cached.lastSeen = time()
         self.performanceMetrics.persistentCacheHits = self.performanceMetrics.persistentCacheHits + 1
 
 
@@ -552,18 +552,20 @@ function FlagAlerts:SaveToPersistentCache(playerName, class)
     end
     self.persistentCache[playerName] = {
         class = class,
-        lastSeen = GetTime()
+        lastSeen = time()
     }
 end
 
 function FlagAlerts:CleanupPersistentCache()
+    SA_FlagCache.Prune(self.flagEventCache, GetTime(), self.FLAG_EVENT_DEDUPE_WINDOW)
     if not sadb.persistentCacheEnabled then return end
 
-    local currentTime = GetTime()
+    local currentTime = time()
     local maxAge = sadb.persistentCacheMaxAge or 2592000
 
     local toDelete = {}
     for playerName, data in pairs(self.persistentCache) do
+        data.lastSeen = SA_FlagCache.Normalize(data.lastSeen, currentTime)
         if currentTime - data.lastSeen > maxAge then
             table_insert(toDelete, playerName)
         end
@@ -1320,6 +1322,77 @@ function FlagAlerts:UpdateFlagToastLayout()
     end
 end
 
+local function FlagToastOnUpdate(self, elapsed)
+    if not self.inUse then
+        self:SetScript("OnUpdate", nil)
+        return
+    end
+
+    if self.pauseState.active then
+        return
+    end
+
+    local currentTime = GetTime()
+    local timeSinceStart = currentTime - self.startTime - self.pauseState.totalTime
+
+    if SoundAlerter.ProximityToasts and SoundAlerter.ProximityToasts:GetSettings().rainbowBorder then
+        local r, g, b = GetRainbowColor(currentTime)
+        self:SetBackdropBorderColor(r, g, b, 1)
+    end
+
+    if timeSinceStart < FLAG_FADE_IN_DURATION then
+        local progress = timeSinceStart / FLAG_FADE_IN_DURATION
+        self:SetAlpha(progress)
+        if not IsFlagToastLocked(self) then
+            self:SetScale(1.15 - (0.15 * progress))
+        end
+
+        if self.secureButton then
+            self.secureButton:SetAlpha(progress)
+        end
+
+        return
+    end
+
+    if timeSinceStart < (FLAG_FADE_IN_DURATION + self.displayDuration) then
+        self:SetAlpha(1)
+        if not IsFlagToastLocked(self) then self:SetScale(1.0) end
+
+        if self.secureButton then
+            self.secureButton:SetAlpha(1)
+        end
+
+        local displayElapsed = timeSinceStart - FLAG_FADE_IN_DURATION
+        UpdateFlagCountdownSegments(self, displayElapsed)
+
+        return
+    end
+
+    local fadeOutTime = timeSinceStart - (FLAG_FADE_IN_DURATION + self.displayDuration)
+    if fadeOutTime < FLAG_FADE_OUT_DURATION then
+        local fadeProgress = fadeOutTime / FLAG_FADE_OUT_DURATION
+        self:SetAlpha(1 - fadeProgress)
+
+        if self.secureButton then
+            self.secureButton:SetAlpha(1 - fadeProgress)
+        end
+
+        if self.countdownBar and self.cachedSegmentData then
+            local duration = self.cachedSegmentData.duration
+            for i = 1, duration do
+                if self.countdownBar.segments[i] then
+                    self.countdownBar.segments[i]:SetAlpha(0)
+                end
+            end
+        end
+
+        return
+    end
+
+    self:SetScript("OnUpdate", nil)
+    FlagAlerts:ReleaseFlagToast(self)
+end
+
 function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTeam)
     local sadb = SoundAlerter.db1.profile
 
@@ -1427,76 +1500,7 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
         toast.secureButton:Show()
     end
 
-    toast:SetScript("OnUpdate", function(self, elapsed)
-        if not self.inUse then
-            self:SetScript("OnUpdate", nil)
-            return
-        end
-
-        if self.pauseState.active then
-            return
-        end
-
-        local currentTime = GetTime()
-        local timeSinceStart = currentTime - self.startTime - self.pauseState.totalTime
-
-        if SoundAlerter.ProximityToasts and SoundAlerter.ProximityToasts:GetSettings().rainbowBorder then
-            local r, g, b = GetRainbowColor(currentTime)
-            self:SetBackdropBorderColor(r, g, b, 1)
-        end
-
-        if timeSinceStart < FLAG_FADE_IN_DURATION then
-            local progress = timeSinceStart / FLAG_FADE_IN_DURATION
-            self:SetAlpha(progress)
-            if not IsFlagToastLocked(self) then
-                self:SetScale(1.15 - (0.15 * progress))
-            end
-
-            if self.secureButton then
-                self.secureButton:SetAlpha(progress)
-            end
-
-            return
-        end
-
-        if timeSinceStart < (FLAG_FADE_IN_DURATION + self.displayDuration) then
-            self:SetAlpha(1)
-            if not IsFlagToastLocked(self) then self:SetScale(1.0) end
-
-            if self.secureButton then
-                self.secureButton:SetAlpha(1)
-            end
-
-            local displayElapsed = timeSinceStart - FLAG_FADE_IN_DURATION
-            UpdateFlagCountdownSegments(self, displayElapsed)
-
-            return
-        end
-
-        local fadeOutTime = timeSinceStart - (FLAG_FADE_IN_DURATION + self.displayDuration)
-        if fadeOutTime < FLAG_FADE_OUT_DURATION then
-            local fadeProgress = fadeOutTime / FLAG_FADE_OUT_DURATION
-            self:SetAlpha(1 - fadeProgress)
-
-            if self.secureButton then
-                self.secureButton:SetAlpha(1 - fadeProgress)
-            end
-
-            if self.countdownBar and self.cachedSegmentData then
-                local duration = self.cachedSegmentData.duration
-                for i = 1, duration do
-                    if self.countdownBar.segments[i] then
-                        self.countdownBar.segments[i]:SetAlpha(0)
-                    end
-                end
-            end
-
-            return
-        end
-
-        self:SetScript("OnUpdate", nil)
-        FlagAlerts:ReleaseFlagToast(self)
-    end)
+    toast:SetScript("OnUpdate", FlagToastOnUpdate)
 
     toast:Show()
     toast:SetAlpha(0)

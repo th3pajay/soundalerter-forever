@@ -324,11 +324,13 @@ function Custom:BuildEditor()
     self.chips = {}
     for _, event in ipairs(Model.EVENTS) do
         local key = event[1]
-        local chip = Kit.MakeChip(self.eventsCard.frame, event[2], function() page:ToggleEvent(key) end)
-        chip.key = key
-        chip.frame:HookScript("OnEnter", function() Kit.ShowTip(chip.frame, event[2], spec.eventTip(key)) end)
-        chip.frame:HookScript("OnLeave", Kit.HideTip)
-        self.chips[#self.chips + 1] = chip
+        if not Model.UNFIRED[key] then
+            local chip = Kit.MakeChip(self.eventsCard.frame, event[2], function() page:ToggleEvent(key) end)
+            chip.key = key
+            chip.frame:HookScript("OnEnter", function() Kit.ShowTip(chip.frame, event[2], spec.eventTip(key)) end)
+            chip.frame:HookScript("OnLeave", Kit.HideTip)
+            self.chips[#self.chips + 1] = chip
+        end
     end
     self.eventsNote = Text(self.eventsCard.frame, 11, COLOR.muted)
     self.eventsNote:SetText("It is best to keep the event conditions to the fewest you need.")

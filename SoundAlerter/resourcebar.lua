@@ -104,6 +104,7 @@ local RESOURCE_BAR_KEYS = {
 	comboAnimQuality = true,
 	fullCPSound = true,
 	barTexture = true,
+	barTextureQuality = true,
 	healthHeight = true,
 	comboPositionX = true,
 	comboPositionY = true,
@@ -628,11 +629,12 @@ function ResourceBar:ApplyBarTexture()
 
 	local texture = SoundAlerter.BarTexture:Normalize(self.db.barTexture)
 	self.db.barTexture = texture
+	local quality = SoundAlerter.BarTexture:NormalizeQuality(self.db.barTextureQuality)
 
 	for barKey in pairs(BAR_CONFIGS) do
 		local barName = barKey .. "Bar"
 		if self[barName] then
-			SoundAlerter.BarTexture:Apply(self[barName], texture)
+			SoundAlerter.BarTexture:Apply(self[barName], texture, quality)
 		end
 	end
 end

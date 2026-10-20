@@ -6,6 +6,14 @@ local TILE_ASPECT = 8
 local WAVE_INTERVAL = 0.05
 local WAVE_COLUMN_PIXELS = { 6, 5, 4 }
 local WAVE_LAYER_ALPHA = { 0.35, 0.6, 1 }
+local LOW_INTERVAL = 0.06
+local GLINT_SPEED = 70
+local GLINT_TRAIL = 6
+local GLINT_STEP = 3
+local PIXEL = "Interface\\Buttons\\WHITE8X8"
+local QUALITIES = { low = true, normal = true, high = true }
+local BEVEL_LIGHT = { 0.62, 0.86, 1, 0.85 }
+local BEVEL_DARK = { 0.17, 0.44, 0.69, 0.85 }
 
 local math_ceil, math_floor, math_min = math.ceil, math.floor, math.min
 
@@ -141,9 +149,18 @@ local ANIMATED = {
 	motes = {
 		label = "Motes",
 		layers = {
-			{ file = "bar_motes_1", rate = 0.031, alpha = 0.5 },
-			{ file = "bar_motes_2", rate = 0.106, alpha = 0.75 },
-			{ file = "bar_motes_3", rate = 0.288, alpha = 1 },
+			{ file = "bar_motes_1", rate = 0.028, alpha = 0.45 },
+			{ file = "bar_motes_2", rate = 0.1, alpha = 0.7 },
+			{ file = "bar_motes_3", rate = 0.27, alpha = 0.95 },
+		},
+	},
+	liquid = {
+		label = "Liquid",
+		border = "liquid",
+		layers = {
+			{ file = "bar_liquid_1", rate = 0.03, alpha = 0.24 },
+			{ file = "bar_liquid_2", rate = 0.1, alpha = 0.55 },
+			{ file = "bar_liquid_3", rate = 0.02, rise = 0.45, alpha = 0.9 },
 		},
 	},
 	fog = {
@@ -164,6 +181,13 @@ function BarTexture:Normalize(setting)
 		return setting
 	end
 	return "default"
+end
+
+function BarTexture:NormalizeQuality(setting)
+	if QUALITIES[setting] then
+		return setting
+	end
+	return "normal"
 end
 
 function BarTexture:Values()
@@ -236,61 +260,195 @@ local function hideColumns(state, fill)
 	end
 end
 
-local function applyStyle(state, style, fill)
-	state.style = style
-	state.width, state.height, state.reverse = nil, nil, nil
+local function effectiveLayers(style, quality)
+	local layers = style.layers
+	if quality ~= "low" or #layers < 3 then
+		return layers
+	end
+
+	local reduced = {}
+	for index = 2, #layers do
+		reduced[#reduced + 1] = layers[index]
+	end
+	return reduced
+end
+
+local function applyStyle(state, style, fill, quality)
+	state.style, state.quality = style, quality
+	state.width, state.height, state.reverse, state.vertical = nil, nil, nil, nil
 
 	if style.wave then
+		state.layers = nil
 		hideLayers(state)
 		return
 	end
 
 	hideColumns(state, fill)
 
-	for index, layer in ipairs(style.layers) do
+	state.layers = effectiveLayers(style, quality)
+	for index, layer in ipairs(state.layers) do
 		local texture = state.textures[index]
 		if not texture then
 			texture = state.clip:CreateTexture(nil, "ARTWORK", nil, index)
 			texture:SetBlendMode("ADD")
 			state.textures[index] = texture
 		end
-		texture:SetTexture(MEDIA .. layer.file, "REPEAT", "CLAMP")
+		texture:SetTexture(MEDIA .. layer.file, "REPEAT", layer.rise and "REPEAT" or "CLAMP")
 		texture:SetVertexColor(1, 1, 1, layer.alpha)
 		texture:Show()
 		state.offsets[index] = 0
+		state.rises[index] = 0
 	end
 
-	for index = #style.layers + 1, #state.textures do
+	for index = #state.layers + 1, #state.textures do
 		state.textures[index]:Hide()
 	end
 end
 
-local function anchorLayers(state, bar, width, height, reverse)
+local function anchorLayers(state, bar, width, height, reverse, vertical)
+	local point
+	if vertical then
+		point = reverse and "TOPLEFT" or "BOTTOMLEFT"
+	else
+		point = reverse and "TOPRIGHT" or "TOPLEFT"
+	end
+
 	for _, texture in ipairs(state.textures) do
 		texture:ClearAllPoints()
-		if reverse then
-			texture:SetPoint("TOPRIGHT", bar, "TOPRIGHT")
-		else
-			texture:SetPoint("TOPLEFT", bar, "TOPLEFT")
-		end
+		texture:SetPoint(point, bar, point)
 		texture:SetSize(width, height)
 	end
-	state.width, state.height, state.reverse = width, height, reverse
+	state.width, state.height, state.reverse, state.vertical = width, height, reverse, vertical
 end
 
-local function updateLayers(bar, state, dt, width, height)
+local function updateLayers(bar, state, dt, width, height, vertical)
 	local reverse = bar:GetReverseFill() and true or false
-	if state.width ~= width or state.height ~= height or state.reverse ~= reverse then
-		anchorLayers(state, bar, width, height, reverse)
+	if state.width ~= width or state.height ~= height or state.reverse ~= reverse or state.vertical ~= vertical then
+		anchorLayers(state, bar, width, height, reverse, vertical)
 	end
 
-	local span = width / (height * TILE_ASPECT)
-	for index, layer in ipairs(state.style.layers) do
+	local length, thickness = width, height
+	if vertical then
+		length, thickness = height, width
+	end
+	local span = length / (thickness * TILE_ASPECT)
+
+	for index, layer in ipairs(state.layers) do
 		local offset = (state.offsets[index] + layer.rate * dt) % 1
 		state.offsets[index] = offset
 		local left = reverse and offset or 1 - offset
-		state.textures[index]:SetTexCoord(left, left + span, 0, 1)
+
+		local top = 0
+		if layer.rise then
+			top = (state.rises[index] + layer.rise * dt) % 1
+			state.rises[index] = top
+		end
+
+		local texture = state.textures[index]
+		if vertical then
+			if reverse then
+				texture:SetTexCoord(left, top, left + span, top, left, top + 1, left + span, top + 1)
+			else
+				texture:SetTexCoord(left + span, top, left, top, left + span, top + 1, left, top + 1)
+			end
+		else
+			texture:SetTexCoord(left, left + span, top, top + 1)
+		end
 	end
+end
+
+local function ensureBevel(bar, state)
+	if state.bevel then return state.bevel end
+
+	local bevel = {}
+	for index = 1, 4 do
+		local texture = state.overlay:CreateTexture(nil, "OVERLAY", nil, 1)
+		texture:SetTexture(PIXEL)
+		local color = index <= 2 and BEVEL_LIGHT or BEVEL_DARK
+		texture:SetVertexColor(color[1], color[2], color[3], color[4])
+		bevel[index] = texture
+	end
+
+	bevel[1]:SetPoint("TOPLEFT", bar, "TOPLEFT", 1, -1)
+	bevel[1]:SetPoint("TOPRIGHT", bar, "TOPRIGHT", -1, -1)
+	bevel[1]:SetHeight(1)
+	bevel[2]:SetPoint("TOPLEFT", bar, "TOPLEFT", 1, -2)
+	bevel[2]:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 1, 2)
+	bevel[2]:SetWidth(1)
+	bevel[3]:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 1, 1)
+	bevel[3]:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -1, 1)
+	bevel[3]:SetHeight(1)
+	bevel[4]:SetPoint("TOPRIGHT", bar, "TOPRIGHT", -1, -2)
+	bevel[4]:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -1, 2)
+	bevel[4]:SetWidth(1)
+
+	state.bevel = bevel
+	return bevel
+end
+
+local function setBevel(bar, state, shown)
+	if shown then
+		for _, texture in ipairs(ensureBevel(bar, state)) do
+			texture:Show()
+		end
+	elseif state.bevel then
+		for _, texture in ipairs(state.bevel) do
+			texture:Hide()
+		end
+	end
+end
+
+local function perimeterPoint(width, height, distance)
+	distance = distance % (2 * (width + height))
+	if distance < width then return distance, 0 end
+	distance = distance - width
+	if distance < height then return width, distance end
+	distance = distance - height
+	if distance < width then return width - distance, height end
+	return 0, height - (distance - width)
+end
+
+local function ensureGlint(state)
+	if state.glint then return state.glint end
+
+	local glint = {}
+	for index = 1, GLINT_TRAIL do
+		local texture = state.overlay:CreateTexture(nil, "OVERLAY", nil, 2)
+		texture:SetTexture(PIXEL)
+		texture:SetSize(2, 2)
+		texture:SetVertexColor(1, 1, 1, 0.9 * (1 - (index - 1) / GLINT_TRAIL))
+		glint[index] = texture
+	end
+	state.glint = glint
+	state.glintAt = 0
+	return glint
+end
+
+local function hideGlint(state)
+	if not state.glintShown then return end
+
+	for _, texture in ipairs(state.glint) do
+		texture:Hide()
+	end
+	state.glintShown = false
+end
+
+local function updateGlint(bar, state, dt, width, height)
+	if state.quality ~= "high" then
+		hideGlint(state)
+		return
+	end
+
+	local glint = ensureGlint(state)
+	state.glintAt = (state.glintAt + GLINT_SPEED * dt) % (2 * (width + height))
+	for index = 1, GLINT_TRAIL do
+		local x, y = perimeterPoint(width, height, state.glintAt - (index - 1) * GLINT_STEP)
+		local texture = glint[index]
+		texture:ClearAllPoints()
+		texture:SetPoint("CENTER", bar, "TOPLEFT", x, -y)
+		texture:Show()
+	end
+	state.glintShown = true
 end
 
 local function waveColumn(state, layer, index)
@@ -422,7 +580,13 @@ function BarTexture:Update(bar, dt)
 	local width, height = bar:GetSize()
 	local fill = bar:GetStatusBarTexture()
 
-	if bar:GetOrientation() ~= "HORIZONTAL" or width <= 0 or height <= 0 then
+	if width > 0 and height > 0 then
+		updateGlint(bar, state, dt, width, height)
+	end
+
+	local orientation = bar:GetOrientation()
+	local vertical = orientation == "VERTICAL"
+	if (orientation ~= "HORIZONTAL" and not vertical) or width <= 0 or height <= 0 or (vertical and state.style.wave) then
 		state.clip:Hide()
 		hideColumns(state, fill)
 		return
@@ -434,7 +598,7 @@ function BarTexture:Update(bar, dt)
 	if state.style.wave then
 		updateWaves(bar, state, dt, width, height, fill)
 	else
-		updateLayers(bar, state, dt, width, height)
+		updateLayers(bar, state, dt, width, height, vertical)
 	end
 end
 
@@ -457,25 +621,40 @@ local function ensureDriver()
 		self.elapsed = 0
 		for bar in pairs(animatedBars) do
 			if bar:IsVisible() then
-				BarTexture:Update(bar, dt)
+				local state = bar.textureState
+				local step = dt
+				if state.quality == "low" then
+					step = (state.pending or 0) + dt
+					if step < LOW_INTERVAL then
+						state.pending = step
+						step = nil
+					else
+						state.pending = 0
+					end
+				end
+				if step then
+					BarTexture:Update(bar, step)
+				end
 			end
 		end
 	end)
 	return driver
 end
 
-function BarTexture:SetAnimation(bar, style)
+function BarTexture:SetAnimation(bar, style, quality)
 	if style then
+		quality = self:NormalizeQuality(quality)
 		local state = bar.textureState
 		if not state then
-			state = { textures = {}, offsets = {}, columns = { {}, {}, {} } }
+			state = { textures = {}, offsets = {}, rises = {}, columns = { {}, {}, {} } }
 			bar.textureState = state
 			createFrames(bar, state)
 		end
 		liftText(bar, state)
-		if state.style ~= style then
-			applyStyle(state, style, bar:GetStatusBarTexture())
+		if state.style ~= style or state.quality ~= quality then
+			applyStyle(state, style, bar:GetStatusBarTexture(), quality)
 		end
+		setBevel(bar, state, style.border == "liquid")
 		animatedBars[bar] = true
 		self:Update(bar, style.wave and WAVE_INTERVAL or 0)
 		ensureDriver():Show()
@@ -486,13 +665,15 @@ function BarTexture:SetAnimation(bar, style)
 		local state = bar.textureState
 		animatedBars[bar] = nil
 		state.clip:Hide()
-		state.style = nil
+		state.style, state.quality = nil, nil
 		hideColumns(state, bar:GetStatusBarTexture())
+		setBevel(bar, state, false)
+		hideGlint(state)
 		dropText(bar, state)
 	end
 end
 
-function BarTexture:Apply(bar, setting)
+function BarTexture:Apply(bar, setting, quality)
 	if not bar then return end
 
 	setting = self:Normalize(setting)
@@ -506,7 +687,7 @@ function BarTexture:Apply(bar, setting)
 	end
 	bar:SetAlpha(flat and flat.alpha or 1)
 
-	self:SetAnimation(bar, ANIMATED[setting])
+	self:SetAnimation(bar, ANIMATED[setting], quality)
 end
 
 SoundAlerter.BarTexture = BarTexture

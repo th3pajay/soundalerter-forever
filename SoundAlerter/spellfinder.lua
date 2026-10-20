@@ -501,35 +501,6 @@ function SoundAlerter:ReleaseSearchExtras()
     self:ClearSearchCache()
 end
 
-function SoundAlerter:OnFindSpellShown(frame)
-    self:FitFinderWidth(frame)
-    self:PrepareSearchExtras()
-    if frame.lastSearchTerm and frame.lastSearchTerm ~= "" then
-        self:PerformSearch(frame, frame.lastSearchTerm)
-    end
-end
-
-function SoundAlerter:OnFindSpellHidden(frame)
-    frame.renderGen = (frame.renderGen or 0) + 1
-    if frame.renderTimer then
-        self:CancelTimer(frame.renderTimer, true)
-        frame.renderTimer = nil
-    end
-    if frame.detailTimer then
-        self:CancelTimer(frame.detailTimer, true)
-        frame.detailTimer = nil
-    end
-    frame.selectedRow = nil
-    frame.selectedSpell = nil
-    if frame.scrollFrame then
-        frame.scrollFrame:ReleaseChildren()
-    end
-    if frame.clearSuggestions then
-        frame.clearSuggestions()
-    end
-    self:ReleaseSearchExtras()
-end
-
 local databaseStats = {}
 
 function SoundAlerter:GetDatabaseStats()
@@ -1012,8 +983,9 @@ function SoundAlerter:ProcessDescriptionBatch()
 
     db.descBatches = db.descBatches + 1
     if db.descBatches % DESC_NOTIFY_EVERY == 0 then
+        local AceConfigDialog = LibStub("AceConfigDialog-3.0", true)
         local AceConfigRegistry = LibStub("AceConfigRegistry-3.0")
-        if AceConfigRegistry then
+        if AceConfigRegistry and AceConfigDialog and AceConfigDialog.OpenFrames and AceConfigDialog.OpenFrames["SoundAlerter"] then
             AceConfigRegistry:NotifyChange("SoundAlerter")
         end
     end

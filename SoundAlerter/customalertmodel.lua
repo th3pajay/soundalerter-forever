@@ -15,6 +15,8 @@ Model.EVENTS = {
     { "SPELL_DAMAGE", "Damage" },
 }
 
+Model.UNFIRED = { SPELL_SUMMON = true, SPELL_DAMAGE = true }
+
 Model.UNIT_ORDER = { "any", "player", "target", "focus", "mouseover", "party", "arena", "custom" }
 
 function Model.Options(labels, order)

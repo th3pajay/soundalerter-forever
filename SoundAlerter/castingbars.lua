@@ -38,6 +38,7 @@ local CAST_BAR_UNITS = {
 local CASTING_BAR_GROUP_KEYS = {
 	locked = true,
 	barTexture = true,
+	barTextureQuality = true,
 	timeFormat = true,
 	showSpellIcon = true,
 	showLatency = true,
@@ -914,9 +915,10 @@ function CastingBars:ApplyBarTexture()
 	if not self.db then return end
 
 	local texture = self.addon.BarTexture:Normalize(self.db.barTexture)
+	local quality = self.addon.BarTexture:NormalizeQuality(self.db.barTextureQuality)
 
 	for _, b in ipairs(self.barList) do
-		self.addon.BarTexture:Apply(b.bar, texture)
+		self.addon.BarTexture:Apply(b.bar, texture, quality)
 		self:Fx("Look", b, self.db)
 	end
 end

@@ -168,3 +168,13 @@ frame:SetScript("OnEvent", function(_, event, unit, ...)
     end
 end)
 end
+
+do
+SA_TargetToken = setmetatable({}, {
+    __index = function(cache, unit)
+        local token = unit .. "target"
+        cache[unit] = token
+        return token
+    end,
+})
+end

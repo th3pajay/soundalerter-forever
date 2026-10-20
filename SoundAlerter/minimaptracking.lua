@@ -54,7 +54,28 @@ end
 
 function MinimapTracking:Apply()
 	local db = self.db
-	if not db or not db.enabled or ShowAll() then return end
+	if not db or not self.addon or ShowAll() then return end
+
+	local char = self.addon.db1.char
+	if not db.enabled then
+		local backup = char.minimapTrackingBackup
+		if backup then
+			for _, key in ipairs(FILTER_KEYS) do
+				if backup[key] ~= nil then pcall(SetActive, key, backup[key]) end
+			end
+			char.minimapTrackingBackup = nil
+		end
+		return
+	end
+
+	if not char.minimapTrackingBackup then
+		local backup = {}
+		for _, key in ipairs(FILTER_KEYS) do
+			local ok, active = pcall(IsActive, key)
+			backup[key] = ok and active or false
+		end
+		char.minimapTrackingBackup = backup
+	end
 
 	for _, key in ipairs(FILTER_KEYS) do
 		pcall(SetActive, key, db[key] == true)

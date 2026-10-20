@@ -26,7 +26,7 @@ local function write(active, key, value)
     active:SetSetting(key, value)
     if key == "locked" then
         active:SetLocked(value)
-    elseif key == "barTexture" then
+    elseif key == "barTexture" or key == "barTextureQuality" then
         active:ApplyBarTexture()
     elseif VISIBILITY[key] then
         active:UpdateVisibility()
@@ -47,6 +47,8 @@ local function write(active, key, value)
         active:RefreshComboColors()
     end
 end
+
+local TEXTURE_QUALITIES = { { "low", "Low" }, { "normal", "Normal" }, { "high", "High" } }
 
 local function textureOptions()
     local values = SoundAlerter.BarTexture and SoundAlerter.BarTexture:Values() or {}
@@ -136,6 +138,7 @@ function SoundAlerter:BuildResourceBarOptions()
         rows = {
             Page.Toggle("locked", "Lock bars", "Lock all resource bars in place. Unlock to drag and reposition.", false, "General"),
             Page.Select("barTexture", "Bar texture", "Choose the visual texture for all resource bars (Health, Mana, Energy, Rage). This provides a unified look across all bars.", textureOptions(), false, "General"),
+            Page.Select("barTextureQuality", "Texture quality", "Low animates 15 times a second and drops the farthest layer. Normal is the full animation. High adds a moving glint along the bar border. Only animated textures are affected.", TEXTURE_QUALITIES, true, "General"),
             Page.Toggle("energyEnabled", "Show energy bar", "Display energy bar (for Rogues, Druids in Cat Form).", false, "Bars"),
             Page.Toggle("rageEnabled", "Show rage bar", "Display rage bar (for Warriors, Druids in Bear Form).", false, "Bars"),
             Page.Toggle("healthEnabled", "Show health bar", "Display health bar.", false, "Bars"),

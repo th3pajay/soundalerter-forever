@@ -218,11 +218,13 @@ dbDefaults = {
 			fullCPSound = false,
 
 			barTexture = "default",
+			barTextureQuality = "normal",
 		},
 
 		castingBars = {
 			locked = false,
 			barTexture = "default",
+			barTextureQuality = "normal",
 			timeFormat = "milliseconds",
 			showSpellIcon = false,
 			showLatency = false,
@@ -389,16 +391,10 @@ dbDefaults = {
 		flagOnlyFriendlyTeam = false,
 		flagAllActions = false,
 
-		learnedClasses = {},
-		learnedClassesEnabled = true,
-
 		persistentClassCache = {},
 		persistentCacheEnabled = true,
 		persistentCacheMaxSize = 500,
 		persistentCacheMaxAge = 2592000,
-		learnedClassesMaxSize = 5000,
-		negativeCacheEnabled = true,
-		negativeCacheTTL = 5,
 
 		statistics = {
 			enabled = true,

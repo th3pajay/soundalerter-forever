@@ -8,7 +8,7 @@
 **Personal combat assistant.**
 Voiced PvP alerts, bars and trackers for WoW Forever.
 
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.81-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.83-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Status" src="https://img.shields.io/badge/status-beta-yellow.svg"/>
@@ -52,7 +52,7 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 
 | | Feature | What it does | |
 | :---: | :--- | :--- | :---: |
-| <img src="Media/icons/resource.svg" width="32"/> | **Resource bars** | Health, mana, energy, rage and combo points in 10 shapes with 8 celebration animations (each with its own spend and loss exit, and a Low / Normal / High quality setting), with feral form support and 7 textures | 🟢 |
+| <img src="Media/icons/resource.svg" width="32"/> | **Resource bars** | Health, mana, energy, rage and combo points in 10 shapes with 8 celebration animations (each with its own spend and loss exit, and a Low / Normal / High quality setting), with feral form support and 8 textures, including the Liquid look with its own bevelled border. Animated textures also run on vertical bars, and a Low / Normal / High texture quality adds a moving glint along the border at High | 🟢 |
 | <img src="Media/icons/casting.svg" width="32"/> | **Casting bars** | Player, target and focus bars with a segmented look, an unfurl on cast start, bloom rings on finish, a stamped INTERRUPTED, a steel look for uninterruptible casts, a red timer flip in the last 0.7 s, channel pulses and a shrink when a cast stops. Low, Normal and High animation quality. Fills from the game's timer, without time text, when enemy timing is hidden | 🟡 |
 | <img src="Media/icons/feed.svg" width="32"/> | **Cast feed** | One icon row per unit with the time between casts, plus an optional row for nearby enemies. Casts the client hides still show their real name, drawn by the client without the addon reading it. Turn it on with **Show hidden enemy spells** on the General page. Most enemy instants send no cast event, so only an experimental option sees those: it flashes enemy buffs and, in duels, your new debuffs beside the target and focus rows | 🟡 |
 | <img src="Media/icons/timer.svg" width="32"/> | **Combat timer** | Millisecond countdown to leaving combat. An estimate that snaps to the real drop | 🟡 |
@@ -79,6 +79,7 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 | `/sa help` | Full command list |
 | `/sa probe` | What the client lets the addon read right now |
 | `/sa secrets` | Whether the hidden-spell display routes work on this client |
+| `/sa stats [reset]` | Alert diagnostics: same spell alerted twice, aura resyncs, proximity checks skipped just after loading a zone |
 | `/sa speed` | The raw speed values and what the Speed Meter would show, for checking swimming |
 | `/sa fxstats [reset]` | How often the casting bars and spell tracker icons update at your animation quality |
 | `/sa snooze [min]` / `unsnooze` | Silence proximity alerts |

@@ -95,19 +95,20 @@ end
 function SoundAlerter:CheckWatchlist(unit)
     local profile = self.db1.profile
     if not profile.watchlistEnabled then return end
+    local names, guilds = Sets(profile)
+    if next(names) == nil and next(guilds) == nil then return end
     if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
     local guid = Plain(UnitGUID(unit))
     if not guid then return end
     local now = GetTime()
     local last = watchAlertAt[guid]
     if last and now - last < WATCH_SPACING then return end
-    if not self:IsAlertZoneAllowed() or self:IsQuiet() then return end
 
     local name = SafeUnitName(unit)
     local guild = Plain((GetGuildInfo(unit)))
-    local names, guilds = Sets(profile)
     local kind = SA_Watchlist.Match(names, guilds, name, guild)
     if not kind then return end
+    if not self:IsAlertZoneAllowed() or self:IsQuiet() then return end
 
     watchAlertAt[guid] = now
     self:Debug("Watchlist", "%s matched by %s (guild %s)", tostring(name), kind, tostring(guild))

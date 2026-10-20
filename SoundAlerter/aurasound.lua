@@ -150,6 +150,7 @@ end
 
 function SoundAlerter:OnConfigTableChange(event, appName)
     if appName ~= "SoundAlerter" or self.auraSoundSyncTimer then return end
+    if not self.db1.profile.engineAuraSounds and next(registered) == nil then return end
     self.auraSoundSyncTimer = self:ScheduleTimer("RunAuraSoundSync", 0.5)
 end
 

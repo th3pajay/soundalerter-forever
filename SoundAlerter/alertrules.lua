@@ -176,3 +176,78 @@ function SA_LossOfControl.ShouldSpeak(settings, state, category, now)
     return true
 end
 end
+
+do
+SA_NameplateRange = {}
+
+function SA_NameplateRange.Plan(enabled, requested, current, backup)
+    if enabled then
+        if backup == nil then backup = current end
+        return requested, backup
+    end
+    if backup ~= nil then return backup, nil end
+    return nil, nil
+end
+end
+
+do
+SA_FlagCache = {}
+
+SA_FlagCache.EPOCH_FLOOR = 1000000000
+
+function SA_FlagCache.Prune(cache, now, window)
+    local removed = 0
+    for name, entry in pairs(cache) do
+        local live = false
+        for _, at in pairs(entry) do
+            if now - at < window then
+                live = true
+                break
+            end
+        end
+        if not live then
+            cache[name] = nil
+            removed = removed + 1
+        end
+    end
+    return removed
+end
+
+function SA_FlagCache.Normalize(lastSeen, now)
+    if lastSeen == nil or lastSeen < SA_FlagCache.EPOCH_FLOOR then return now end
+    return lastSeen
+end
+end
+
+do
+SA_Spacing = {}
+
+function SA_Spacing.Ready(map, kind, key, now, spacing)
+    local byKey = map[kind]
+    if not byKey then return true end
+    local last = byKey[key]
+    return last == nil or now - last >= spacing
+end
+
+function SA_Spacing.Mark(map, kind, key, now)
+    local byKey = map[kind]
+    if not byKey then
+        byKey = {}
+        map[kind] = byKey
+    end
+    byKey[key] = now
+end
+
+function SA_Spacing.Sweep(map, now, maxAge)
+    local removed = 0
+    for _, byKey in pairs(map) do
+        for key, at in pairs(byKey) do
+            if now - at > maxAge then
+                byKey[key] = nil
+                removed = removed + 1
+            end
+        end
+    end
+    return removed
+end
+end

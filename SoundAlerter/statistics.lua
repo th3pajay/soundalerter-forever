@@ -641,13 +641,19 @@ function Statistics:TrackEnemyPlayer(sourceGUID, sourceName, spellID, knownClass
 	for _ in pairs(playerTracking.enemies) do
 		enemyCount = enemyCount + 1
 		if enemyCount > STATS_CONSTANTS.MAX_ENEMIES then
-			self:PruneEnemyTracking(STATS_CONSTANTS.MAX_ENEMIES)
+			self:PruneEnemyTracking(STATS_CONSTANTS.MAX_ENEMIES, sourceName)
 			break
 		end
 	end
 end
 
-function Statistics:PruneEnemyTracking(maxEnemies)
+local function weaker(aAlerts, aSeen, aName, bAlerts, bSeen, bName)
+	if aAlerts ~= bAlerts then return aAlerts < bAlerts end
+	if aSeen ~= bSeen then return aSeen < bSeen end
+	return aName > bName
+end
+
+function Statistics:PruneEnemyTracking(maxEnemies, keepName)
 	local sadb = GetDB()
 	if not sadb or not sadb.statistics or not sadb.statistics.allTime.playerTracking then return end
 
@@ -657,15 +663,18 @@ function Statistics:PruneEnemyTracking(maxEnemies)
 	for _ in pairs(enemies) do enemyCount = enemyCount + 1 end
 
 	if enemyCount > maxEnemies then
-		local enemyList = {}
-		for name, data in pairs(enemies) do
-			table.insert(enemyList, { name = name, alerts = data.totalAlerts })
-		end
-
-		table.sort(enemyList, function(a, b) return a.alerts > b.alerts end)
-
-		for i = maxEnemies + 1, #enemyList do
-			enemies[enemyList[i].name] = nil
+		for _ = 1, enemyCount - maxEnemies do
+			local worstName, worstAlerts, worstSeen
+			for name, data in pairs(enemies) do
+				if name ~= keepName then
+					local alerts, seen = data.totalAlerts, data.lastSeen or 0
+					if worstName == nil or weaker(alerts, seen, name, worstAlerts, worstSeen, worstName) then
+						worstName, worstAlerts, worstSeen = name, alerts, seen
+					end
+				end
+			end
+			if worstName == nil then break end
+			enemies[worstName] = nil
 		end
 
 		SoundAlerter:Debug("Statistics", "pruned %d enemies, kept top %d", enemyCount - maxEnemies, maxEnemies)

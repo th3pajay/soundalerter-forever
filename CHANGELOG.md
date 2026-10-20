@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.2.83
+
+Bar textures, a texture quality setting and a round of fixes. This also includes the unreleased 0.2.82 changes.
+
+Bar textures
+- New Liquid bar texture with a bevelled border: slow caustic light, a rippling surface and bubbles that float up.
+- Motes is softer, with a gentler glow and a slower drift.
+- Animated textures now run on vertical bars too (casting bars set to vertical). Waves still show a plain fill when vertical.
+- New Texture quality setting (Low, Normal, High) on the Resource Bars and Casting Bars pages, under More options. Low drops the farthest layer and animates about 15 times a second. High adds a small glint that runs around the bar border.
+
+Fixes
+- Increase nameplate distance no longer resets your own nameplate distance to the game default at every login. Your value is remembered when you turn the option on and restored when you turn it off.
+- Enemy statistics: at the 100-enemy cap a new enemy is no longer dropped the moment it is added.
+- Minimap tracking: switching the feature off now restores the tracking you had before.
+- A new enemy on a reused nameplate no longer inherits the old one's cast state, which could skip a "casting at you" alert or name the previous target's spell on an interrupt.
+- The PvP zone type now refreshes when you walk into a sub-zone, such as a sanctuary.
+- Custom alerts: the Summon and Damage events, which nothing ever raised, are no longer offered in the editor. Saved alerts and export strings are unchanged.
+- Flag alerts: the 30-day expiry of the saved class cache now works, and the short-term duplicate filter no longer grows over a long session.
+- Importing custom alerts no longer rebuilds every options page.
+- Removed an unused learned-class cache and its old settings.
+
+Performance
+- The spell tracker only updates every frame while it has a timer or cooldown to show, and listens to combo point changes only when a finisher is tracked.
+- Proximity and flag toasts, the watchlist, enemy targeting alerts, ally vision and the statistics cap do less work and create less garbage per event.
+- The options window does less work while the spell database builds.
+
+New
+- /sa stats now shows alert diagnostics: the same spell alerted twice, aura resyncs and proximity checks skipped just after loading a zone. /sa stats reset clears them.
+
 ## 0.2.81 (beta)
 
 First public beta on CurseForge. The options window was rebuilt in the dark flat look, page by page.

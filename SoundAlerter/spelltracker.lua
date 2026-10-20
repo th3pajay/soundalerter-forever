@@ -34,10 +34,15 @@ local cooldownEnabledTrackers = {}
 local timedTrackers = {}
 local timedSet = {}
 
+local function OnDriverUpdate(_, elapsed)
+    SpellTracker:OnUpdate(elapsed)
+end
+
 local function trackTimed(index)
     if not timedSet[index] then
         timedSet[index] = true
         timedTrackers[#timedTrackers + 1] = index
+        SpellTracker:UpdateDriver()
     end
 end
 
@@ -48,6 +53,7 @@ local function untrackTimed(index)
         if timedTrackers[i] == index then
             timedTrackers[i] = timedTrackers[#timedTrackers]
             timedTrackers[#timedTrackers] = nil
+            SpellTracker:UpdateDriver()
             return
         end
     end
@@ -344,15 +350,32 @@ function SpellTracker:RegisterEvents()
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     pcall(eventFrame.RegisterEvent, eventFrame, "UPDATE_SHAPESHIFT_FORM")
     pcall(eventFrame.RegisterUnitEvent, eventFrame, "UNIT_SPELLCAST_SUCCEEDED", "player")
-    pcall(eventFrame.RegisterUnitEvent, eventFrame, "UNIT_POWER_FREQUENT", "player")
 
     eventFrame:SetScript("OnEvent", function(self, event, ...)
         SpellTracker:OnEvent(event, ...)
     end)
+end
 
-    eventFrame:SetScript("OnUpdate", function(self, elapsed)
-        SpellTracker:OnUpdate(elapsed)
-    end)
+function SpellTracker:UpdateDriver()
+    local container = self.container
+    if not container then return end
+    local needed = #timedTrackers > 0 or #cooldownEnabledTrackers > 0
+    if needed == self.driverOn then return end
+    self.driverOn = needed
+    container:SetScript("OnUpdate", needed and OnDriverUpdate or nil)
+end
+
+function SpellTracker:SetComboEvents(needed)
+    local container = self.container
+    if not container or needed == self.comboEvents then return end
+    self.comboEvents = needed
+    if needed then
+        pcall(container.RegisterUnitEvent, container, "UNIT_POWER_FREQUENT", "player")
+        self:OnComboPoints()
+    else
+        container:UnregisterEvent("UNIT_POWER_FREQUENT")
+        self.comboPoints = nil
+    end
 end
 
 function SpellTracker:OnEvent(event, ...)
@@ -911,9 +934,11 @@ function SpellTracker:RebuildTrackingLookups()
         cooldownEnabledTrackers[k] = nil
     end
 
+    local needsCombo = false
     for i = 1, #self.db.icons do
         local config = self.db.icons[i]
         if config.enabled then
+            if config.unit == "target" and Game.IsFinisher(config.spellID) then needsCombo = true end
             if not trackedSpellsByUnit[config.unit] then
                 trackedSpellsByUnit[config.unit] = {}
             end
@@ -931,6 +956,8 @@ function SpellTracker:RebuildTrackingLookups()
             end
         end
     end
+    self:SetComboEvents(needsCombo)
+    self:UpdateDriver()
 end
 
 function SpellTracker:LoadSettings()
@@ -959,6 +986,7 @@ function SpellTracker:RebuildTimed()
             trackTimed(i)
         end
     end
+    self:UpdateDriver()
 end
 
 function SpellTracker:GetSettings()
