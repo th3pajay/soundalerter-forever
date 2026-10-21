@@ -133,6 +133,11 @@ function Page.Visible(predicate, row)
     return row
 end
 
+function Page.Playable(row, onPlay)
+    row.play = onPlay
+    return row
+end
+
 function Page.Selectable(row, onSelect, selected)
     row.onSelect = onSelect
     row.selected = selected
@@ -403,6 +408,28 @@ local function MakeButton(parent, text, onClick)
     button:SetScript("OnClick", onClick)
     SA_MenuFX.Press(button, fill, label)
     return { frame = button, label = label }
+end
+
+local function MakePlay(parent, onPlay)
+    local control = MakeButton(parent, "Play", nil)
+    local button, label = control.frame, control.label
+    button:SetSize(54, 18)
+    local press = 0
+    button:SetScript("OnClick", function()
+        press = press + 1
+        if onPlay() ~= false then return end
+        local mine = press
+        label:SetText("No file")
+        label:SetTextColor(1, 0.65, 0.2)
+        if C_Timer and C_Timer.After then
+            C_Timer.After(2, function()
+                if press ~= mine then return end
+                label:SetText("Play")
+                label:SetTextColor(COLOR.text[1], COLOR.text[2], COLOR.text[3])
+            end)
+        end
+    end)
+    return button, label
 end
 
 local function MakeStepper(parent, row, onChange)
@@ -837,15 +864,22 @@ function Methods:AddRow(row, advanced)
         control.frame:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -6)
     else
         control.frame:SetPoint("RIGHT", frame, "RIGHT", -4, 0)
+        local edge = control.frame
+        if row.play then
+            local playButton, playLabel = MakePlay(frame, row.play)
+            playButton:SetPoint("RIGHT", control.frame, "LEFT", -8, 0)
+            edge = playButton
+            entry.playButton, entry.playLabel = playButton, playLabel
+        end
         local label = Text(frame, 12.5, advanced and COLOR.muted or COLOR.text)
         label:SetPoint("LEFT", frame, "LEFT", 4, row.hint ~= "" and 7 or 0)
-        label:SetPoint("RIGHT", control.frame, "LEFT", -10, 0)
+        label:SetPoint("RIGHT", edge, "LEFT", -10, 0)
         label:SetText(type(row.label) == "function" and "" or row.label)
         entry.labelText = label
         if row.hint ~= "" then
             local hint = Text(frame, 10.5, COLOR.muted)
             hint:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -2)
-            hint:SetPoint("RIGHT", control.frame, "LEFT", -10, 0)
+            hint:SetPoint("RIGHT", edge, "LEFT", -10, 0)
             hint:SetText(row.hint)
         end
     end

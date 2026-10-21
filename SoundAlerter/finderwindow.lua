@@ -315,7 +315,6 @@ function Window:RunSearch()
     self:CancelPending()
     local term = self:Text()
     self.lastSearchTerm = term
-    self:ClearSuggestions()
     if term == "" then
         self:ShowHint()
         return
@@ -445,6 +444,7 @@ function Window:OnEnter()
     end
     local term = self:Text()
     if self.pending or term ~= self.lastSearchTerm then
+        self:ClearSuggestions()
         self:RunSearch()
         return
     end
@@ -623,6 +623,7 @@ function Window:BuildSearch()
     box:SetScript("OnEditFocusGained", function() self:SyncPlaceholder() end)
     box:SetScript("OnEditFocusLost", function()
         self:SyncPlaceholder()
+        if self.suggestFrame:IsShown() and self.suggestFrame:IsMouseOver() then return end
         self:ClearSuggestions()
     end)
     box:SetScript("OnEnterPressed", function() self:OnEnter() end)

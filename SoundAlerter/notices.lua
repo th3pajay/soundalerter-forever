@@ -61,10 +61,7 @@ function Notices:SetSetting(key, value)
 end
 
 function Notices:Play(notice)
-    if not PlaySoundFile then return false end
-    local path = self.addon.db1.profile.sapath .. notice.file .. ".mp3"
-    local ok, willPlay = pcall(PlaySoundFile, path, "Master")
-    return ok and willPlay and true or false
+    return SA_COMPAT.PlayFile(self.addon.db1.profile.sapath .. notice.file .. ".mp3")
 end
 
 function Notices:Fire(key, who, test)
@@ -76,11 +73,16 @@ function Notices:Fire(key, who, test)
         if not Model.ShouldFire(self.fired, key, GetTime(), SPACING) then return false end
     end
 
-    self:Play(notice)
+    local played = self:Play(notice)
     if self.db.flash and FlashClientIcon then pcall(FlashClientIcon) end
     if self.db.chat then self.addon:Print("|cffFF7D0ANotice|r: " .. Model.Message(notice, who)) end
     self.addon:RecordStat("noticeAlerts")
-    return true
+    return true, played
+end
+
+function Notices:Preview(key)
+    local _, played = self:Fire(key, "Test", true)
+    return played
 end
 
 function Notices:CheckDurability()
@@ -206,20 +208,20 @@ function SoundAlerter:BuildNoticesOptions()
     local rows = {
         Page.Toggle("flash", "Flash the taskbar icon", "Flash the game's taskbar icon when a notice fires, for when the game is in the background.", false, "How it alerts"),
         Page.Toggle("chat", "Print a chat line", "Print a short line in your chat window when a notice fires.", false, "How it alerts"),
+        Page.Action("Play all", "Hear every notice once, ignoring the switches.", function()
+            local active = module()
+            if active then active:Test("all") end
+        end, false, "How it alerts"),
     }
     for _, notice in ipairs(Model.NOTICES) do
-        rows[#rows + 1] = Page.Toggle(notice.key, notice.label, "Say \"" .. notice.phrase .. "\" from " .. notice.file .. ".mp3 when this happens." .. (notice.always and " Ignores the quiet rules." or ""), false, "Notices")
-    end
-    rows[#rows + 1] = Page.When("durability", Page.Range("durabilityThreshold", "Warn below", "Warn once when your most worn item drops below this. It warns again after you repair above this plus 5 percent.", 5, 50, 5, true, "Durability", " %"))
-    rows[#rows + 1] = Page.Action("Test all", "Fire every notice once, ignoring the switches.", function()
-        local active = module()
-        if active then active:Test("all") end
-    end, true, "Test")
-    for _, notice in ipairs(Model.NOTICES) do
-        rows[#rows + 1] = Page.Action("Test " .. notice.label:lower(), "Fire just this notice.", function()
+        local row = Page.Toggle(notice.key, notice.label, notice.when .. (notice.always and " Ignores the quiet rules." or ""), false, notice.group)
+        rows[#rows + 1] = Page.Playable(row, function()
             local active = module()
-            if active then active:Test(notice.key) end
-        end, true, "Test")
+            return active and active:Preview(notice.key)
+        end)
+        if notice.key == "durability" then
+            rows[#rows + 1] = Page.When("durability", Page.Range("durabilityThreshold", "Warn below", "Warn once when your most worn item drops below this. It warns again after you repair above this plus 5 percent.", 5, 50, 5, false, notice.group, " %"))
+        end
     end
 
     return Page.Module({

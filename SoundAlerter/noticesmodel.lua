@@ -4,13 +4,13 @@ local Model = {}
 local DURABILITY_REARM = 5
 
 Model.NOTICES = {
-    { key = "duel", label = "Duel request", file = "noticeduel", phrase = "Duel request", always = false },
-    { key = "summon", label = "Summon", file = "noticesummon", phrase = "Summon", always = false },
-    { key = "resurrect", label = "Resurrect request", file = "resurrection", phrase = "Resurrection", always = false },
-    { key = "invite", label = "Group invite", file = "noticeinvite", phrase = "Group invite", always = false },
-    { key = "queue", label = "Queue ready", file = "noticequeue", phrase = "Queue ready", always = true },
-    { key = "readyCheck", label = "Ready check", file = "noticereadycheck", phrase = "Ready check", always = true },
-    { key = "durability", label = "Low durability", file = "noticedurability", phrase = "Low durability", always = false },
+    { key = "duel", label = "Duel request", file = "noticeduel", phrase = "Duel request", always = false, group = "Requests", when = "Someone challenges you to a duel." },
+    { key = "summon", label = "Summon", file = "noticesummon", phrase = "Summon", always = false, group = "Requests", when = "You are being summoned." },
+    { key = "resurrect", label = "Resurrect request", file = "resurrection", phrase = "Resurrection", always = false, group = "Requests", when = "Someone offers to resurrect you." },
+    { key = "invite", label = "Group invite", file = "noticeinvite", phrase = "Group invite", always = false, group = "Requests", when = "Someone invites you to a group." },
+    { key = "queue", label = "Queue ready", file = "noticequeue", phrase = "Queue ready", always = true, group = "Queues", when = "A queue pops." },
+    { key = "readyCheck", label = "Ready check", file = "noticereadycheck", phrase = "Ready check", always = true, group = "Queues", when = "A ready check starts." },
+    { key = "durability", label = "Low durability", file = "noticedurability", phrase = "Low durability", always = false, group = "Warnings", when = "Your most worn item runs low." },
 }
 
 local BY_KEY = {}

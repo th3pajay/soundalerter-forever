@@ -134,3 +134,8 @@ SA_COMPAT.UnitAura = function(unit, indexOrName, filter)
     return nil
 end
 
+SA_COMPAT.PlayFile = function(path)
+    if not PlaySoundFile then return false end
+    local ok, willPlay = pcall(PlaySoundFile, path, "Master")
+    return ok and willPlay and true or false
+end

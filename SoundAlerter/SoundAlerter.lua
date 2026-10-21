@@ -22,6 +22,7 @@ local FILTER_TYPE_MINE = COMBATLOG_FILTER_MINE
 local FILTER_TYPE_MY_PET = COMBATLOG_FILTER_MY_PET
 
 local Plain, SafeUnitName, SafeUnitClass = SA_COMPAT.Plain, SA_COMPAT.SafeUnitName, SA_COMPAT.SafeUnitClass
+local stealthState = SA_StealthWatch.New()
 
 SoundAlerter.SafeUnitName = SafeUnitName
 
@@ -250,6 +251,8 @@ function SoundAlerter:OnEnable()
     self.identityRetryAt = {}
     self.enemyOnYouAt = {}
     SA_Plates.Reset()
+    SA_StealthWatch.Reset(stealthState)
+    self.stealthTimer = nil
     SA_Secret.SetEnabled(sadb.hiddenSpells)
     self:SubscribeCastEvents()
     self.enterWorldTime = 0
@@ -1051,6 +1054,7 @@ function SoundAlerter:ResyncUnitAuras(unit, tracked, ctx, secretAdded)
     wipe(sourceUnits)
 
     local previous = unitAuraCount[unit]
+    local firstSight = previous == nil
     if previous then
         for spellID in pairs(previous) do
             hadBefore[spellID] = true
@@ -1086,7 +1090,7 @@ function SoundAlerter:ResyncUnitAuras(unit, tracked, ctx, secretAdded)
 
     for spellID in pairs(unitAuraCount[unit]) do
         if not hadBefore[spellID] then
-            self:HandleDebuffApplied(unit, spellID, ctx.isPlayer, ctx.isTargetOrFocus, ctx.isTracked, sourceUnits[spellID], ctx.isAlly)
+            self:HandleDebuffApplied(unit, spellID, ctx.isPlayer, ctx.isTargetOrFocus, ctx.isTracked, sourceUnits[spellID], ctx.isAlly, firstSight)
         end
     end
     for spellID in pairs(hadBefore) do
@@ -1264,7 +1268,95 @@ function SoundAlerter:PrintProbeReport()
     end
 end
 
-function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFocus, isTracked, sourceUnit, isAlly)
+local WATCH_TOKENS = { "target", "focus" }
+
+local function StealthScopeAllows(isTargetOrFocus, isTracked)
+    return (sadb.myself and isTargetOrFocus) or (sadb.enemyinrange and isTracked) or false
+end
+
+local STEALTH_LOG_CAP = 80
+
+function SoundAlerter:StealthLog(fmt, ...)
+    if not sadb.debugmode then return end
+    self:Debug("Stealth", fmt, ...)
+    local global = self.db1.global
+    local log = global.stealthLog
+    if not log then
+        log = {}
+        global.stealthLog = log
+    end
+    local ok, text = pcall(string.format, fmt, ...)
+    log[#log + 1] = string.format("%.1f %s", GetTime(), ok and text or tostring(fmt))
+    if #log > STEALTH_LOG_CAP then table.remove(log, 1) end
+end
+
+function SoundAlerter:AnnounceStealthChat(group, spellID, enemyName, isTargetOrFocus)
+    if sadb.chatalerts then return end
+    local isVanish, isStealth, isProwl = group == "vanish", group == "stealth", group == "prowl"
+    if ((sadb.vanishenemy and isVanish) or (sadb.stealthenemy and isStealth) or (sadb.prowlenemy and isProwl))
+       and (isTargetOrFocus or ((sadb.vanishTF and isVanish) or (sadb.stealthTF and isStealth) or (sadb.prowlTF and isProwl))) then
+        local message = gsub(gsub(sadb.enemychat, "(#spell#)", (GetSpellLink(spellID) or "")), "(#enemy#)", enemyName)
+        self:BroadcastChat(message)
+    end
+end
+
+function SoundAlerter:AlertStealth(unit, spellID, kind, source, isTargetOrFocus, isTracked, name, guid)
+    if not StealthScopeAllows(isTargetOrFocus, isTracked) then
+        self:StealthLog("%s %d %s dropped: scope (target and focus %s, enemies in range %s)", unit, spellID, kind, tostring(sadb.myself), tostring(sadb.enemyinrange))
+        return
+    end
+    if (source == "castSuccess" and sadb.castSuccess) or (source == "auraApplied" and sadb.aruaApplied) then
+        self:StealthLog("%s %d %s dropped: %s alerts are muted", unit, spellID, kind, source)
+        return
+    end
+    local list = self.spellList[source]
+    local band = sadb.stealthKeepWatch and self:GetApproxRange(unit) or nil
+    if not SA_StealthWatch.Decide(stealthState, guid, kind, band, sadb, GetTime(), spellID, source) then
+        self:StealthLog("%s %d %s dropped: already alerted, or first sight with on-sight off", unit, spellID, kind)
+        return
+    end
+    local played = self:PlaySpell(list, spellID, guid, name)
+    self:StealthLog("%s %d %s band %s: voice %s (%s)", unit, spellID, kind, tostring(band), played and "played" or "not played", tostring(list[spellID]))
+    self:AnnounceStealthChat(list[spellID], spellID, name, isTargetOrFocus)
+    if SA_StealthWatch.Watching(stealthState) > 0 and not self.stealthTimer then
+        self.stealthTimer = self:ScheduleRepeatingTimer("StealthWatchTick", 1)
+    end
+end
+
+local function FindWatchedUnit(guid)
+    if sadb.myself then
+        for _, token in ipairs(WATCH_TOKENS) do
+            if UnitExists(token) and Plain(UnitGUID(token)) == guid then return token end
+        end
+    end
+    if sadb.enemyinrange then
+        for unit, plateGUID in pairs(SA_Plates.Enemies()) do
+            if plateGUID == guid then return unit end
+        end
+    end
+    return nil
+end
+
+function SoundAlerter:StealthWatchTick()
+    if not sadb.stealthKeepWatch then SA_StealthWatch.Reset(stealthState) end
+    if SA_StealthWatch.Watching(stealthState) == 0 then
+        self:CancelTimer(self.stealthTimer)
+        self.stealthTimer = nil
+        return
+    end
+    if not self:IsAlertZoneAllowed() then return end
+    local now = GetTime()
+    for guid, entry in SA_StealthWatch.NextWatching, stealthState, nil do
+        local unit = FindWatchedUnit(guid)
+        if unit and SA_StealthWatch.Decide(stealthState, guid, "tick", self:GetApproxRange(unit), sadb, now) then
+            self.alertUnit = unit
+            self:PlaySpell(self.spellList[entry.source], entry.spellID, guid, SafeUnitName(unit))
+        end
+    end
+    SA_StealthWatch.Sweep(stealthState, now)
+end
+
+function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFocus, isTracked, sourceUnit, isAlly, firstSight)
     self.alertUnit = unit
     self:CheckCustomAlerts("SPELL_AURA_APPLIED", sourceUnit, unit, spellID)
 
@@ -1305,6 +1397,11 @@ function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFoc
     local name = SafeUnitName(unit)
     local guid = UnitGUID(unit)
     if not name or not Plain(guid) then return end
+
+    if SA_StealthWatch.IsGroup(self.spellList.auraApplied[spellID]) then
+        self:AlertStealth(unit, spellID, firstSight and "sight" or "added", "auraApplied", isTargetOrFocus, isTracked, name, guid)
+        return
+    end
 
     local isAllySource = sourceUnit ~= nil and UnitKind(sourceUnit) == "party"
     if isAllySource and not sadb.dArenaPartner then
@@ -1351,6 +1448,10 @@ function SoundAlerter:HandleDebuffRemoved(unit, spellID, isTargetOrFocus, isAlly
     end
 
     if not (isTargetOrFocus or isTracked) then return end
+
+    if SA_StealthWatch.IsGroup(self.spellList.auraApplied[spellID]) then
+        SA_StealthWatch.Clear(stealthState, Plain(UnitGUID(unit)))
+    end
 
     local name = SafeUnitName(unit)
     if not name then return end
@@ -1503,7 +1604,10 @@ function SoundAlerter:UNIT_AURA(event, unit, updateInfo)
     if not (isPlayer or isTargetOrFocus or isTracked or isAlly) then return end
     if not isPlayer and not isAlly and (not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit)) then return end
     if isAlly and (not UnitIsPlayer(unit) or UnitIsEnemy("player", unit)) then return end
-    if not self:IsAlertZoneAllowed() then return end
+    if not self:IsAlertZoneAllowed() then
+        if isTargetOrFocus then self:StealthLog("%s aura update ignored: zone gate", unit) end
+        return
+    end
 
     local tracked = GetTrackedAuraSpellIDs()
     local usable, added, removed = ReadableDelta(updateInfo)
@@ -1527,6 +1631,9 @@ function SoundAlerter:UNIT_AURA(event, unit, updateInfo)
             if spellID == nil or IsSecret(auraInstanceID) then
                 needsResync = true
             elseif tracked[spellID] and TrackAura(unit, auraInstanceID, spellID) then
+                if sadb.debugmode and SA_StealthWatch.IsGroup(self.spellList.auraApplied[spellID]) then
+                    self:StealthLog("%s %d seen in a UNIT_AURA delta", unit, spellID)
+                end
                 self:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFocus, isTracked, ReadableSourceUnit(aura), isAlly)
             end
         end
@@ -1574,6 +1681,7 @@ local function WithinMediumRange(unit)
 end
 
 local function WithinInteractRange(unit, index)
+    if InCombatLockdown() then return false end
     local ok, inRange = pcall(CheckInteractDistance, unit, index)
     return ok and Plain(inRange) == true
 end
@@ -1975,18 +2083,6 @@ function SoundAlerter:UNIT_SPELLCAST_SUCCEEDED(event, unit, castGUID, spellID)
 
     self:CheckCustomAlerts("SPELL_CAST_SUCCESS", unit, nil, spellID)
 
-    if not sadb.chatalerts then
-        local isVanish = (spellID == 1856 or spellID == 1857 or spellID == 27617)
-        local isStealth = (spellID == 1784 or spellID == 1785)
-        local isProwl = (spellID == 5215 or spellID == 6783 or spellID == 9913)
-
-        if ((sadb.vanishenemy and isVanish) or (sadb.stealthenemy and isStealth) or (sadb.prowlenemy and isProwl))
-           and (isTargetOrFocus or ((sadb.vanishTF and isVanish) or (sadb.stealthTF and isStealth) or (sadb.prowlTF and isProwl))) then
-            local message = gsub(gsub(sadb.enemychat, "(#spell#)", (GetSpellLink(spellID) or "")), "(#enemy#)", name)
-            self:BroadcastChat(message)
-        end
-    end
-
     if not sadb.chatalerts and sadb.trinketalert and spellID == 1259718 then
         local message = gsub(sadb.trinketalerttext, "(#enemy#)", name)
         self:BroadcastChat(message)
@@ -2004,7 +2100,9 @@ function SoundAlerter:UNIT_SPELLCAST_SUCCEEDED(event, unit, castGUID, spellID)
             self:PlayTrinket(guid, name)
         end
     elseif ((sadb.myself and isTargetOrFocus) or (sadb.enemyinrange and isTracked)) and not sadb.castSuccess then
-        if not ((sadb.enemyinrange and isTracked and not isTargetOrFocus) and spellID == 1245940) then
+        if SA_StealthWatch.IsGroup(self.spellList.castSuccess[spellID]) then
+            self:AlertStealth(unit, spellID, "added", "castSuccess", isTargetOrFocus, isTracked, name, guid)
+        elseif not ((sadb.enemyinrange and isTracked and not isTargetOrFocus) and spellID == 1245940) then
             self:PlaySpell(self.spellList.castSuccess, spellID, guid, name)
         end
     end

@@ -251,3 +251,148 @@ function SA_Spacing.Sweep(map, now, maxAge)
     return removed
 end
 end
+
+do
+SA_StealthWatch = {}
+
+local GROUP = { stealth = true, prowl = true, vanish = true, shadowmeld = true, invisibility = true }
+local RANK = { Close = 1, Nearby = 2, Medium = 3, Detected = 4 }
+local ALERT_COOLDOWN = 3
+local DEFAULT_GAP = 5
+local ENTRY_MAX_AGE = 60
+local SWEEP_ABOVE = 40
+
+function SA_StealthWatch.IsGroup(name)
+    return name ~= nil and GROUP[name] == true
+end
+
+function SA_StealthWatch.New()
+    return { byGUID = {}, count = 0, watching = 0 }
+end
+
+function SA_StealthWatch.Reset(state)
+    for guid in pairs(state.byGUID) do state.byGUID[guid] = nil end
+    state.count = 0
+    state.watching = 0
+end
+
+local function Retire(state, entry)
+    if entry.watching then
+        entry.watching = false
+        state.watching = state.watching - 1
+    end
+end
+
+function SA_StealthWatch.Sweep(state, now)
+    for guid, entry in pairs(state.byGUID) do
+        local last = entry.seenAt > entry.alertAt and entry.seenAt or entry.alertAt
+        if now - last > ENTRY_MAX_AGE then
+            Retire(state, entry)
+            state.byGUID[guid] = nil
+            state.count = state.count - 1
+        end
+    end
+end
+
+function SA_StealthWatch.Watching(state)
+    return state.watching
+end
+
+function SA_StealthWatch.Clear(state, guid)
+    local entry = state.byGUID[guid]
+    if entry then Retire(state, entry) end
+end
+
+function SA_StealthWatch.NextWatching(state, guid)
+    local entry
+    repeat
+        guid, entry = next(state.byGUID, guid)
+    until guid == nil or entry.watching
+    return guid, entry
+end
+
+local function Begin(state, guid, now)
+    local entry = state.byGUID[guid]
+    if not entry then
+        if state.count >= SWEEP_ABOVE then SA_StealthWatch.Sweep(state, now) end
+        entry = { alertAt = now, seenAt = now, watching = false }
+        state.byGUID[guid] = entry
+        state.count = state.count + 1
+    end
+    return entry
+end
+
+local function Announce(state, entry, band, watch, now, spellID, source)
+    entry.alertAt = now
+    entry.seenAt = now
+    entry.rank = band and RANK[band] or nil
+    entry.spellID = spellID
+    entry.source = source
+    if watch and not entry.watching then
+        entry.watching = true
+        state.watching = state.watching + 1
+    elseif not watch then
+        Retire(state, entry)
+    end
+end
+
+function SA_StealthWatch.Decide(state, guid, kind, band, settings, now, spellID, source)
+    if guid == nil then return false end
+    local watch = settings.stealthKeepWatch == true
+
+    if kind == "added" or kind == "sight" then
+        if kind == "sight" and not (settings.stealthOnSight == true or watch) then return false end
+        local entry = state.byGUID[guid]
+        if entry and now - entry.alertAt < ALERT_COOLDOWN then
+            entry.seenAt = now
+            return false
+        end
+        entry = Begin(state, guid, now)
+        Announce(state, entry, band, watch, now, spellID, source)
+        return true, entry
+    end
+
+    if kind ~= "tick" then return false end
+    local entry = state.byGUID[guid]
+    if not (watch and entry and entry.watching) then return false end
+    entry.seenAt = now
+
+    local current = band and RANK[band]
+    if not current then return false end
+    local previous = entry.rank
+    if previous == nil or current > previous then
+        entry.rank = current
+        return false
+    end
+    if current == previous then return false end
+    if not SA_Distance.Allows(settings.stealthWatchBand, band) then
+        entry.rank = current
+        return false
+    end
+    local gap = tonumber(settings.stealthWatchGap) or DEFAULT_GAP
+    if now - entry.alertAt < gap then return false end
+    entry.rank = current
+    entry.alertAt = now
+    return true, entry
+end
+end
+
+do
+SA_ToastClick = {}
+
+local RESTORE = {
+    none = "\n/focus target\n/cleartarget",
+    other = "\n/focus target\n/targetlasttarget",
+}
+
+function SA_ToastClick.TargetState(hasTarget, targetName, unitName)
+    if not hasTarget then return "none" end
+    if targetName ~= nil and targetName == unitName then return "same" end
+    return "other"
+end
+
+function SA_ToastClick.FocusMacro(safeName, targetState)
+    if targetState == "same" then return "/focus target" end
+    return "/target " .. safeName .. (RESTORE[targetState] or RESTORE.other)
+end
+end

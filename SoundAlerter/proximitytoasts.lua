@@ -90,6 +90,13 @@ local function SanitizeMacroText(text)
     return text
 end
 
+local function ApplyFocusMacro(button, unitName)
+    local hasTarget = UnitExists("target")
+    local targetName = hasTarget and SafeUnitName("target") or nil
+    local state = SA_ToastClick.TargetState(hasTarget, targetName, unitName)
+    button:SetAttribute("shift-macrotext1", SA_ToastClick.FocusMacro(SanitizeMacroText(unitName), state))
+end
+
 local unitScanOrder = {
     "target", "focus", "mouseover",
     "targettarget", "focustarget",
@@ -497,6 +504,14 @@ local function CreateToastFrame(index, isSecure)
         secureButton:RegisterForClicks("LeftButtonDown")
         secureButton:SetAttribute("type1", "macro")
 
+        secureButton:SetScript("PreClick", function(self)
+            if InCombatLockdown() or not IsShiftKeyDown() then return end
+            local unitName = toast.userData and toast.userData.unitName
+            if unitName and SoundAlerter.db1.profile.proximityToasts.enableFocusTarget then
+                ApplyFocusMacro(self, unitName)
+            end
+        end)
+
         secureButton:SetScript("OnEnter", function(self)
             if not toast.inUse or toast.pendingDismiss then
                 return
@@ -540,6 +555,8 @@ local function CreateToastFrame(index, isSecure)
             return
         end
 
+        local hasTarget = UnitExists("target")
+        local targetState = SA_ToastClick.TargetState(hasTarget, hasTarget and SafeUnitName("target") or nil, targetName)
         local targetSuccess = TargetByNameCompat(targetName, self.userData.unitToken)
 
         if not targetSuccess then
@@ -549,6 +566,11 @@ local function CreateToastFrame(index, isSecure)
         if IsShiftKeyDown() then
             if sadb.proximityToasts.enableFocusTarget then
                 FocusUnit("target")
+                if targetState == "other" then
+                    TargetLastTarget()
+                elseif targetState == "none" then
+                    ClearTarget()
+                end
             end
         end
 
@@ -863,7 +885,7 @@ function ProximityToasts:CopyToastData(oldFrame, newFrame)
 
             if sadb.proximityToasts.enableFocusTarget then
                 newFrame.secureButton:SetAttribute("shift-type1", "macro")
-                newFrame.secureButton:SetAttribute("shift-macrotext1", "/target " .. safeUnitName .. "\n/focus target")
+                ApplyFocusMacro(newFrame.secureButton, oldFrame.userData.unitName)
             end
 
             newFrame.secureButton:SetAlpha(1)
@@ -1143,7 +1165,7 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
 
             if sadb.proximityToasts.enableFocusTarget then
                 toast.secureButton:SetAttribute("shift-type1", "macro")
-                toast.secureButton:SetAttribute("shift-macrotext1", "/target " .. safeUnitName .. "\n/focus target")
+                ApplyFocusMacro(toast.secureButton, unitName)
             end
 
             toast.secureButton:SetAlpha(1)

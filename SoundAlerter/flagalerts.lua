@@ -651,6 +651,27 @@ function FlagAlerts:ProcessAudioQueue()
     end, OBJECTIVE_AUDIO_DELAY)
 end
 
+local PREVIEW_SPACING = 3.5
+
+function FlagAlerts:Preview(eventType, class)
+    local classAudioFile = SoundAlerter.CLASS_AUDIO_MAP[class or "ROGUE"] or "Enemy"
+    SoundAlerter:PlayVoice(sadb.sapath .. classAudioFile .. ".mp3", "Master")
+    local objectiveFile = self:GetObjectiveAudioFile(eventType)
+    self:ScheduleTimer(function()
+        SoundAlerter:PlayVoice(sadb.sapath .. objectiveFile .. ".mp3", "Master")
+    end, OBJECTIVE_AUDIO_DELAY)
+end
+
+function FlagAlerts:PreviewAll(class)
+    for index, eventType in ipairs({ "PICKUP", "DROP", "CAPTURE", "RETURN" }) do
+        if index == 1 then
+            self:Preview(eventType, class)
+        else
+            self:ScheduleTimer(function() self:Preview(eventType, class) end, (index - 1) * PREVIEW_SPACING)
+        end
+    end
+end
+
 function FlagAlerts:GetObjectiveAudioFile(eventType)
     if eventType == "PICKUP" then return "FlagPickup" end
     if eventType == "DROP" then return "FlagDropped" end

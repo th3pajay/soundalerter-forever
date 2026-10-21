@@ -8,7 +8,7 @@
 **Personal combat assistant.**
 Voiced PvP alerts, bars and trackers for WoW Forever.
 
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.83-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.85-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Status" src="https://img.shields.io/badge/status-beta-yellow.svg"/>
@@ -34,7 +34,7 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 
 | | Feature | What it does | |
 | :---: | :--- | :--- | :---: |
-| <img src="Media/icons/voice.svg" width="32"/> | **Spell callouts** | 230+ spells by class with per-event toggles, a play button on every sound, presets with undo and search. Covers your target and focus; turn on **All enemies in range** for other nameplates. Aura and CC alerts fall back to polling when the client hides the aura | 🟢 |
+| <img src="Media/icons/voice.svg" width="32"/> | **Spell callouts** | 230+ spells by class with per-event toggles, a play button on every sound, presets with undo and search. Covers your target and focus; turn on **All enemies in range** for other nameplates. Aura and CC alerts fall back to polling when the client hides the aura. Enemy Stealth, Prowl, Vanish and Shadowmeld are caught from the aura, so the call-out works even though the client hides the cast; **Proximity Alerts** can also repeat it as a stealthed enemy closes in | 🟢 |
 | <img src="Media/icons/control.svg" width="32"/> | **Control voice** | Speaks stun, fear, root, silence, disarm and incapacitate from the game's own data | 🟣 |
 | <img src="Media/icons/interrupt.svg" width="32"/> | **Interrupts** | Calls the spell you stopped, and when you get locked out. Exact when the client names the interrupter, otherwise paired by timing | 🟢 |
 | <img src="Media/icons/chat.svg" width="32"/> | **Chat alerts** | Say, party, raid or instance, with editable message text and a live preview, and a fallback to your own chat | 🟢 |

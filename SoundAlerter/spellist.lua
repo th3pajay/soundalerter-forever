@@ -22,6 +22,10 @@ SoundAlerterSpells = {
         [417141] = "berserk",
         [1850] = "dash",
         [9821] = "dash",
+        [5215] = "prowl",
+        [6783] = "prowl",
+        [9913] = "prowl",
+        [1309054] = "prowl",
 
         [1022] = "handofprotection",
         [5599] = "handofprotection",
@@ -43,6 +47,12 @@ SoundAlerterSpells = {
         [14177] = "coldblood",
         [1856] = "vanish",
         [1857] = "vanish",
+        [11327] = "vanish",
+        [11329] = "vanish",
+        [1784] = "stealth",
+        [1785] = "stealth",
+        [1786] = "stealth",
+        [1787] = "stealth",
 
         [402913] = "enragedregeneration",
         [1719] = "recklessness",

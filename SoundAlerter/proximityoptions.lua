@@ -30,6 +30,15 @@ local function toasts()
     return SoundAlerter.ProximityToasts
 end
 
+local function testToast()
+    local active = toasts()
+    if active then active:ShowToast("TestEnemy", "ROGUE", "Close", nil, 60, nil, nil, nil, 3) end
+end
+
+local function voicePlayer(file)
+    return function() return SA_COMPAT.PlayFile(profile().sapath .. file) end
+end
+
 local function view()
     local current = profile()
     if not current then return nil end
@@ -133,17 +142,17 @@ function SoundAlerter:BuildProximityOptions()
             Page.Toggle("p.proximityBattleground", "Battlegrounds", "Enable proximity alerts in battlegrounds (useful for detecting flag carriers and node defenders).", false, "Where it works"),
             Page.Toggle("p.proximityArena", "Arena", "Enable proximity alerts in arenas (less useful due to small arena size).", false, "Where it works"),
             Page.Toggle("p.proximityChat", "Send chat messages", "Announce proximity detections in chat (useful for alerting teammates).", false, "How it alerts"),
-            Page.Toggle("t.enabled", "Show toast notifications", "Show visual pop-up toasts when enemies are detected nearby. The toast options below apply when this is on.", false, "How it alerts"),
-            Page.When("t.enabled", Page.Action("Test toast", "Show a test toast to preview the current settings (position, appearance, duration).", function()
-                local active = toasts()
-                if active then active:ShowToast("TestEnemy", "ROGUE", "Close", nil, 60, nil, nil, nil, 3) end
-            end, false, "How it alerts")),
+            Page.Playable(Page.Toggle("t.enabled", "Show toast notifications", "Show visual pop-up toasts when enemies are detected nearby. The toast options below apply when this is on. Play shows a test toast with the current settings.", false, "How it alerts"), testToast),
             Page.Toggle("p.proximitySanctuary", "Sanctuary", "Enable proximity alerts in sanctuary zones (e.g. Moonglade) where PvP-flagged enemies can still attack you despite guards.", true, "Where it works"),
             Page.Range("p.proximityCooldown", "Cooldown duration", "Time before the same player can trigger another proximity alert. Prevents spam while still alerting to threats.", 5, 120, 5, true, "Detection", " s"),
             Page.Select("p.proximityMaxBand", "Alert only within", "Only alert for enemies inside this band. Enemies are rechecked every second so they alert when they come in.", BANDS, true, "Detection"),
             Page.Toggle("p.overrideNameplateRange", "Increase nameplate distance", "Overrides your client's nameplate render distance to extend proximity detection range. Affects all nameplates (allies, NPCs, everything), not just enemies.", true, "Detection"),
             Page.When("p.overrideNameplateRange", Page.Range("p.nameplateRange", "Nameplate distance", "Distance to render nameplates. About 100 yards is the practical ceiling: the client has no data on units beyond the server's own tracking range.", 20, 100, 5, true, "Detection", " yd")),
             Page.Toggle("p.proximityAllyVision", "Alert on enemies your group targets", "Also alert for enemies your group targets, even beyond your nameplate range. Shown as Spotted, no distance. Still being tested: use Debug Mode and /sa probe.", true, "Detection"),
+            Page.Playable(Page.Toggle("p.stealthOnSight", "Alert for stealthed enemies already in view", "By default you hear one alert when an enemy goes stealth. Turn this on to also hear one when an enemy comes into view already stealthed.", false, "Stealth"), voicePlayer("stealth.mp3")),
+            Page.Playable(Page.Toggle("p.stealthKeepWatch", "Keep watch on a stealthed enemy closing in", "While you can see a stealthed enemy, alert again each time it gets closer. Includes the alert for stealthed enemies already in view. Nameplates need All enemies in range under Who triggers alerts on Quick Start.", false, "Stealth"), voicePlayer("stealth.mp3")),
+            Page.When("p.stealthKeepWatch", Page.Select("p.stealthWatchBand", "Keep watch within", "Only keep watch while the stealthed enemy is inside this band.", BANDS, false, "Stealth")),
+            Page.When("p.stealthKeepWatch", Page.Range("p.stealthWatchGap", "Time between alerts", "Shortest time between repeat alerts for the same enemy.", 2, 30, 1, false, "Stealth", " s")),
             Page.When("p.proximityChat", Page.Text("p.proximityChatText", "Chat message template", "Customize the chat message. Placeholders: #class# is the enemy class name, #player# is the enemy player name. Example: [#class#] #player# detected nearby!", true, "How it alerts")),
             Page.When("t.enabled", Page.Range("t.displayDuration", "Display duration", "How long the toast remains visible on screen.", 2, 8, 0.5, true, "How it alerts", " s")),
             Page.When("t.enabled", Page.Range("t.maxConcurrent", "Max concurrent toasts", "Maximum number of toasts to show at once (older toasts fade out early if the limit is exceeded).", 1, 5, 1, true, "How it alerts")),
@@ -155,9 +164,9 @@ function SoundAlerter:BuildProximityOptions()
             Page.When("t.enabled", Page.Toggle("t.rainbowBorder", "Rainbow border animation", "Smooth, slow rainbow color transitions on the toast border.", true, "Toast look")),
             Page.When("t.enabled", Page.Range("t.positionX", "Horizontal position", "0 is the center of the screen, negative is left, positive is right.", -500, 500, 10, true, "Toast position")),
             Page.When("t.enabled", Page.Range("t.positionY", "Vertical position", "0 is the center, negative is down from the top, positive is up from the bottom.", -500, 500, 10, true, "Toast position")),
-            Page.Toggle("p.enemyTargetsYou", "Enemy targets you", "Alert when a nearby enemy starts targeting you.", true, "Enemy awareness"),
+            Page.Playable(Page.Toggle("p.enemyTargetsYou", "Enemy targets you", "Alert when a nearby enemy starts targeting you.", true, "Enemy awareness"), voicePlayer("targetingyou.mp3")),
             Page.When("p.enemyTargetsYou", Page.Range("p.enemyTargetsYouCooldown", "Targeting alert cooldown", "Delay before the same enemy can alert again.", 2, 30, 1, true, "Enemy awareness", " s")),
-            Page.Toggle("p.enemyCastingAtYou", "Enemy casts while targeting you", "Alert when an enemy targeting you starts a cast or uses an instant.", true, "Enemy awareness"),
+            Page.Playable(Page.Toggle("p.enemyCastingAtYou", "Enemy casts while targeting you", "Alert when an enemy targeting you starts a cast or uses an instant.", true, "Enemy awareness"), voicePlayer("castingonyou.mp3")),
             Page.Toggle("p.quietOnTaxi", "Silent on flight paths", "Stay silent while on a flight path.", true, "Quiet rules"),
             Page.Toggle("p.quietWhenDead", "Silent while dead", "Stay silent while dead.", true, "Quiet rules"),
             Page.Toggle("p.quietOutsidePvPFlag", "Silent when not PvP flagged", "Stay silent while not PvP flagged.", true, "Quiet rules"),
@@ -166,7 +175,7 @@ function SoundAlerter:BuildProximityOptions()
             Page.Action("Cancel snooze", "End the snooze early.", function() SoundAlerter:Unsnooze() end, true, "Quiet rules"),
             Page.Toggle("p.scoreboardClassFallback", "Use battleground scoreboard for class", "In battlegrounds, read a hidden class from the scoreboard.", true, "Identification"),
             Page.Toggle("p.showTotemPlates", "Show totem nameplates", "Show totems as nameplates. Your game settings are restored when off.", true, "Identification"),
-            Page.Toggle("p.watchlistEnabled", "Enable watchlist", "Alert when a specific enemy player or guild shows up nearby. Also: /sa watch [guild] name.", true, "Watchlist"),
+            Page.Playable(Page.Toggle("p.watchlistEnabled", "Enable watchlist", "Alert when a specific enemy player or guild shows up nearby. Also: /sa watch [guild] name.", true, "Watchlist"), voicePlayer("watchlist.mp3")),
             Page.When("p.watchlistEnabled", Page.Text("p.watchNamesText", "Watched players", "Separate entries with commas.", true, "Watchlist", 4)),
             Page.When("p.watchlistEnabled", Page.Text("p.watchGuildsText", "Watched guilds", "Separate entries with commas.", true, "Watchlist", 4)),
             Page.When("t.enabled", Page.Toggle("t.clickEnabled", "Enable click interaction", "Allow clicking toast notifications to interact with enemies (world PvP only). Enable this to unlock the click options.", true, "Clicks")),

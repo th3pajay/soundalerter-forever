@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.85
+
+Stealth alerts, and a round of fixes. This also includes the unreleased 0.2.84 changes.
+
+Stealth alerts
+- Enemy Stealth, Prowl, Vanish and Shadowmeld are now announced when the aura appears, which works even though the client hides the cast. Until now these call-outs never fired for enemy players because their spell ID is hidden. They use the same per-spell switches and voice files on the Voice Alerts page, and the chat announcement uses the same Stealth, Prowl and Vanish switches.
+- One alert per enemy: the target and its nameplate no longer play the call-out twice, and an enemy that was already stealthed when you first saw it stays silent.
+- Proximity Alerts, new Stealth group: Alert for stealthed enemies already in view plays one alert when an enemy comes into view already stealthed. Keep watch on a stealthed enemy closing in repeats the alert each time that enemy gets closer, with a Keep watch within band and a Time between alerts. Both are off by default. Nameplates need All enemies in range under Who triggers alerts on Quick Start.
+- Rogue Stealth and the druid stealth are confirmed in game. The other ranks and Prowl, Vanish and Shadowmeld use the IDs from the game's spell list and may need adjusting.
+- The distance bands no longer call a protected game function in combat, which could log a blocked-action error; in combat the Close and Nearby bands are skipped, so a distance reads Medium or Detected.
+
+Fixes
+- Spell Finder: with Autocomplete on, the suggestion list no longer closes about a tenth of a second after you type. It now stays open while the results update and closes when you press Enter. Clicking a suggestion with the mouse now completes it.
+- Statistics: the Top Spells percentages are now each spell's share of the listed spell alerts, matching the Enemies and Classes lists. They were measured against every alert of any kind, so they read 0% to 1% for nearly everything.
+- Notices: the page is grouped into Requests (duel, summon, resurrection, group invite), Queues (queue ready, ready check) and Warnings (low durability, with its threshold right under it). Each notice has its own Play button next to its switch, which replaces the seven separate Test rows. A notice with no voice file shows "No file" on its button instead of staying silent. A new Play all button plays every notice once. Each description is now one short line about when it fires, without the voice file name.
+- Battleground Alerts: each flag event (pickups, drops, captures, returns) has its own Play button beside its switch, which plays the class voice and then the event phrase. A Preview class choice sets which class voice the buttons use, and Play all runs every event once. The three linked team switches (only enemy, only friendly, all actions) are now one Alert for choice: Enemy team, Friendly team or Both teams; your saved settings carry over. The Test flag toasts row is gone: the Show toast notifications row has its own Play button instead.
+- Proximity Alerts: the Show toast notifications switch has its own Play button, which replaces the Test toast row. The Enemy targets you, Enemy casts while targeting you, Enable watchlist and the two new stealth switches have a Play button too, like the Notices and Battleground Alerts pages. A voice file that is missing shows No file on the button.
+- Proximity toasts: Shift+click now sets the enemy as your focus without changing your target. It used to leave the enemy targeted. Your previous target is put back, or cleared if you had none.
+
 ## 0.2.83
 
 Bar textures, a texture quality setting and a round of fixes. This also includes the unreleased 0.2.82 changes.

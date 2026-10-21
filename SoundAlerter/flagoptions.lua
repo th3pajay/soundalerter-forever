@@ -1,8 +1,15 @@
 local SoundAlerter = SoundAlerter
 
 local EVENTS = {
-    { "flagPickupAudio", "Pickups" }, { "flagDropAudio", "Drops" },
-    { "flagCaptureAudio", "Captures" }, { "flagReturnAudio", "Returns" },
+    { "flagPickupAudio", "Pickups", "PICKUP", "Flag pickups", "A player picks up a flag." },
+    { "flagDropAudio", "Drops", "DROP", "Flag drops", "A flag is dropped." },
+    { "flagCaptureAudio", "Captures", "CAPTURE", "Flag captures", "A flag is captured." },
+    { "flagReturnAudio", "Returns", "RETURN", "Flag returns", "A flag is returned to base." },
+}
+local TEAMS = { { "enemy", "Enemy team" }, { "friendly", "Friendly team" }, { "both", "Both teams" } }
+local PREVIEW_CLASSES = {
+    { "ROGUE", "Rogue" }, { "WARRIOR", "Warrior" }, { "MAGE", "Mage" }, { "PRIEST", "Priest" }, { "HUNTER", "Hunter" },
+    { "DRUID", "Druid" }, { "PALADIN", "Paladin" }, { "WARLOCK", "Warlock" }, { "SHAMAN", "Shaman" },
 }
 local TEXTURES = { { "Solid", "Solid (Default)" }, { "DialogBox", "Dialog Box" } }
 local CHANNELS = { { "SAY", "Say" }, { "PARTY", "Party" }, { "RAID", "Raid" }, { "BATTLEGROUND", "Battleground" } }
@@ -17,12 +24,21 @@ local function toasts()
     return SoundAlerter.ProximityToasts
 end
 
+local function TeamOf(settings)
+    if settings.flagOnlyEnemyTeam then return "enemy" end
+    if settings.flagOnlyFriendlyTeam then return "friendly" end
+    return "both"
+end
+
 local function view()
     local active = flags()
     if not active then return nil end
     local settings = active:GetSettings()
     local shared = toasts()
-    return { enabled = settings.battlegroundAlertsEnabled, f = settings, t = shared and shared:GetSettings() }
+    return {
+        enabled = settings.battlegroundAlertsEnabled, f = settings, t = shared and shared:GetSettings(),
+        team = TeamOf(settings), previewClass = active.previewClass or "ROGUE",
+    }
 end
 
 local function write(key, value)
@@ -33,6 +49,16 @@ local function write(key, value)
         if SoundAlerter.UpdateMinimapButtonIcon then SoundAlerter:UpdateMinimapButtonIcon() end
         return
     end
+    if key == "previewClass" then
+        active.previewClass = value
+        return
+    end
+    if key == "team" then
+        active:SetSetting("flagOnlyEnemyTeam", value == "enemy")
+        active:SetSetting("flagOnlyFriendlyTeam", value == "friendly")
+        active:SetSetting("flagAllActions", value == "both")
+        return
+    end
     local scope, name = key:match("^(%a+)%.(.+)$")
     if scope == "t" then
         local shared = toasts()
@@ -41,16 +67,14 @@ local function write(key, value)
     end
     if scope ~= "f" then return end
     active:SetSetting(name, value)
-    if name == "flagOnlyEnemyTeam" and value then
-        active:SetSetting("flagOnlyFriendlyTeam", false)
-    elseif name == "flagOnlyFriendlyTeam" and value then
-        active:SetSetting("flagOnlyEnemyTeam", false)
-    elseif name == "flagAllActions" and value then
-        active:SetSetting("flagOnlyEnemyTeam", false)
-        active:SetSetting("flagOnlyFriendlyTeam", false)
-    elseif name == "flagToasts.positionX" or name == "flagToasts.positionY" then
+    if name == "flagToasts.positionX" or name == "flagToasts.positionY" then
         active:UpdateFlagToastLayout()
     end
+end
+
+local function previewEvent(eventType)
+    local active = flags()
+    if active then active:Preview(eventType, active.previewClass or "ROGUE") end
 end
 
 local function testToasts()
@@ -128,18 +152,22 @@ function SoundAlerter:BuildFlagOptions()
         get = view,
         set = write,
         defaults = function()
-            return { f = dbDefaults.profile, t = dbDefaults.profile.proximityToasts }
+            return { f = dbDefaults.profile, t = dbDefaults.profile.proximityToasts, team = TeamOf(dbDefaults.profile), previewClass = "ROGUE" }
         end,
         summary = summary,
         preview = FlagPreview,
         rows = {
-            Page.Toggle("f.flagPickupAudio", "Flag pickups", "Alert when a player picks up a flag (for example 'Rogue picked up flag').", false, "Flag events"),
-            Page.Toggle("f.flagDropAudio", "Flag drops", "Alert when a flag is dropped.", false, "Flag events"),
-            Page.Toggle("f.flagCaptureAudio", "Flag captures", "Alert when a flag is captured.", false, "Flag events"),
-            Page.Toggle("f.flagReturnAudio", "Flag returns", "Alert when a flag is returned to base.", false, "Flag events"),
-            Page.Toggle("f.flagToastsEnabled", "Show toast notifications", "Display visual toasts for flag carriers (uses the proximity toast settings for appearance).", false, "Visual alerts"),
-            Page.When("f.flagToastsEnabled", Page.Action("Test flag toasts", "Shows an enemy and a friendly flag carrier toast with your textures and colors, at the position real alerts use.", testToasts, false, "Visual alerts")),
-            Page.Toggle("f.flagOnlyEnemyTeam", "Only enemy team events", "Only alert for enemy flag pickups and captures (recommended for less spam). Not available while 'Alert all flag actions' is on.", false, "Filtering"),
+            Page.Playable(Page.Toggle("f.flagPickupAudio", "Flag pickups", "A player picks up a flag.", false, "Flag events"), function() previewEvent("PICKUP") end),
+            Page.Playable(Page.Toggle("f.flagDropAudio", "Flag drops", "A flag is dropped.", false, "Flag events"), function() previewEvent("DROP") end),
+            Page.Playable(Page.Toggle("f.flagCaptureAudio", "Flag captures", "A flag is captured.", false, "Flag events"), function() previewEvent("CAPTURE") end),
+            Page.Playable(Page.Toggle("f.flagReturnAudio", "Flag returns", "A flag is returned to base.", false, "Flag events"), function() previewEvent("RETURN") end),
+            Page.Action("Play all", "Hear every flag event once, one after another, ignoring the switches.", function()
+                local active = flags()
+                if active then active:PreviewAll(active.previewClass or "ROGUE") end
+            end, false, "Flag events"),
+            Page.Select("previewClass", "Preview class", "The class voice the Play buttons use. Real alerts use the carrier's class. Not saved.", PREVIEW_CLASSES, false, "Flag events"),
+            Page.Select("team", "Alert for", "Which team's flag events you hear.", TEAMS, false, "Flag events"),
+            Page.Playable(Page.Toggle("f.flagToastsEnabled", "Show toast notifications", "A toast for each flag carrier, styled like Proximity Alerts.", false, "Visual alerts"), testToasts),
             Page.Toggle("f.flagChatEnabled", "Send chat messages", "Announce flag events in chat channels.", false, "Chat"),
             Page.When("f.flagToastsEnabled", Page.Toggle("t.rainbowBorder", "Rainbow border on toasts", "Animated rainbow border on toast notifications (shared with Proximity Alerts).", true, "Visual alerts")),
             Page.When("f.flagToastsEnabled", Page.Toggle("f.flagTeamBackgroundColors", "Team-based background colors", "Color-code the toast background: red marks an enemy flag carrier and green marks a friendly one, so you can tell which team picked up the flag without reading the toast.", true, "Visual alerts")),
@@ -149,8 +177,6 @@ function SoundAlerter:BuildFlagOptions()
             Page.When("f.flagTeamBackgroundColors", Page.Select("f.flagFriendlyTexture", "Friendly team: background texture", "Texture pattern for friendly flag carrier toasts, combined with the green color.", TEXTURES, true, "Visual alerts")),
             Page.When("f.flagToastsEnabled", Page.Range("f.flagToasts.positionX", "Horizontal position", "0 is the center of the screen, negative is left, positive is right.", -600, 600, 10, true, "Visual alerts")),
             Page.When("f.flagToastsEnabled", Page.Range("f.flagToasts.positionY", "Vertical position", "0 is the top of the screen, negative is lower (recommended -200 to -400). Default -300, below the proximity alerts.", -800, 200, 10, true, "Visual alerts")),
-            Page.When("!f.flagAllActions", Page.Toggle("f.flagOnlyFriendlyTeam", "Only friendly team events", "Only alert for friendly flag pickups and captures. Not available while 'Alert all flag actions' is on.", true, "Filtering")),
-            Page.Toggle("f.flagAllActions", "Alert all flag actions", "Alert for every flag event (pickup, drop, capture, return) for both teams. Turning this on switches the team-specific filters off.", true, "Filtering"),
             Page.When("f.flagChatEnabled", Page.Text("f.flagChatText", "Chat message template", "Placeholders: #class# is the enemy class name, #player# is the player name, #action# is the action (picked up flag, captured flag, and so on). Example: [#class#] #player# #action#!", true, "Chat")),
             Page.When("f.flagChatEnabled", Page.Select("f.flagChatChannel", "Chat channel", "Which channel to send flag alerts to.", CHANNELS, true, "Chat")),
             Page.Action("Show performance metrics", "Display processing time, cache hit rate and other performance data.", function()

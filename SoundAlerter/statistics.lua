@@ -183,7 +183,10 @@ local function PrepareTopSpellsData()
 
 	local topSpells = sadb.statistics.allTime.topSpells
 	local spellList = {}
-	local totalAlerts = sadb.statistics.allTime.totalAlerts or 1
+	local totalAlerts = 0
+	for _, data in pairs(topSpells) do
+		totalAlerts = totalAlerts + (data.count or 0)
+	end
 
 	for spellID, data in pairs(topSpells) do
 		table.insert(spellList, {
@@ -194,7 +197,7 @@ local function PrepareTopSpellsData()
 			topClass = GetTopClass(data.byClass),
 			topZone = GetTopZone(data.byZone),
 			lastSeen = data.lastSeen,
-			percentage = (data.count / totalAlerts) * 100
+			percentage = totalAlerts > 0 and (data.count / totalAlerts) * 100 or 0
 		})
 	end
 
