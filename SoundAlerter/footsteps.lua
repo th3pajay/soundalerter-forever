@@ -288,6 +288,8 @@ function Footsteps:RenderMap()
     local pinLevel = PlayerPinLevel(canvas)
     local level = canvasLevel + MAP_LAYER_LEVELS
     if pinLevel then level = math.max(canvasLevel + 1, pinLevel - 1) end
+    local artTop = OpenMapAPI and OpenMapAPI.ArtTopLevel and OpenMapAPI.ArtTopLevel()
+    if type(artTop) == "number" and level <= artTop then level = artTop + 1 end
     if level ~= self.mapLevel then
         self.mapLevel = level
         self.mapLayer:SetFrameLevel(level)

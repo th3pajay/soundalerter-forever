@@ -8,7 +8,7 @@
 **Personal combat assistant.**
 Voiced PvP alerts, bars and trackers for WoW Forever.
 
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.88-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.89-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Status" src="https://img.shields.io/badge/status-beta-yellow.svg"/>
@@ -44,7 +44,7 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 | | Feature | What it does | |
 | :---: | :--- | :--- | :---: |
 | <img src="Media/icons/proximity.svg" width="32"/> | **Proximity toasts** | Pop-ups for enemies nearby with a distance band, level, group size and 3 aura icons. Pick an **Intel card** or a **Threat card**, click to target. Shows the enemy's latest spell, even when the client hides it (see **Show hidden enemy spells**). An enemy whose name or class was unreadable when their plate appeared is checked again on their next cast. Quiet rules and `/sa snooze` keep it silent when you want | 🟢 |
-| <img src="Media/icons/aware.svg" width="32"/> | **Awareness and watchlist** | Voice when an enemy targets you, starts a cast or uses an instant at you, and for watched players or guilds. Silent where the client hides targets or names. Optional **party sharing** (off by default) tells group members who run SoundAlerter when you spot a stealthed or watched enemy or a new enemy nearby, and plays theirs for you | 🟡 |
+| <img src="Media/icons/aware.svg" width="32"/> | **Awareness and watchlist** | Voice when an enemy targets you, starts a cast or uses an instant at you, and for watched players or guilds. Silent where the client hides targets or names. Optional party sharing and an experimental global sightings map, both off by default | 🟡 |
 | <img src="Media/icons/flag.svg" width="32"/> | **Flag tracking** | Team-aware pickup, drop and capture toasts in WSG and Eye of the Storm. Returns too, once switched on | 🟢 |
 | <img src="Media/icons/notice.svg" width="32"/> | **Notices** | Cues for duels, summons, resurrections, invites, queue pops, ready checks and low durability. Each is silent until its voice file exists (`/sa notices files`) | 🟣 |
 
@@ -82,6 +82,7 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 | `/sa stats [reset]` | Alert diagnostics: same spell alerted twice, aura resyncs, proximity checks skipped just after loading a zone |
 | `/sa speed` | The raw speed values and what the Speed Meter would show, for checking swimming |
 | `/sa fxstats [reset]` | How often the casting bars and spell tracker icons update at your animation quality |
+| `/sa global` | Global sightings status |
 | `/sa snooze [min]` / `unsnooze` | Silence proximity alerts |
 | `/sa watch [guild] <name>` | Manage the watchlist |
 

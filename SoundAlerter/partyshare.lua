@@ -21,6 +21,9 @@ local function IsGUID(guid)
     return type(guid) == "string" and guid:find("^Player%-%d+%-%x+$") ~= nil
 end
 
+SA_PartyShare.CleanName = CleanName
+SA_PartyShare.IsGUID = IsGUID
+
 function SA_PartyShare.Encode(kind, guid, spellID, class, level, name)
     if not KINDS[kind] or not IsGUID(guid) then return nil end
     spellID = spellID or 0
@@ -56,9 +59,10 @@ function SA_PartyShare.Decode(text)
     }
 end
 
-function SA_PartyShare.IsSelf(sender, playerName)
+function SA_PartyShare.IsSelf(sender, playerName, secondName)
     if type(sender) ~= "string" or type(playerName) ~= "string" then return false end
-    return sender:match("^[^-]*") == playerName
+    if sender:match("^[^-]*") == playerName then return true end
+    return type(secondName) == "string" and secondName ~= "" and sender == playerName .. " " .. secondName
 end
 
 function SA_PartyShare.NewBudget()
@@ -110,7 +114,7 @@ local SoundAlerter = SoundAlerter
 local Plain = SA_COMPAT.Plain
 
 local PREFIX = SA_PartyShare.PREFIX
-local playerName = UnitName("player")
+local playerName, playerSecondName = UnitName("player")
 local SEND_SPACING = 10
 local SEND_PER_SECOND = 4
 local RECEIVE_PER_SECOND = 8
@@ -165,7 +169,7 @@ function SoundAlerter:OnAddonMessage(event, prefix, text, channel, sender)
     text, channel, sender = Plain(text), Plain(channel), Plain(sender)
     if not GROUP_CHANNELS[channel] or type(sender) ~= "string" then return end
     if not self.db1.profile.shareAlertsReceive then return end
-    if SA_PartyShare.IsSelf(sender, playerName) then return end
+    if SA_PartyShare.IsSelf(sender, playerName, playerSecondName) then return end
     local now = GetTime()
     if not SA_PartyShare.Allow(receiveBudget, now, RECEIVE_PER_SECOND) then return end
     local message = SA_PartyShare.Decode(text)

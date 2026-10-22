@@ -36,6 +36,21 @@ end
 end
 
 do
+SA_ZoneKind = {}
+
+local WORLD_TYPES = { contested = true, hostile = true, friendly = true }
+
+function SA_ZoneKind.Of(instanceType, pvpType, resting)
+    if instanceType == "arena" or pvpType == "arena" then return "arena" end
+    if instanceType == "pvp" then return "battleground" end
+    if WORLD_TYPES[pvpType] then return "world" end
+    if pvpType == "sanctuary" then return "sanctuary" end
+    if (instanceType == nil or instanceType == "none") and not resting then return "world" end
+    return "sanctuary"
+end
+end
+
+do
 SA_Interrupt = {}
 
 local COOLDOWN = {

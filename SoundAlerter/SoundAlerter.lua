@@ -76,6 +76,7 @@ function SoundAlerter:ChangeProfile()
 	self:ApplyTotemPlates()
 	self:ApplyNameplateRange()
 	self:UpdatePartyShare()
+	self:UpdateGlobalSight()
 	self:OnOptionsProfileChanged()
 
 	for _,v in SoundAlerter:IterateModules() do
@@ -261,6 +262,7 @@ function SoundAlerter:OnEnable()
     self:ApplyNameplateRange()
     self:ApplyTotemPlates()
     self:UpdatePartyShare()
+    self:UpdateGlobalSight()
 
     self:ResetDiagnostics()
 
@@ -628,6 +630,7 @@ function SoundAlerter:HandleCommand(input)
         self:Print("  |cffFFFFFF/sa speed|r - Print the raw speed values and what the Speed Meter would show (stand in the water, then run it)")
         self:Print("  |cffFFFFFF/sa fxstats [reset]|r - Show how often the casting bars and spell tracker icons update at the current animation quality")
         self:Print("  |cffFFFFFF/sa probe|r - Print what the client lets the addon read (turn on Debug Mode first to record events)")
+        self:Print("  |cffFFFFFF/sa global|r - Global sightings status: channel, messages, tracked enemies, ignored senders; |cffFFFFFF/sa global mute <name>|r or |cffFFFFFFunmute <name>|r for this session")
         self:Print("  |cffFFFFFF/sa snooze [minutes]|r / |cffFFFFFF/sa unsnooze|r - Silence proximity and enemy awareness alerts for a while")
         self:Print("  |cffFFFFFF/sa watch [guild] <name>|r / |cffFFFFFF/sa unwatch [guild] <name>|r / |cffFFFFFF/sa watchlist|r - Manage the watchlist")
         self:Print("  |cffFFFFFF/sa secrets|r - Show whether the hidden-spell display routes work on this client")
@@ -699,6 +702,8 @@ function SoundAlerter:HandleCommand(input)
         self:HandleWatchCommand(command, rest)
     elseif command == "aurasound" then
         self:AuraSoundCommand(rest)
+    elseif command == "global" then
+        self:GlobalSightCommand(rest)
     elseif command == "snooze" then
         self:Snooze(tonumber(rest))
     elseif command == "unsnooze" then
@@ -1844,18 +1849,11 @@ end
 SoundAlerter.UNIT_FACTION = SoundAlerter.UNIT_NAME_UPDATE
 
 function SoundAlerter:IsProximityZoneAllowed()
-    local currentZoneType, pvpType = self.cachedInstanceType, self.cachedZonePvpType
-
-    local inArena = (currentZoneType == "arena") or (pvpType == "arena")
-    local inBattleground = (currentZoneType == "pvp")
-    local inWorld = (pvpType == "contested" or pvpType == "hostile" or pvpType == "friendly")
-    local inSanctuary = (pvpType == "sanctuary" or pvpType == nil)
-
-    if inArena and not sadb.proximityArena then return false end
-    if inBattleground and not sadb.proximityBattleground then return false end
-    if inWorld and not sadb.proximityWorld then return false end
-    if inSanctuary and not sadb.proximitySanctuary then return false end
-    return inArena or inBattleground or inWorld or inSanctuary
+    local kind = SA_ZoneKind.Of(self.cachedInstanceType, self.cachedZonePvpType, IsResting and IsResting())
+    if kind == "arena" then return sadb.proximityArena and true or false end
+    if kind == "battleground" then return sadb.proximityBattleground and true or false end
+    if kind == "world" then return sadb.proximityWorld and true or false end
+    return sadb.proximitySanctuary and true or false
 end
 
 local function ProximityBandAllowed(band)

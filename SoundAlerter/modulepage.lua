@@ -22,6 +22,7 @@ local COLOR = {
     muted = { 0.588, 0.627, 0.698 },
     on = { 0.239, 0.863, 0.592 },
     knob = { 0.95, 0.95, 0.95 },
+    experimental = { 0.06, 0.12, 0.32 },
 }
 
 local cache = setmetatable({}, { __mode = "k" })
@@ -146,6 +147,11 @@ end
 
 function Page.When(key, row)
     row.requires = key
+    return row
+end
+
+function Page.Experimental(row)
+    row.experimental = true
     return row
 end
 
@@ -373,14 +379,97 @@ local function MakeColor(parent, onChange)
     return control
 end
 
+local TEXT_LINE = 15
+local TEXT_BAR = 12
+
+local function MakeMultiText(parent, lines, onChange)
+    local viewHeight = lines * TEXT_LINE + 10
+    local holder = CreateFrame("Frame", nil, parent)
+    holder:SetSize(380, viewHeight)
+    local fill = Paint(holder, COLOR.line)
+    fill:SetAllPoints(holder)
+
+    local scroll = CreateFrame("ScrollFrame", nil, holder)
+    scroll:SetPoint("TOPLEFT", holder, "TOPLEFT", 0, 0)
+    scroll:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT", -TEXT_BAR, 0)
+    local box = CreateFrame("EditBox", nil, scroll)
+    box:SetAutoFocus(false)
+    box:SetFont(FONT, 12, "")
+    box:SetTextInsets(6, 6, 3, 3)
+    box:SetMultiLine(true)
+    box:SetSize(380 - TEXT_BAR, viewHeight)
+    scroll:SetScrollChild(box)
+    scroll:EnableMouseWheel(true)
+
+    local measure = Text(holder, 12, COLOR.text)
+    measure:SetWordWrap(true)
+    measure:SetWidth(380 - TEXT_BAR - 12)
+    measure:Hide()
+
+    local bar
+    local function range()
+        return math.max(0, box:GetHeight() - viewHeight)
+    end
+    local function sync()
+        local span = range()
+        local offset = math.max(0, math.min(span, scroll:GetVerticalScroll()))
+        scroll:SetVerticalScroll(offset)
+        bar:Update(span > 0 and offset / span or 0, span > 0 and viewHeight / box:GetHeight() or 1)
+    end
+    local function resize()
+        box:SetHeight(math.max(viewHeight, measure:GetStringHeight() + 6))
+        sync()
+    end
+    bar = MakeScrollbar(holder, function(fraction)
+        scroll:SetVerticalScroll(fraction * range())
+        sync()
+    end, 0)
+
+    holder:SetScript("OnSizeChanged", function(_, width)
+        local inner = math.max(1, width - TEXT_BAR)
+        box:SetWidth(inner)
+        measure:SetWidth(math.max(1, inner - 12))
+        resize()
+    end)
+    scroll:SetScript("OnMouseWheel", function(_, delta)
+        scroll:SetVerticalScroll(math.max(0, math.min(range(), scroll:GetVerticalScroll() - delta * TEXT_LINE * 3)))
+        sync()
+    end)
+    box:SetScript("OnTextChanged", function(self)
+        measure:SetText(self:GetText())
+        resize()
+    end)
+    box:SetScript("OnCursorChanged", function(_, _, y, _, height)
+        local top = -y
+        local offset = scroll:GetVerticalScroll()
+        if top < offset then
+            scroll:SetVerticalScroll(top)
+        elseif top + height > offset + viewHeight then
+            scroll:SetVerticalScroll(top + height - viewHeight)
+        end
+        sync()
+    end)
+    box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    box:SetScript("OnEditFocusLost", function(self) onChange(self:GetText()) end)
+
+    local control = { frame = holder, box = box, bar = bar }
+    function control:Set(value)
+        if box:HasFocus() or box:GetText() == (value or "") then return end
+        box:SetText(value or "")
+        scroll:SetVerticalScroll(0)
+        sync()
+    end
+    return control
+end
+
 local function MakeText(parent, row, onChange)
-    local lines = row.lines or 1
+    if (row.lines or 1) > 1 then return MakeMultiText(parent, row.lines, onChange) end
     local box = CreateFrame("EditBox", nil, parent)
     box:SetAutoFocus(false)
     box:SetFont(FONT, 12, "")
     box:SetTextInsets(6, 6, 3, 3)
-    box:SetMultiLine(lines > 1)
-    box:SetSize(lines > 1 and 380 or 190, lines > 1 and (lines * 15 + 10) or 22)
+    box:SetMultiLine(false)
+    box:SetSize(190, 22)
     local fill = Paint(box, COLOR.line)
     fill:SetAllPoints(box)
     local control = { frame = box }
@@ -389,7 +478,7 @@ local function MakeText(parent, row, onChange)
         box:SetText(value or "")
     end
     box:SetScript("OnEnterPressed", function(self)
-        if lines == 1 then self:ClearFocus() end
+        self:ClearFocus()
     end)
     box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     box:SetScript("OnEditFocusLost", function(self) onChange(self:GetText()) end)
@@ -772,6 +861,10 @@ function Methods:AddRow(row, advanced)
     local frame = CreateFrame("Frame", nil, self.child)
     frame:SetHeight(height)
     frame:EnableMouse(true)
+    if row.experimental then
+        local experimental = Paint(frame, COLOR.experimental, 0.55)
+        experimental:SetAllPoints(frame)
+    end
     local highlight = Paint(frame, COLOR.accent, 0.12)
     highlight:SetAllPoints(frame)
     highlight:Hide()
@@ -862,6 +955,7 @@ function Methods:AddRow(row, advanced)
         label:SetText(type(row.label) == "function" and "" or row.label)
         entry.labelText = label
         control.frame:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -6)
+        control.frame:SetPoint("TOPRIGHT", label, "BOTTOMRIGHT", 0, -6)
     else
         control.frame:SetPoint("RIGHT", frame, "RIGHT", -4, 0)
         local edge = control.frame
