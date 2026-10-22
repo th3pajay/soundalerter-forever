@@ -32,6 +32,7 @@ function DevTools:Snapshot(wantMemory, forceMemory)
     info.progress = stats.progress
     info.totalScanned = stats.totalScanned
     info.maxSpellID = stats.maxSpellID
+    info.scanTotal = stats.scanTotal
     info.maxAge = stats.maxAge
     info.totalSpells = stats.totalSpells
     info.uniqueNames = stats.uniqueNames

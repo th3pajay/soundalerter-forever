@@ -24,6 +24,7 @@ local TOAST_SECONDS = 1.5
 local CYAN = { 0.3, 0.85, 1 }
 local AMBER = { 1, 0.67, 0 }
 local BACKGROUND = { 0.059, 0.071, 0.094 }
+local STRATA = "FULLSCREEN_DIALOG"
 
 local SELECT_KEYS = {
     rank = "rankFilter",
@@ -666,12 +667,12 @@ function Window:BuildControls()
 
     self.catcher = CreateFrame("Button", nil, UIParent)
     self.catcher:SetAllPoints(UIParent)
-    self.catcher:SetFrameStrata("DIALOG")
+    self.catcher:SetFrameStrata(STRATA)
     self.catcher:SetFrameLevel(frame:GetFrameLevel() + 40)
     self.catcher:SetScript("OnClick", function() self:CloseMenu() end)
     self.catcher:Hide()
     self.menu = CreateFrame("Frame", nil, UIParent)
-    self.menu:SetFrameStrata("DIALOG")
+    self.menu:SetFrameStrata(STRATA)
     self.menu:SetFrameLevel(frame:GetFrameLevel() + 50)
     local back = Paint(self.menu, COLOR.card, 1, "BACKGROUND")
     back:SetAllPoints(self.menu)
@@ -789,12 +790,18 @@ function Window:Hide()
     self.frame:Hide()
 end
 
-function Window:Dock(anchor)
+function Window:Dock(anchor, left)
+    self.dockLeft = left and true or false
     self.frame:ClearAllPoints()
-    self.frame:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 6, 0)
+    if left then
+        self.frame:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -6, 0)
+    else
+        self.frame:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 6, 0)
+    end
 end
 
 function Window:Place(point, relative, x, y)
+    self.dockLeft = false
     self.frame:ClearAllPoints()
     self.frame:SetPoint(point, UIParent, relative or point, x or 0, y or 0)
 end
@@ -819,7 +826,7 @@ end
 
 function SA_FinderWindow.Create(host)
     local frame = CreateFrame("Frame", nil, UIParent)
-    frame:SetFrameStrata("DIALOG")
+    frame:SetFrameStrata(STRATA)
     frame:SetMovable(true)
     frame:SetClampedToScreen(true)
     frame:EnableMouse(true)

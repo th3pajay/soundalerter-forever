@@ -99,11 +99,11 @@ function FX.Press(button, fill, label)
     button:HookScript("OnMouseDown", function()
         if not FX.Enabled() then return end
         fill:SetAlpha(PRESS_ALPHA)
-        label:SetPoint("CENTER", button, "CENTER", 0, -1)
+        if label then label:SetPoint("CENTER", button, "CENTER", 0, -1) end
     end)
     button:HookScript("OnMouseUp", function()
         fill:SetAlpha(1)
-        label:SetPoint("CENTER", button, "CENTER", 0, 0)
+        if label then label:SetPoint("CENTER", button, "CENTER", 0, 0) end
     end)
 end
 

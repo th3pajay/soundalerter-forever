@@ -460,6 +460,7 @@ function CastingBars:StartFx(b, fresh, notInterruptible)
 	if fresh then
 		self:Fx("Enter", b)
 	end
+	self:Fx("Begin", b)
 end
 
 function CastingBars:BeginSecretCast(b, unit, channeling, spellName, texture, notInterruptible, fresh)

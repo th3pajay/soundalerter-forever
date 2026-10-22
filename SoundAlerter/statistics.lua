@@ -35,6 +35,7 @@ local STATS_CONSTANTS = {
 	MAX_TOP_SPELLS = 50,
 	MAX_ENEMIES = 100,
 	MAX_SESSION_HISTORY = 50,
+	MAX_PARTY_SENDERS = 20,
 	MAX_DISPLAY_ROWS = 20,
 
 	TREND_INCREASE_THRESHOLD = 1.2,
@@ -354,6 +355,128 @@ local function buildExport()
 	return Statistics:BuildExportString()
 end
 
+local clockDay, clockHour, clockUntil = 0, 0, 0
+
+local function LocalClock()
+	local now = time()
+	if now < clockUntil and now >= clockUntil - 3600 then
+		return clockDay, clockHour
+	end
+	local fields = date("*t", now)
+	local intoHour = fields.min * 60 + fields.sec
+	clockDay = math.floor((now - (fields.hour * 3600 + intoHour)) / 86400 + 0.5)
+	clockHour = fields.hour
+	clockUntil = now + 3600 - intoHour
+	return clockDay, clockHour
+end
+
+local PANEL_RIVALS = 6
+local PANEL_SENDERS = 3
+local panelEnemies, panelSenders = {}, {}
+local panelNewest = {}
+
+local function pushTop(list, limit, entry, before)
+	local count = #list
+	local at = count + 1
+	for index = 1, count do
+		if before(entry, list[index]) then
+			at = index
+			break
+		end
+	end
+	if at > limit then return end
+	local spare = count >= limit and list[count] or nil
+	if spare then
+		list[count] = nil
+		count = count - 1
+	end
+	for index = count, at, -1 do list[index + 1] = list[index] end
+	list[at] = entry
+	return spare
+end
+
+local function enemyFirst(a, b)
+	if a.alerts ~= b.alerts then return a.alerts > b.alerts end
+	return a.name < b.name
+end
+
+local function senderFirst(a, b)
+	if a[2] ~= b[2] then return a[2] > b[2] end
+	return a[1] < b[1]
+end
+
+local function buildPanel()
+	local sadb = GetDB()
+	local stats = sadb.statistics
+	local session, allTime = stats.session or {}, stats.allTime or {}
+	local minutes = math.max(0, math.floor((GetTime() - (session.startTime or 0)) / 60))
+	local sessionTotal = session.totalAlerts or 0
+	local data = {
+		now = time(),
+		sessionTotal = sessionTotal,
+		minutes = minutes,
+		perMinute = minutes > 0 and sessionTotal / minutes or 0,
+		sessionNumber = session.sessionNumber or 0,
+		sessions = allTime.totalSessions or 0,
+		allTotal = allTime.totalAlerts or 0,
+	}
+
+	local spells = {}
+	for _, spell in pairs(allTime.topSpells or {}) do
+		local trend = spell.trend
+		local direction = trend and trend.direction
+		if direction == "increasing" or direction == "decreasing" then
+			spells[#spells + 1] = { name = spell.name or "Unknown", direction = direction, last = trend.lastSessionCount, avg = trend.avgPerSession }
+		end
+	end
+	data.spells = spells
+
+	local enemies = panelEnemies
+	for index = #enemies, 1, -1 do enemies[index] = nil end
+	local spare, newest, newestAt = nil, panelNewest, -1
+	for name, enemy in pairs((allTime.playerTracking or {}).enemies or {}) do
+		local alerts = enemy.totalAlerts or 0
+		local seen = enemy.lastSeen or 0
+		if seen > newestAt then
+			newestAt = seen
+			newest.name, newest.class, newest.last = name, enemy.class, seen
+		end
+		local entry = spare or {}
+		entry.name, entry.class, entry.alerts, entry.danger = name, enemy.class, alerts, enemy.dangerRating or 0
+		entry.encounters, entry.last = enemy.encounterCount or 0, seen
+		spare = pushTop(enemies, PANEL_RIVALS, entry, enemyFirst)
+		if spare == nil and enemies[#enemies] ~= entry then spare = entry end
+	end
+	data.enemies = enemies
+	data.lastEnemy = newestAt >= 0 and newest or nil
+
+	local classes = {}
+	for class, entry in pairs((allTime.playerTracking or {}).classSummary or {}) do
+		classes[#classes + 1] = { class = class, alerts = entry.totalAlerts or 0, players = entry.uniquePlayers or 0 }
+	end
+	data.classes = classes
+
+	local sessionParty, allParty = session.party or {}, allTime.party or {}
+	local senders = panelSenders
+	for index = #senders, 1, -1 do senders[index] = nil end
+	local sparePair
+	for name, count in pairs(allParty.bySender or {}) do
+		local pair = sparePair or {}
+		pair[1], pair[2] = name, count
+		sparePair = pushTop(senders, PANEL_SENDERS, pair, senderFirst)
+		if sparePair == nil and senders[#senders] ~= pair then sparePair = pair end
+	end
+	data.party = {
+		sessionSent = sessionParty.sent or 0, sessionReceived = sessionParty.received or 0,
+		allSent = allParty.sent or 0, allReceived = allParty.received or 0,
+		senders = senders, sending = sadb.shareAlertsSend and true or false, receiving = sadb.shareAlertsReceive and true or false,
+	}
+
+	data.days = Format.ActivityDays(allTime.activity, (LocalClock()))
+	data.hours = allTime.activity and allTime.activity.hours or {}
+	return Format.PanelModel(data)
+end
+
 local function trackedStatistics()
 	local sadb = GetDB()
 	local stats = sadb and sadb.statistics
@@ -382,6 +505,13 @@ function Statistics:GetListText(tableType)
 	return cachedText(tableType, stats, dataVersion, statisticsSortState[tableType].sortType, buildList)
 end
 
+function Statistics:GetPanelModel()
+	local stats = trackedStatistics()
+	if not stats then return nil end
+	local minutes = math.floor((GetTime() - (stats.session.startTime or 0)) / 60)
+	return cachedText("panel", stats, dataVersion, minutes, buildPanel)
+end
+
 function Statistics:GetExportText()
 	local stats = trackedStatistics()
 	if not stats then return "" end
@@ -408,6 +538,7 @@ local function newSession(number)
 		byClass = {},
 		enemiesEncountered = {},
 		spellsThisSession = {},
+		party = { sent = 0, received = 0, bySender = {} },
 	}
 end
 
@@ -437,6 +568,8 @@ local function newAllTime()
 			enemies = {},
 			classSummary = {},
 		},
+		party = { sent = 0, received = 0, bySender = {} },
+		activity = Format.NewActivity(),
 	}
 end
 
@@ -467,6 +600,7 @@ function Statistics:RecordAlert(category, spellID, sourceGUID, sourceName, spell
 
 	sadb.statistics.allTime.totalAlerts = (sadb.statistics.allTime.totalAlerts or 0) + 1
 	sadb.statistics.allTime.byCategory[category] = (sadb.statistics.allTime.byCategory[category] or 0) + 1
+	self:RecordActivity(sadb.statistics.allTime)
 
 	local zoneType = self:GetCurrentZoneType()
 	if zoneType then
@@ -480,6 +614,53 @@ function Statistics:RecordAlert(category, spellID, sourceGUID, sourceName, spell
 	if sourceGUID and sourceName then
 		self:TrackEnemyPlayer(sourceGUID, sourceName, spellID, sourceClass)
 	end
+end
+
+function Statistics:RecordActivity(allTime)
+	local activity = allTime.activity
+	if not activity then
+		activity = Format.NewActivity()
+		allTime.activity = activity
+	end
+	local day, hour = LocalClock()
+	Format.ActivityRecord(activity, day, hour)
+end
+
+local function CountSender(party, name)
+	local senders = party.bySender
+	if not senders then
+		senders = {}
+		party.bySender = senders
+	end
+	if senders[name] then
+		senders[name] = senders[name] + 1
+		return
+	end
+	local count, weakest, weakestCount = 0, nil, nil
+	for key, value in pairs(senders) do
+		count = count + 1
+		if not weakestCount or value < weakestCount then weakest, weakestCount = key, value end
+	end
+	if count >= STATS_CONSTANTS.MAX_PARTY_SENDERS then senders[weakest] = nil end
+	senders[name] = 1
+end
+
+local function CountParty(scope, direction, sender)
+	local party = scope.party
+	if not party then
+		party = { sent = 0, received = 0, bySender = {} }
+		scope.party = party
+	end
+	party[direction] = (party[direction] or 0) + 1
+	if direction == "received" and sender then CountSender(party, sender) end
+end
+
+function Statistics:RecordParty(direction, sender)
+	local stats = trackedStatistics()
+	if not stats then return end
+	dataVersion = dataVersion + 1
+	CountParty(stats.session, direction, sender)
+	CountParty(stats.allTime, direction, sender)
 end
 
 function Statistics:UpdateTopSpells(spellID, sourceGUID, sourceName, spellSchool)

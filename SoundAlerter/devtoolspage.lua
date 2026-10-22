@@ -11,10 +11,20 @@ local NewView, NewHeading, NewDivider, PlaceDivider, NewCard, PlaceCard = Kit.Ne
 local WIDGET = "SoundAlerterDevPage"
 local HEADER_HEIGHT = 112
 local GAP = 12
+local TILE_HEIGHT = 42
+local ROW_TILE = 50
+local TILE_TEXT = {
+    closed = { "Open Spell Finder", "Search every spell, rank and description" },
+    open = { "Close Spell Finder", "Click again to close the window" },
+}
+local TILE_ICON = "Interface\\Icons\\INV_Misc_Book_09"
 local ROW_KV = 20
 local ROW_TIMING = 24
 local ROW_LEGEND = 22
-local ROW_BAR = 22
+local REDRAW_SECONDS = 0.25
+local HIDDEN_TICKS = 3
+local BAR_TOP = 66
+local BAR_HEIGHT = 10
 local ROW_NOTE = 30
 local DATABASE_ROWS = 7
 
@@ -45,7 +55,13 @@ local function NewVital(parent)
     local value = Text(frame, 12.5, COLOR.text)
     local post = Text(frame, 12, COLOR.muted)
     local vital = { frame = frame, dot = dot, pre = pre, value = value, post = post }
-    function vital:Set(dotLevel, preText, valueText, valueLevel, postText)
+    local last = {}
+    local floor = 0
+    function vital:Set(dotLevel, preText, valueText, valueLevel, postText, hold)
+        if last.dot == dotLevel and last.pre == preText and last.value == valueText and last.level == valueLevel and last.post == postText and last.hold == hold then
+            return false
+        end
+        last.dot, last.pre, last.value, last.level, last.post, last.hold = dotLevel, preText, valueText, valueLevel, postText, hold
         local x = 0
         if dotLevel then
             Tint(dot, LEVEL[dotLevel])
@@ -67,7 +83,17 @@ local function NewVital(parent)
         post:ClearAllPoints()
         post:SetPoint("LEFT", frame, "LEFT", x + (postText and postText ~= "" and 5 or 0), 0)
         x = x + (postText and postText ~= "" and post:GetStringWidth() + 5 or 0)
-        frame:SetWidth(math.max(1, x))
+        local width = math.max(1, x)
+        if not hold then
+            floor = 0
+        elseif width < floor then
+            width = floor
+        else
+            floor = width
+        end
+        local moved = frame:GetWidth() ~= width
+        frame:SetWidth(width)
+        return moved
     end
     return vital
 end
@@ -125,23 +151,22 @@ function Dev:AddNote(card)
     card.rows[#card.rows + 1] = { frame = frame, height = ROW_NOTE }
 end
 
-function Dev:AddBar(card)
-    local frame = CreateFrame("Frame", nil, card.frame)
-    frame:SetHeight(ROW_BAR)
+local function NewProgressBar(parent)
+    local frame = CreateFrame("StatusBar", nil, parent)
+    frame:SetHeight(BAR_HEIGHT)
+    frame:SetStatusBarTexture(Kit.FLAT)
+    frame:SetStatusBarColor(LEVEL.warn[1], LEVEL.warn[2], LEVEL.warn[3], 1)
+    frame:SetMinMaxValues(0, 100)
     local track = Paint(frame, COLOR.track, 1)
-    track:SetPoint("LEFT", frame, "LEFT", 4, 0)
-    track:SetPoint("RIGHT", frame, "RIGHT", -4, 0)
-    track:SetHeight(8)
-    local fill = Paint(frame, LEVEL.warn, 1, "ARTWORK")
-    fill:SetPoint("LEFT", frame, "LEFT", 4, 0)
-    fill:SetHeight(8)
-    fill:SetWidth(1)
-    local bar = { frame = frame, height = ROW_BAR, fill = fill }
+    track:SetAllPoints(frame)
+    frame:Hide()
+    local bar = { frame = frame, percent = 0 }
     function bar:Set(percent)
-        local width = frame:GetWidth() - 8
-        fill:SetWidth(math.max(1, width * math.max(0, math.min(100, percent)) / 100))
+        percent = math.max(0, math.min(100, percent))
+        if percent == self.percent then return end
+        self.percent = percent
+        frame:SetValue(percent)
     end
-    card.rows[#card.rows + 1] = bar
     return bar
 end
 
@@ -210,11 +235,69 @@ function Dev:AddTiming(card, mode)
     return timing
 end
 
+local function NewFinderTile(parent, onClick)
+    local frame = CreateFrame("Button", nil, parent)
+    frame:SetHeight(TILE_HEIGHT)
+    local fill = Paint(frame, COLOR.line, 0.55)
+    fill:SetAllPoints(frame)
+    Outline(frame, COLOR.line)
+    local tint = Paint(frame, COLOR.line, 0.6, "ARTWORK")
+    tint:SetAllPoints(frame)
+    tint:Hide()
+    local edge = Paint(frame, COLOR.accent, 1, "OVERLAY")
+    edge:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+    edge:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+    edge:SetWidth(3)
+    edge:Hide()
+    local well = Paint(frame, COLOR.card, 1, "ARTWORK")
+    well:SetSize(32, 32)
+    well:SetPoint("LEFT", frame, "LEFT", 10, 0)
+    local icon = frame:CreateTexture(nil, "OVERLAY")
+    icon:SetTexture(TILE_ICON)
+    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    icon:SetSize(26, 26)
+    icon:SetPoint("CENTER", well, "CENTER", 0, 0)
+    local arrow = Text(frame, 18, COLOR.muted, "RIGHT")
+    arrow:SetPoint("RIGHT", frame, "RIGHT", -12, 0)
+    arrow:SetText(">")
+    local title = Text(frame, 13, COLOR.text)
+    title:SetPoint("TOPLEFT", well, "TOPRIGHT", 10, -2)
+    title:SetText(TILE_TEXT.closed[1])
+    local subtitle = Text(frame, 11, COLOR.muted)
+    subtitle:SetPoint("BOTTOMLEFT", well, "BOTTOMRIGHT", 10, 2)
+    subtitle:SetPoint("RIGHT", arrow, "LEFT", -8, 0)
+    subtitle:SetText(TILE_TEXT.closed[2])
+    frame:SetScript("OnClick", onClick)
+    frame:HookScript("OnEnter", function()
+        edge:Show()
+        Tint(arrow, COLOR.accent)
+    end)
+    frame:HookScript("OnLeave", function()
+        edge:Hide()
+        Tint(arrow, COLOR.muted)
+    end)
+    FX.Hover(frame, tint)
+    FX.Press(frame, fill)
+    local tile = { frame = frame, height = ROW_TILE, open = false, title = title, subtitle = subtitle }
+    function tile:Set(open)
+        open = open and true or false
+        if open == self.open then return end
+        self.open = open
+        local text = open and TILE_TEXT.open or TILE_TEXT.closed
+        title:SetText(text[1])
+        subtitle:SetText(text[2])
+    end
+    return tile
+end
+
 function Dev:BuildFinderCard(parent)
     local spec = self.spec
     local card = NewCard(parent, "Spell Finder")
-    card.action = Kit.MakeButton(card.frame, "Open Spell Finder", function() spec.openFinder() end)
-    card.action.frame:SetPoint("TOPRIGHT", card.frame, "TOPRIGHT", -10, -5)
+    card.action = NewFinderTile(card.frame, function()
+        spec.toggleFinder()
+        card.action:Set(spec.finderOpen())
+    end)
+    card.rows[#card.rows + 1] = card.action
     self.scope = self:AddSetting(card, { kind = "select", label = "Search in", options = List.SCOPES, set = spec.setScope,
         tip = "Names: spell names only. Names + descriptions: name matches first, then matches inside spell descriptions. Descriptions: only the description text. Either description option builds a saved index of spell descriptions while the Spell Finder window is open (loaded in small batches, paused when the window closes, a few MB). Description searches need 3+ characters." })
     self.fuzzy = self:AddSetting(card, { kind = "toggle", label = "Fuzzy name search", hint = "Typo-tolerant matching, ranked by closeness.",
@@ -243,13 +326,11 @@ function Dev:BuildDatabaseCard(parent)
     button.frame:SetPoint("TOPRIGHT", card.frame, "TOPRIGHT", -10, -5)
     self.rebuild = button
     self:AddNote(card)
-    self.progress = self:AddBar(card)
     self.databaseRows = self:AddKvList(card, DATABASE_ROWS)
     return card
 end
 
 function Dev:BuildPerformanceCard(parent)
-    local spec = self.spec
     local card = NewCard(parent, "Performance")
     local refresh = Kit.MakeButton(card.frame, "Refresh", function() self:Tick(true, true) end)
     refresh.frame:SetWidth(70)
@@ -319,7 +400,6 @@ function Dev:Layout()
     local second = PlaceCard(self.internalsCard, child, half + GAP, y, half)
     self.view:SetContentHeight(y + math.max(first, second) + 20)
     if self.lastTimings then self:ApplyPerformance(self.lastTimings, self.lastInfo) end
-    if self.lastInfo and self.lastInfo.isBuilding then self.progress:Set(self.lastInfo.progress) end
 end
 
 function Dev:PerformanceVisible()
@@ -352,6 +432,10 @@ function Dev:BuildHeader()
     if self.reasons.SetWordWrap then self.reasons:SetWordWrap(true) end
     self.reasons:SetJustifyV("TOP")
     self.reasons:SetHeight(32)
+
+    self.progress = NewProgressBar(frame)
+    self.progress.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -BAR_TOP)
+    self.progress.frame:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -BAR_TOP)
 
     self.vitals = {}
     local strip = {}
@@ -476,13 +560,14 @@ function Dev:ApplyInfo(info)
 
     local vitals = Model.Vitals(info)
     local state = vitals.building and "warn" or "ok"
-    self.vitals[1]:Set(state, nil, vitals.building and string.format("Building %.0f%%", vitals.progress) or "Ready", state)
-    self.vitals[2]:Set(nil, nil, SA_StatsFormat.Number(vitals.spells), nil, "spells")
-    self.vitals[3]:Set(nil, "updated", vitals.ageText or "never", vitals.ageLevel)
-    self.vitals[4]:Set(nil, "build", vitals.build == "bad" and "outdated" or (vitals.build and "current" or "unknown"), vitals.build)
-    self.vitals[5]:Set(nil, nil, vitals.memoryText, vitals.memoryLevel == "warn" and "warn" or nil, "memory")
+    local hold = vitals.building
+    local moved = self.vitals[1]:Set(state, nil, vitals.building and string.format("Building %.0f%%", vitals.progress) or "Ready", state, nil, hold)
+    moved = self.vitals[2]:Set(nil, nil, SA_StatsFormat.Number(vitals.spells), nil, "spells", hold) or moved
+    moved = self.vitals[3]:Set(nil, "updated", vitals.ageText or "never", vitals.ageLevel, nil, hold) or moved
+    moved = self.vitals[4]:Set(nil, "build", vitals.build == "bad" and "outdated" or (vitals.build and "current" or "unknown"), vitals.build, nil, hold) or moved
+    moved = self.vitals[5]:Set(nil, nil, vitals.memoryText, vitals.memoryLevel == "warn" and "warn" or nil, "memory", hold) or moved
     self.stripDebug:Set(vitals.debug)
-    self:LayoutHeader()
+    if moved then self:LayoutHeader() end
 
     self.progress.frame:SetShown(vitals.building)
     if vitals.building then self.progress:Set(vitals.progress) end
@@ -525,6 +610,7 @@ function Dev:Tick(force, memory)
         self.signature = signature
         self:ApplyInfo(info)
     end
+    self.finderCard.action:Set(self.spec.finderOpen())
     local description = self.spec.description()
     local descriptionSignature = description.built and (description.indexed .. "|" .. description.empty .. "|" .. tostring(description.running) .. "|" .. math.floor(description.kb)) or "none"
     if force or descriptionSignature ~= self.descriptionSignature then
@@ -538,11 +624,14 @@ end
 
 function Dev:StartTicker()
     self:StopTicker()
+    self.hiddenTicks = 0
     self.ticker = self.spec.newTicker(Model.TICK_SECONDS, function()
         if not self.frame:IsVisible() then
-            self:StopTicker()
+            self.hiddenTicks = self.hiddenTicks + 1
+            if self.hiddenTicks >= HIDDEN_TICKS then self:StopTicker() end
             return
         end
+        self.hiddenTicks = 0
         self:Tick(false)
     end)
 end
@@ -566,6 +655,9 @@ local function BuildPage(spec)
     page.body = body
     page:BuildView()
     page:BuildOverlay()
+    frame:SetScript("OnShow", function()
+        if not page.ticker then page:StartTicker() end
+    end)
     frame:SetScript("OnHide", function()
         page:StopTicker()
         page:Disarm()
@@ -596,6 +688,7 @@ end
 function WidgetMethods:OnRelease()
     local page = self.page
     if page then
+        page.releasedAt = GetTime()
         HideTip()
         page.frame:Hide()
         page.frame:SetParent(UIParent)
@@ -616,7 +709,9 @@ function WidgetMethods:SetCustomData(spec)
     page.frame:Show()
     page:Tick(true, true)
     page:StartTicker()
-    FX.SlideIn(page.frame, self.frame)
+    if not page.releasedAt or GetTime() - page.releasedAt > REDRAW_SECONDS then
+        FX.SlideIn(page.frame, self.frame)
+    end
     Kit.FitWidget(self)
 end
 
@@ -649,11 +744,15 @@ function SoundAlerter:BuildSpellFinderOptions()
         setScope = function(value) tools:SetScope(value) end,
         setFlag = function(key, value) tools:SetFinderFlag(key, value) end,
         setDebug = function(value) tools:SetDebug(value) end,
-        openFinder = function() SoundAlerter:OpenSpellFinder() end,
+        toggleFinder = function() SoundAlerter:ToggleSpellFinder() end,
+        finderOpen = function() return SoundAlerter:IsFinderOpen() end,
         clearDescriptions = function() SoundAlerter:ClearDescriptionIndex() end,
         rebuildInfo = function() return tools:RebuildInfo() end,
         rebuild = function() tools:Rebuild() end,
-        newTicker = function(seconds, fn) return C_Timer.NewTicker(seconds, fn) end,
+        newTicker = function(seconds, fn)
+            local handle = SoundAlerter:ScheduleRepeatingTimer(fn, seconds)
+            return { Cancel = function() SoundAlerter:CancelTimer(handle) end }
+        end,
     }
     self.devSpec = spec
     return {

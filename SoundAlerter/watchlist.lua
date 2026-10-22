@@ -72,7 +72,7 @@ end
 do
 local SoundAlerter = SoundAlerter
 
-local Plain, SafeUnitName = SA_COMPAT.Plain, SA_COMPAT.SafeUnitName
+local Plain, SafeUnitName, SafeUnitClass = SA_COMPAT.Plain, SA_COMPAT.SafeUnitName, SA_COMPAT.SafeUnitClass
 
 local WATCH_SPACING = 60
 local watchAlertAt = {}
@@ -90,6 +90,24 @@ local function Sets(profile)
         cache.guilds = SA_Watchlist.Parse(guildsText, true)
     end
     return cache.names, cache.guilds
+end
+
+local function FireWatchAlert(self, profile, guid, name, guild, now, spotter)
+    watchAlertAt[guid] = now
+    self:PlayVoice(profile.sapath .. "watchlist.mp3")
+    self:RecordStat("watchlistAlerts")
+    self:Print(string.format("|cffFF7D0AWatchlist:|r %s%s is nearby%s", tostring(name or "A watched player"), guild and (" <" .. guild .. ">") or "", spotter and (" (spotted by " .. spotter .. ")") or ""))
+end
+
+function SoundAlerter:AlertSharedWatch(guid, name, sender)
+    local profile = self.db1.profile
+    if not profile.watchlistEnabled then return false end
+    local now = GetTime()
+    local last = watchAlertAt[guid]
+    if last and now - last < WATCH_SPACING then return false end
+    if not self:IsAlertZoneAllowed() or self:IsQuiet() then return false end
+    FireWatchAlert(self, profile, guid, name, nil, now, sender)
+    return true
 end
 
 function SoundAlerter:CheckWatchlist(unit)
@@ -110,11 +128,9 @@ function SoundAlerter:CheckWatchlist(unit)
     if not kind then return end
     if not self:IsAlertZoneAllowed() or self:IsQuiet() then return end
 
-    watchAlertAt[guid] = now
     self:Debug("Watchlist", "%s matched by %s (guild %s)", tostring(name), kind, tostring(guild))
-    self:PlayVoice(profile.sapath .. "watchlist.mp3")
-    self:RecordStat("watchlistAlerts")
-    self:Print(string.format("|cffFF7D0AWatchlist:|r %s%s is nearby", tostring(name or "A watched player"), guild and (" <" .. guild .. ">") or ""))
+    FireWatchAlert(self, profile, guid, name, guild, now)
+    if profile.shareAlertsSend then self:ShareAlert("W", guid, 0, SafeUnitClass(unit), nil, name) end
 end
 
 function SoundAlerter:PruneWatchlist(now)

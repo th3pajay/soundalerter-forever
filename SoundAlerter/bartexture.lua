@@ -127,10 +127,12 @@ end
 BarTexture.Wave = Wave
 BarTexture.STATUSBAR_PATH = "Interface\\TargetingFrame\\UI-StatusBar"
 
+local BACKDROP_ALPHA = 0.8
+
 local FLAT = {
-	default = { label = "Default (WoW StatusBar)", path = BarTexture.STATUSBAR_PATH, alpha = 1 },
-	solid = { label = "Solid (Clean Fill)", path = "Interface\\Buttons\\WHITE8X8", alpha = 1 },
-	transparent = { label = "Transparent (Semi-Opaque)", path = "Interface\\Buttons\\WHITE8X8", alpha = 0.7 },
+	default = { label = "Default", path = BarTexture.STATUSBAR_PATH, alpha = 1 },
+	solid = { label = "Solid", path = "Interface\\Buttons\\WHITE8X8", alpha = 1 },
+	transparent = { label = "Transparent", path = "Interface\\AddOns\\SoundAlerter\\Textures\\bar_clear", alpha = 1, clear = true, fillAlpha = 0.28 },
 }
 
 local ANIMATED = {
@@ -673,6 +675,12 @@ function BarTexture:SetAnimation(bar, style, quality)
 	end
 end
 
+local function tintedFill(bar, r, g, b, a)
+	bar:rawSetStatusBarColor(r, g, b, a)
+	local ghost = bar.ghostFill
+	if ghost then ghost:SetVertexColor(r, g, b, (a or 1) * (bar.fillAlpha or 1)) end
+end
+
 function BarTexture:Apply(bar, setting, quality)
 	if not bar then return end
 
@@ -687,7 +695,41 @@ function BarTexture:Apply(bar, setting, quality)
 	end
 	bar:SetAlpha(flat and flat.alpha or 1)
 
+	local fill = bar:GetStatusBarTexture()
+	local clear = flat and flat.clear
+	if bar.clearApplied and not clear then
+		bar.clearApplied = nil
+		bar.fillAlpha = nil
+		bar.SetStatusBarColor = bar.rawSetStatusBarColor
+		if bar.ghostFill then bar.ghostFill:Hide() end
+		fill:SetAlpha(1)
+		if bar.bg then bar.bg:Show() end
+		if bar.SetBackdropColor then bar:SetBackdropColor(0, 0, 0, BACKDROP_ALPHA) end
+	end
+
 	self:SetAnimation(bar, ANIMATED[setting], quality)
+
+	if clear then
+		bar.clearApplied = true
+		bar.fillAlpha = flat.fillAlpha
+		if not bar.rawSetStatusBarColor then
+			bar.rawSetStatusBarColor = bar.SetStatusBarColor
+		end
+		bar.SetStatusBarColor = tintedFill
+		local ghost = bar.ghostFill
+		if not ghost then
+			ghost = bar:CreateTexture(nil, "ARTWORK")
+			ghost:SetTexture("Interface\\Buttons\\WHITE8X8")
+			bar.ghostFill = ghost
+		end
+		ghost:ClearAllPoints()
+		ghost:SetAllPoints(fill)
+		ghost:Show()
+		local r, g, b = bar:GetStatusBarColor()
+		bar:SetStatusBarColor(r, g, b, 1)
+		if bar.bg then bar.bg:Hide() end
+		if bar.SetBackdropColor then bar:SetBackdropColor(0, 0, 0, 0) end
+	end
 end
 
 SoundAlerter.BarTexture = BarTexture

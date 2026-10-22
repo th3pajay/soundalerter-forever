@@ -60,6 +60,8 @@ local function className(class)
     return class:sub(1, 1):upper() .. class:sub(2):lower()
 end
 
+Format.ClassName = className
+
 local function rounded(value)
     return math.floor((value or 0) + 0.5)
 end
@@ -243,6 +245,189 @@ function Format.ClassRows(list, limit)
             GREY .. "  " .. string.format("%.0f", entry.avgPerPlayer or 0) .. " each" .. RESET
     end
     return table.concat(rows, "\n")
+end
+
+local ACTIVITY_DAYS = 14
+local MAX_RIVALS = 6
+local MAX_VISITORS = 3
+local MAX_MOVERS = 2
+local MAX_SENDERS = 3
+
+function Format.NewActivity()
+    local days, hours = {}, {}
+    for index = 1, ACTIVITY_DAYS do days[index] = 0 end
+    for index = 1, 24 do hours[index] = 0 end
+    return { day = 0, days = days, hours = hours }
+end
+
+local function advanceActivity(activity, day)
+    local known = activity.day or 0
+    if known == 0 then
+        activity.day = day
+        return
+    end
+    local shift = day - known
+    if shift <= 0 then return end
+    local days = activity.days
+    if shift >= ACTIVITY_DAYS then
+        for index = 1, ACTIVITY_DAYS do days[index] = 0 end
+    else
+        for index = ACTIVITY_DAYS, shift + 1, -1 do days[index] = days[index - shift] end
+        for index = 1, shift do days[index] = 0 end
+    end
+    activity.day = day
+end
+
+function Format.ActivityRecord(activity, day, hour)
+    advanceActivity(activity, day)
+    activity.days[1] = activity.days[1] + 1
+    local slot = math.max(0, math.min(23, math.floor(hour or 0))) + 1
+    activity.hours[slot] = activity.hours[slot] + 1
+end
+
+function Format.ActivityDays(activity, day)
+    local out = {}
+    local shift = day - (activity and activity.day or day)
+    if shift < 0 then shift = 0 end
+    for position = 1, ACTIVITY_DAYS do
+        local source = ACTIVITY_DAYS - position + 1 - shift
+        out[position] = (activity and activity.days[source]) or 0
+    end
+    return out
+end
+
+function Format.Ago(now, at)
+    if not at or at <= 0 then return "never" end
+    local seconds = math.max(0, (now or at) - at)
+    if seconds < 90 then return "just now" end
+    if seconds < 5400 then return string.format("%d min ago", math.floor(seconds / 60 + 0.5)) end
+    if seconds < 129600 then return string.format("%d h ago", math.floor(seconds / 3600 + 0.5)) end
+    return string.format("%d d ago", math.floor(seconds / 86400 + 0.5))
+end
+
+local function dangerLabel(value)
+    if value > DANGER_HIGH then return "High", { 255, 92, 92 } end
+    if value > DANGER_MEDIUM then return "Medium", { 255, 176, 32 } end
+    return "Low", { 61, 220, 132 }
+end
+
+local function sumOf(values)
+    local total = 0
+    for index = 1, #values do total = total + values[index] end
+    return total
+end
+
+local function peakIndex(values)
+    local best, bestIndex = 0, nil
+    for index = 1, #values do
+        if values[index] > best then best, bestIndex = values[index], index end
+    end
+    return bestIndex, best
+end
+
+local function sharePair(sent, received)
+    return "sent " .. GOLD .. Format.Number(sent) .. RESET .. "   heard " .. GOLD .. Format.Number(received) .. RESET
+end
+
+function Format.PanelModel(data)
+    local model = { now = {}, trends = {}, rivals = {} }
+    local sessionTotal = data.sessionTotal or 0
+    local sessions = data.sessions or 0
+    local perSession = sessions > 0 and (data.allTotal or 0) / sessions or 0
+
+    model.now.tiles = {
+        { value = Format.Number(sessionTotal), caption = "this session", hot = sessionTotal > 0 },
+        { value = string.format("%.1f", data.perMinute or 0), caption = "per minute" },
+        { value = Format.Duration(data.minutes), caption = "session time" },
+        { value = "#" .. Format.Number(data.sessionNumber or 0), caption = "of " .. Format.Number(sessions) .. " sessions" },
+    }
+    local scale = math.max(sessionTotal, perSession, 1)
+    model.now.versus = {
+        { label = "This session", value = Format.Number(sessionTotal), fraction = sessionTotal / scale },
+        { label = "Typical session", value = string.format("%.1f", perSession), fraction = perSession / scale },
+    }
+
+    local party = data.party or {}
+    model.now.party = {
+        session = sharePair(party.sessionSent or 0, party.sessionReceived or 0),
+        allTime = sharePair(party.allSent or 0, party.allReceived or 0),
+    }
+    local senders = {}
+    for index = 1, math.min(MAX_SENDERS, #(party.senders or {})) do
+        senders[index] = party.senders[index][1] .. " " .. Format.Number(party.senders[index][2])
+    end
+    model.now.party.senders = #senders > 0 and ("Most helpful: " .. table.concat(senders, ", ")) or "Nobody has shared an alert with you yet."
+    local sending = party.sending and "on" or "off"
+    local receiving = party.receiving and "on" or "off"
+    model.now.party.status = "Sharing " .. sending .. ", hearing " .. receiving
+
+    local last = data.lastEnemy
+    model.now.last = last and { name = last.name, class = last.class, when = Format.Ago(data.now, last.last) } or nil
+
+    local days = data.days or {}
+    local dayTotal = sumOf(days)
+    local _, dayPeak = peakIndex(days)
+    model.trends.days = { values = days, empty = dayTotal == 0, total = dayTotal, peak = dayPeak or 0 }
+    local hours = data.hours or {}
+    local hourSlot = peakIndex(hours)
+    model.trends.hours = { values = hours, empty = sumOf(hours) == 0, peak = hourSlot and string.format("%02d:00", hourSlot - 1) or nil }
+
+    local rising, falling = {}, {}
+    for _, spell in ipairs(data.spells or {}) do
+        local last_, average = spell.last or 0, spell.avg or 0
+        if spell.direction == "increasing" then
+            rising[#rising + 1] = { name = spell.name, now = last_, average = average, delta = last_ - average }
+        elseif spell.direction == "decreasing" then
+            falling[#falling + 1] = { name = spell.name, now = last_, average = average, delta = average - last_ }
+        end
+    end
+    table.sort(rising, function(a, b) return a.delta > b.delta end)
+    table.sort(falling, function(a, b) return a.delta > b.delta end)
+    local movers = {}
+    for index = 1, math.min(MAX_MOVERS, #rising) do
+        local entry = rising[index]
+        movers[#movers + 1] = { sign = "+", name = entry.name, text = string.format("%d vs %.0f avg", entry.now, entry.average), color = { 61, 220, 132 } }
+    end
+    for index = 1, math.min(MAX_MOVERS, #falling) do
+        local entry = falling[index]
+        movers[#movers + 1] = { sign = "-", name = entry.name, text = string.format("%d vs %.0f avg", entry.now, entry.average), color = { 255, 92, 92 } }
+    end
+    model.trends.movers = movers
+
+    local enemies = data.enemies or {}
+    local rows = {}
+    local maximum = 0
+    for index = 1, math.min(MAX_RIVALS, #enemies) do
+        if enemies[index].alerts > maximum then maximum = enemies[index].alerts end
+    end
+    for index = 1, math.min(MAX_RIVALS, #enemies) do
+        local enemy = enemies[index]
+        local label, color = dangerLabel(enemy.danger or 0)
+        rows[index] = {
+            name = enemy.name, class = enemy.class, danger = label, dangerColor = color,
+            value = Format.Number(enemy.alerts) .. " - " .. Format.Number(enemy.encounters or 0) .. "x",
+            fraction = maximum > 0 and enemy.alerts / maximum or 0,
+        }
+    end
+    model.rivals.rows = rows
+
+    local visitors = {}
+    for _, entry in ipairs(data.classes or {}) do
+        if (entry.players or 0) > 0 then
+            visitors[#visitors + 1] = { class = entry.class, ratio = entry.alerts / entry.players, players = entry.players }
+        end
+    end
+    table.sort(visitors, function(a, b)
+        if a.ratio ~= b.ratio then return a.ratio > b.ratio end
+        return a.class < b.class
+    end)
+    local classes = {}
+    for index = 1, math.min(MAX_VISITORS, #visitors) do
+        local entry = visitors[index]
+        classes[index] = { class = entry.class, text = string.format("%.2f each", entry.ratio), players = entry.players }
+    end
+    model.rivals.classes = classes
+    return model
 end
 
 SA_StatsFormat = Format

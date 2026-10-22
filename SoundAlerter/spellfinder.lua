@@ -1,10 +1,10 @@
 local SoundAlerter = SoundAlerter
 
-local pairs, tonumber = pairs, tonumber
+local pairs, ipairs, tonumber, pcall = pairs, ipairs, tonumber, pcall
 local table_insert, table_sort, table_remove = table.insert, table.sort, table.remove
 local string_lower, string_sub, string_match, string_find, string_format = string.lower, string.sub, string.match, string.find, string.format
 local math_min, math_max, math_floor = math.min, math.max, math.floor
-local time, select = time, select
+local time = time
 local GetSpellInfo, GetSpellLink = SA_COMPAT.GetSpellInfo, SA_COMPAT.GetSpellLink
 local GetSpellDescription, GetSpellSubtext = SA_COMPAT.GetSpellDescription, SA_COMPAT.GetSpellSubtext
 local IsSpellPassive, IsSpellKnown = SA_COMPAT.IsSpellPassive, SA_COMPAT.IsSpellKnown
@@ -12,20 +12,37 @@ local GetSpellCosts, GetSpellMaxCharges = SA_COMPAT.GetSpellCosts, SA_COMPAT.Get
 local FinderFormat = SA_FinderFormat
 local GetBuildInfo = GetBuildInfo
 
-local MAX_SPELL_ID = 70000
+local SCAN_SEGMENTS = { { 1, 520000 }, { 1150000, 1400000 } }
+local SUBTEXT_MAX_ID = 70000
+local MAX_SPELL_ID = SCAN_SEGMENTS[#SCAN_SEGMENTS][2]
+local SCAN_TOTAL = 0
+local SCAN_KEY
+do
+    local parts = {}
+    for index, segment in ipairs(SCAN_SEGMENTS) do
+        SCAN_TOTAL = SCAN_TOTAL + segment[2] - segment[1] + 1
+        parts[index] = segment[1] .. "-" .. segment[2]
+    end
+    SCAN_KEY = table.concat(parts, ",")
+end
 local MIN_INNER_SUGGEST_CHARS = 3
-local SCAN_CHUNK_SIZE = 1000
-local SCAN_CHUNK_DELAY = 0.05
+local SCAN_CHUNK_SIZE = 4000
+local SCAN_CHUNK_DELAY = 0.03
 local DB_MAX_AGE = 2592000
-local DB_FORMAT = 2
+local DB_FORMAT = 3
+local PACK = 1000
+local MAX_CACHE_ROWS = 4000
 
 function SoundAlerter:GetSpellScanInfo()
-    local seconds = math.ceil(MAX_SPELL_ID / SCAN_CHUNK_SIZE) * SCAN_CHUNK_DELAY
+    local seconds = math.ceil(SCAN_TOTAL / SCAN_CHUNK_SIZE) * SCAN_CHUNK_DELAY
     return MAX_SPELL_ID, seconds
 end
 
+SoundAlerter.spellScanKey = SCAN_KEY
+
 SoundAlerter.spellDatabase = {
-    byID = {},
+    ids = {},
+    packed = {},
     names = {},
     namesLower = {},
     nameToIdx = {},
@@ -42,6 +59,8 @@ SoundAlerter.spellDatabase = {
 }
 
 local cacheAge = {}
+local cacheRows = {}
+local cacheRowTotal = 0
 local MAX_CACHE_SIZE = 10
 
 local SEARCH_TIMING_SAMPLE_CAP = 100
@@ -158,6 +177,19 @@ for mode, comparator in pairs(SORT_COMPARATORS) do
     REVERSED_COMPARATORS[mode] = ReverseComparator(comparator)
 end
 
+local function LowerBound(ids, spellID)
+    local low, high = 1, #ids + 1
+    while low < high do
+        local mid = math_floor((low + high) / 2)
+        if ids[mid] < spellID then
+            low = mid + 1
+        else
+            high = mid
+        end
+    end
+    return low
+end
+
 function SoundAlerter:AddSpellToDatabase(spellID, name, rank)
     local db = self.spellDatabase
     local nameToIdx = db.nameToIdx
@@ -185,12 +217,24 @@ function SoundAlerter:AddSpellToDatabase(spellID, name, rank)
         end
     end
 
-    db.byID[spellID] = {
-        nameIdx = nameIdx,
-        rank = rankNum
-    }
+    local ids, packed = db.ids, db.packed
+    local value = nameIdx * PACK + math_min(rankNum, PACK - 1)
+    local count = #ids
+    if count == 0 or spellID > ids[count] then
+        ids[count + 1] = spellID
+        packed[count + 1] = value
+        db.totalSpells = count + 1
+        return
+    end
 
-    db.totalSpells = db.totalSpells + 1
+    local at = LowerBound(ids, spellID)
+    if ids[at] == spellID then
+        packed[at] = value
+    else
+        table_insert(ids, at, spellID)
+        table_insert(packed, at, value)
+    end
+    db.totalSpells = #ids
 end
 
 function SoundAlerter:BuildSpellDatabase()
@@ -205,68 +249,69 @@ function SoundAlerter:BuildSpellDatabase()
     db.progress = 0
     db.totalScanned = 0
     local buildStartMs = debugprofilestop()
-
-    if not self.dbRefreshTimer then
-        self.dbRefreshTimer = self:ScheduleRepeatingTimer(function()
-            if db.isBuilding then
-                local AceConfigDialog = LibStub("AceConfigDialog-3.0", true)
-                if AceConfigDialog and AceConfigDialog.OpenFrames and AceConfigDialog.OpenFrames["SoundAlerter"] then
-                    local AceConfigRegistry = LibStub("AceConfigRegistry-3.0")
-                    if AceConfigRegistry then
-                        AceConfigRegistry:NotifyChange("SoundAlerter")
-                    end
-                end
-            else
-                if self.dbRefreshTimer then
-                    self:CancelTimer(self.dbRefreshTimer)
-                    self.dbRefreshTimer = nil
-                end
-            end
-        end, 0.5)
-    end
+    db.namesLower = db.namesLower or {}
+    db.nameToIdx = db.nameToIdx or {}
 
     local CHUNK_SIZE = SCAN_CHUNK_SIZE
     local CHUNK_DELAY = SCAN_CHUNK_DELAY
-    local currentID = 1
+    local segmentIndex = 1
+    local currentID = SCAN_SEGMENTS[1][1]
+    local scanned = 0
     local ProcessChunk
+    local AddSpellToDatabase = self.AddSpellToDatabase
 
-    local function ProcessChunkInner()
-        local endID = math_min(currentID + CHUNK_SIZE - 1, MAX_SPELL_ID)
-        local foundCount = 0
+    local function ReadSpell(spellID)
+        local name, rank = GetSpellInfo(spellID)
+        if name and (not rank or rank == "") and spellID <= SUBTEXT_MAX_ID then
+            rank = GetSpellSubtext(spellID)
+        end
+        return name, rank
+    end
 
-        local AddSpellToDatabase = self.AddSpellToDatabase
-
-        for spellID = currentID, endID do
-            local ok, name, rank = pcall(GetSpellInfo, spellID)
-            if ok and name then
-                if not rank or rank == "" then
-                    local okSub, subtext = pcall(GetSpellSubtext, spellID)
-                    rank = okSub and subtext or nil
-                end
+    local function ScanChunk(fromID, toID, safe)
+        for spellID = fromID, toID do
+            local name, rank
+            if safe then
+                local ok
+                ok, name, rank = pcall(ReadSpell, spellID)
+                if not ok then name = nil end
+            else
+                name, rank = ReadSpell(spellID)
+            end
+            if name then
                 AddSpellToDatabase(self, spellID, name, rank)
-                foundCount = foundCount + 1
             end
         end
+    end
 
-        db.totalScanned = endID
-        db.progress = (db.totalScanned / MAX_SPELL_ID) * 100
+    local function ProcessChunkInner(safe)
+        local segmentEnd = SCAN_SEGMENTS[segmentIndex][2]
+        local endID = math_min(currentID + CHUNK_SIZE - 1, segmentEnd)
 
-        currentID = endID + 1
+        ScanChunk(currentID, endID, safe)
 
-        if currentID <= MAX_SPELL_ID then
+        scanned = scanned + (endID - currentID + 1)
+        db.totalScanned = scanned
+        db.progress = (scanned / SCAN_TOTAL) * 100
+
+        if endID >= segmentEnd then
+            segmentIndex = segmentIndex + 1
+            local nextSegment = SCAN_SEGMENTS[segmentIndex]
+            currentID = nextSegment and nextSegment[1] or nil
+        else
+            currentID = endID + 1
+        end
+
+        if currentID then
             self:ScheduleTimer(ProcessChunk, CHUNK_DELAY)
         else
             self:BuildSearchIndexes()
+            self:TrimDerivedNames()
             db.isBuilding = false
             db.lastUpdate = time()
             db.source = "built"
             db.buildSeconds = (debugprofilestop() - buildStartMs) / 1000
             db.builtOnVersion = GetBuildInfo()
-
-            if self.dbRefreshTimer then
-                self:CancelTimer(self.dbRefreshTimer)
-                self.dbRefreshTimer = nil
-            end
 
             local AceConfigRegistry = LibStub("AceConfigRegistry-3.0")
             if AceConfigRegistry then
@@ -281,13 +326,12 @@ function SoundAlerter:BuildSpellDatabase()
     end
 
     function ProcessChunk()
-        local ok, err = pcall(ProcessChunkInner)
+        local ok, err = pcall(ProcessChunkInner, false)
+        if not ok then
+            ok, err = pcall(ProcessChunkInner, true)
+        end
         if not ok then
             db.isBuilding = false
-            if self.dbRefreshTimer then
-                self:CancelTimer(self.dbRefreshTimer)
-                self.dbRefreshTimer = nil
-            end
             self:Print("|cffFF7D0ASoundAlerter|r: Spell database build failed and was stopped — "..tostring(err))
         end
     end
@@ -296,17 +340,19 @@ function SoundAlerter:BuildSpellDatabase()
     local estimate = minimumSeconds >= 90
         and string_format("at least %d minutes", math.floor(minimumSeconds / 60 + 0.5))
         or string_format("at least %d seconds", math.ceil(minimumSeconds))
-    self:Print(string_format("Building spell database: scanning spell IDs 1 to %d. This takes %s, longer on a slower PC. Progress shows in Developer Tools > Database.", maxID, estimate))
+    self:Print(string_format("Building spell database: scanning spell IDs 1 to %d (skipping the empty stretch). This takes %s, longer on a slower PC. Progress shows in Developer Tools > Database.", maxID, estimate))
     ProcessChunk()
 end
 
 function SoundAlerter:SaveSpellDatabase()
     SoundAlerterSpellDB = {
-        byID = self.spellDatabase.byID,
+        ids = self.spellDatabase.ids,
+        packed = self.spellDatabase.packed,
         names = self.spellDatabase.names,
         totalSpells = self.spellDatabase.totalSpells,
         version = GetBuildInfo(),
         format = DB_FORMAT,
+        scanKey = SCAN_KEY,
         lastUpdate = time()
     }
 end
@@ -320,53 +366,94 @@ function SoundAlerter:EnsureSpellDatabase()
     end
 end
 
+function SoundAlerter:EnsureNamesLower()
+    local db = self.spellDatabase
+    local lower = db.namesLower
+    if lower then return lower end
+    local names = db.names
+    lower = {}
+    for i = 1, #names do
+        lower[i] = string_lower(names[i])
+    end
+    db.namesLower = lower
+    return lower
+end
+
+function SoundAlerter:TrimDerivedNames()
+    local db = self.spellDatabase
+    db.nameToIdx = nil
+    if not self:IsFinderOpen() then
+        db.namesLower = nil
+    end
+end
+
+local function MigrateSpellDatabase(saved)
+    if saved.format ~= 2 or type(saved.byID) ~= "table" or type(saved.names) ~= "table" then
+        return false
+    end
+    local byID = saved.byID
+    local ids = {}
+    for spellID in pairs(byID) do
+        ids[#ids + 1] = spellID
+    end
+    table_sort(ids)
+    local packed = {}
+    for i = 1, #ids do
+        local data = byID[ids[i]]
+        packed[i] = data.nameIdx * PACK + math_min(data.rank or 0, PACK - 1)
+    end
+    saved.ids, saved.packed, saved.byID = ids, packed, nil
+    saved.namesLower, saved.nameToIdx = nil, nil
+    saved.totalSpells = #ids
+    saved.format = DB_FORMAT
+    return true
+end
+
 function SoundAlerter:LoadSpellDatabase()
-    if not SoundAlerterSpellDB then
+    local saved = SoundAlerterSpellDB
+    if not saved then
         return false
     end
 
-    if SoundAlerterSpellDB.version ~= GetBuildInfo() then
+    if saved.version ~= GetBuildInfo() then
         self:Print("Game version changed - rebuilding spell database")
         return false
     end
 
-    if SoundAlerterSpellDB.format ~= DB_FORMAT then
-        self:Print("Spell database format changed - rebuilding")
+    if saved.scanKey ~= SCAN_KEY then
+        self:Print("Spell scan range changed - rebuilding spell database")
         return false
     end
 
-    local age = time() - SoundAlerterSpellDB.lastUpdate
+    local migrated = false
+    if saved.format ~= DB_FORMAT then
+        migrated = MigrateSpellDatabase(saved)
+        if not migrated then
+            self:Print("Spell database format changed - rebuilding")
+            return false
+        end
+    end
+
+    local age = time() - saved.lastUpdate
     if age > DB_MAX_AGE then
         self:Print("Spell database outdated - rebuilding")
         return false
     end
 
-    self.spellDatabase.byID = SoundAlerterSpellDB.byID
-    self.spellDatabase.names = SoundAlerterSpellDB.names
-    self.spellDatabase.namesLower = {}
-    self.spellDatabase.nameToIdx = {}
-    self.spellDatabase.totalSpells = SoundAlerterSpellDB.totalSpells or 0
-    self.spellDatabase.lastUpdate = SoundAlerterSpellDB.lastUpdate
-    self.spellDatabase.source = "loaded"
-    self.spellDatabase.buildSeconds = nil
-    self.spellDatabase.builtOnVersion = SoundAlerterSpellDB.version
-
     local db = self.spellDatabase
-    local namesLower, nameToIdx = db.namesLower, db.nameToIdx
-    for i = 1, #db.names do
-        local lowerName = string_lower(db.names[i])
-        namesLower[i] = lowerName
-        nameToIdx[lowerName] = i
-    end
+    db.ids = saved.ids
+    db.packed = saved.packed
+    db.names = saved.names
+    db.namesLower = nil
+    db.nameToIdx = nil
+    db.totalSpells = #db.ids
+    db.lastUpdate = saved.lastUpdate
+    db.source = "loaded"
+    db.buildSeconds = nil
+    db.builtOnVersion = saved.version
 
-    if SoundAlerterSpellDB.namesLower or SoundAlerterSpellDB.nameToIdx or not SoundAlerterSpellDB.totalSpells then
-        if not SoundAlerterSpellDB.totalSpells then
-            db.totalSpells = 0
-            for _ in pairs(db.byID) do
-                db.totalSpells = db.totalSpells + 1
-            end
-        end
-        self:Print("Migrated spell database to new format - saving...")
+    if migrated then
+        self:Print("Migrated the spell database to the compact format - saving...")
         self:SaveSpellDatabase()
     end
 
@@ -380,7 +467,8 @@ end
 
 function SoundAlerter:RebuildSpellDatabase()
     self:ReleaseSearchExtras()
-    self.spellDatabase.byID = {}
+    self.spellDatabase.ids = {}
+    self.spellDatabase.packed = {}
     self.spellDatabase.names = {}
     self.spellDatabase.namesLower = {}
     self.spellDatabase.nameToIdx = {}
@@ -424,11 +512,13 @@ function SoundAlerter:BuildSearchIndexes()
     local rankedSpells = 0
     local maxRank = 0
 
-    for _, data in pairs(db.byID) do
-        if data.rank and data.rank > 0 then
+    local packed = db.packed
+    for i = 1, #packed do
+        local rank = packed[i] % PACK
+        if rank > 0 then
             rankedSpells = rankedSpells + 1
-            if data.rank > maxRank then
-                maxRank = data.rank
+            if rank > maxRank then
+                maxRank = rank
             end
         end
     end
@@ -443,7 +533,7 @@ function SoundAlerter:EnsureFuzzyIndex()
         return
     end
 
-    local namesLower = db.namesLower
+    local namesLower = self:EnsureNamesLower()
     local nameMasks, initialMasks = {}, {}
     for nameIdx = 1, #db.names do
         nameMasks[nameIdx] = LetterMask(namesLower[nameIdx])
@@ -460,7 +550,7 @@ function SoundAlerter:EnsureAutocompleteIndex()
         return
     end
 
-    local namesLower = db.namesLower
+    local namesLower = self:EnsureNamesLower()
     local sortedNames = {}
     for nameIdx = 1, #db.names do
         sortedNames[nameIdx] = nameIdx
@@ -482,6 +572,7 @@ end
 
 function SoundAlerter:PrepareSearchExtras()
     self:EnsureSpellDatabase()
+    self:EnsureNamesLower()
     local findSpell = self:GetFinderSettings()
     if findSpell.fuzzy then
         self:EnsureFuzzyIndex()
@@ -498,6 +589,9 @@ function SoundAlerter:ReleaseSearchExtras()
     db.nameMasks = nil
     db.initialMasks = nil
     db.sortedNames = nil
+    if not db.isBuilding then
+        db.namesLower = nil
+    end
     self:ClearSearchCache()
 end
 
@@ -511,6 +605,7 @@ function SoundAlerter:GetDatabaseStats()
     stats.progress = db.progress or 0
     stats.totalScanned = db.totalScanned or 0
     stats.maxSpellID = MAX_SPELL_ID
+    stats.scanTotal = SCAN_TOTAL
     stats.maxAge = DB_MAX_AGE
     stats.totalSpells = db.totalSpells or 0
     stats.uniqueNames = #db.names
@@ -715,7 +810,7 @@ function SoundAlerter:SearchSpells(searchTerm, rankFilter)
     local searchLower = table.concat(tokens, " ")
     local results = {}
 
-    local byID = db.byID
+    local ids, packedIDs = db.ids, db.packed
     local names = db.names
 
     local rankFilterNum = rankFilter and rankFilter ~= "" and tonumber(rankFilter) or nil
@@ -725,33 +820,32 @@ function SoundAlerter:SearchSpells(searchTerm, rankFilter)
     end
 
     local resultCount = 0
-    local namesLower = db.namesLower
+    local namesLower = self:EnsureNamesLower()
 
-    local seen = {}
+    local seen = (idQuery or descSearch) and {} or nil
 
-    local function AddResult(spellID, data, score, inDescription)
-        if rankFilterNum and data.rank ~= rankFilterNum then
+    local function AddResult(spellID, packed, score, inDescription)
+        local rankNum = packed % PACK
+        if rankFilterNum and rankNum ~= rankFilterNum then
             return
         end
-        local baseName = names[data.nameIdx]
         resultCount = resultCount + 1
-        seen[spellID] = true
-        results[resultCount] = {
+        if seen then seen[spellID] = true end
+        local row = {
             spellID = spellID,
-            name = baseName,
-            rank = data.rank,
-            baseName = baseName,
-            rankNum = data.rank,
+            baseName = names[(packed - rankNum) / PACK],
+            rankNum = rankNum,
             score = score,
-            inDescription = inDescription
         }
+        if inDescription then row.inDescription = true end
+        results[resultCount] = row
     end
 
     if idQuery then
         local idNumber = tonumber(idQuery)
-        local data = byID[idNumber]
-        if data then
-            AddResult(idNumber, data, -1)
+        local at = LowerBound(ids, idNumber)
+        if ids[at] == idNumber then
+            AddResult(idNumber, packedIDs[at], -1)
             if results[resultCount] and results[resultCount].spellID == idNumber then
                 results[resultCount].idMatch = true
             end
@@ -761,10 +855,14 @@ function SoundAlerter:SearchSpells(searchTerm, rankFilter)
     if fuzzy then
         local matchedNames = FuzzyMatchNames(db, searchLower)
         if next(matchedNames) then
-            for spellID, data in pairs(byID) do
-                local score = matchedNames[data.nameIdx]
-                if score and not seen[spellID] then
-                    AddResult(spellID, data, score)
+            for i = 1, #ids do
+                local packed = packedIDs[i]
+                local score = matchedNames[(packed - packed % PACK) / PACK]
+                if score then
+                    local spellID = ids[i]
+                    if not (seen and seen[spellID]) then
+                        AddResult(spellID, packed, score)
+                    end
                 end
             end
         end
@@ -777,10 +875,14 @@ function SoundAlerter:SearchSpells(searchTerm, rankFilter)
             end
         end
         if next(matchedNames) then
-            for spellID, data in pairs(byID) do
-                local score = matchedNames[data.nameIdx]
-                if score and not seen[spellID] then
-                    AddResult(spellID, data, score)
+            for i = 1, #ids do
+                local packed = packedIDs[i]
+                local score = matchedNames[(packed - packed % PACK) / PACK]
+                if score then
+                    local spellID = ids[i]
+                    if not (seen and seen[spellID]) then
+                        AddResult(spellID, packed, score)
+                    end
                 end
             end
         end
@@ -788,12 +890,12 @@ function SoundAlerter:SearchSpells(searchTerm, rankFilter)
 
     local scanDescriptions = descSearch
     if scanDescriptions then
-        for spellID, text in pairs(db.descriptions) do
-            if not seen[spellID] and string_find(text, searchLower, 1, true) then
-                local data = byID[spellID]
-                if data then
-                    AddResult(spellID, data, DESCRIPTION_SCORE, true)
-                end
+        local texts = db.descriptions
+        for i = 1, #ids do
+            local spellID = ids[i]
+            local text = texts[spellID]
+            if text and not seen[spellID] and string_find(text, searchLower, 1, true) then
+                AddResult(spellID, packedIDs[i], DESCRIPTION_SCORE, true)
             end
         end
     end
@@ -838,7 +940,6 @@ local DESC_INFLIGHT_MAX = 300
 local DESC_LOAD_WAIT = 2
 local DESC_EMPTY_READS = 2
 local DESC_MAX_LEN = 400
-local DESC_NOTIFY_EVERY = 8
 local DESC_FORMAT = 2
 local GetTime = GetTime
 
@@ -899,7 +1000,9 @@ function SoundAlerter:StartDescriptionIndex()
 
     local texts, empty = db.descriptions, db.descEmpty
     local queue = {}
-    for spellID in pairs(db.byID) do
+    local ids = db.ids
+    for i = 1, #ids do
+        local spellID = ids[i]
         if not texts[spellID] and not empty[spellID] then
             queue[#queue + 1] = spellID
         end
@@ -907,12 +1010,10 @@ function SoundAlerter:StartDescriptionIndex()
     if #queue == 0 then
         return
     end
-    table_sort(queue)
 
     db.descQueue = queue
     db.descQueuePos = 1
     db.descInflight = {head = 1, tail = 0}
-    db.descBatches = 0
     db.descIndexTimer = self:ScheduleRepeatingTimer(function()
         self:ProcessDescriptionBatch()
     end, DESC_TICK)
@@ -980,15 +1081,6 @@ function SoundAlerter:ProcessDescriptionBatch()
         end
     end
     db.descQueuePos = pos
-
-    db.descBatches = db.descBatches + 1
-    if db.descBatches % DESC_NOTIFY_EVERY == 0 then
-        local AceConfigDialog = LibStub("AceConfigDialog-3.0", true)
-        local AceConfigRegistry = LibStub("AceConfigRegistry-3.0")
-        if AceConfigRegistry and AceConfigDialog and AceConfigDialog.OpenFrames and AceConfigDialog.OpenFrames["SoundAlerter"] then
-            AceConfigRegistry:NotifyChange("SoundAlerter")
-        end
-    end
 
     if db.descQueuePos > #queue and inflight.head > inflight.tail then
         self:StopDescriptionIndex()
@@ -1111,7 +1203,7 @@ function SoundAlerter:SuggestSpellNames(prefix, limit)
     local startMs = debugprofilestop()
     local lowerPrefix = string_lower(prefix)
     local prefixLen = #lowerPrefix
-    local namesLower = db.namesLower
+    local namesLower = self:EnsureNamesLower()
     local names = db.names
 
     local low, high = 1, #sortedNames + 1
@@ -1170,28 +1262,44 @@ function SoundAlerter:SuggestSpellNames(prefix, limit)
     return suggestions
 end
 
+local function EvictOldestSearch(cache)
+    local oldestKey = table_remove(cacheAge, 1)
+    cacheRowTotal = cacheRowTotal - cacheRows[oldestKey]
+    cacheRows[oldestKey] = nil
+    cache[oldestKey] = nil
+end
+
 function SoundAlerter:CacheSearchResult(key, results)
     local cache = self.spellDatabase.searchCache
+    local rows = #results
 
     for i = 1, #cacheAge do
         if cacheAge[i] == key then
             table_remove(cacheAge, i)
+            cacheRowTotal = cacheRowTotal - cacheRows[key]
+            cacheRows[key] = nil
+            cache[key] = nil
             break
         end
     end
 
-    if #cacheAge >= MAX_CACHE_SIZE then
-        local oldestKey = table_remove(cacheAge, 1)
-        cache[oldestKey] = nil
+    if rows > MAX_CACHE_ROWS then return end
+
+    while #cacheAge >= MAX_CACHE_SIZE or (#cacheAge > 0 and cacheRowTotal + rows > MAX_CACHE_ROWS) do
+        EvictOldestSearch(cache)
     end
 
     cache[key] = results
+    cacheRows[key] = rows
+    cacheRowTotal = cacheRowTotal + rows
     table_insert(cacheAge, key)
 end
 
 function SoundAlerter:ClearSearchCache()
     self.spellDatabase.searchCache = {}
     cacheAge = {}
+    cacheRows = {}
+    cacheRowTotal = 0
 end
 
 local List = SA_FinderList
@@ -1392,14 +1500,21 @@ function SoundAlerter:RunSearch(frame, searchTerm)
     frame:ShowResults(results, unfiltered, searchTerm)
 end
 
+local function FinderRoom(mainFrame)
+    local right = mainFrame and mainFrame.frame and mainFrame.frame:GetRight()
+    if not right then return nil, nil end
+    local left = mainFrame.frame:GetLeft()
+    return UIParent:GetWidth() - right - 12, type(left) == "number" and left - 12 or nil
+end
+
 function SoundAlerter:FitFinderWidth(frame)
     local mainFrame = LibStub("AceConfigDialog-3.0").OpenFrames["SoundAlerter"]
-    local right = mainFrame and mainFrame.frame and mainFrame.frame:GetRight()
-    if not right then
+    local roomRight, roomLeft = FinderRoom(mainFrame)
+    if not roomRight then
         frame:SetWidth(FINDER_WIDTH)
         return
     end
-    local available = UIParent:GetWidth() - right - 12
+    local available = frame.dockLeft and roomLeft or roomRight
     frame:SetWidth(math_max(FINDER_MIN_WIDTH, math_min(FINDER_WIDTH, available)))
 end
 
@@ -1489,6 +1604,14 @@ function SoundAlerter:CreateFindSpellFrame()
     return window
 end
 
+function SoundAlerter:ToggleSpellFinder()
+    if self:IsFinderOpen() then
+        self.findSpellFrame:Hide()
+    else
+        self:OpenSpellFinder()
+    end
+end
+
 function SoundAlerter:OpenSpellFinder()
     if not self.findSpellFrame then
         self.findSpellFrame = self:CreateFindSpellFrame()
@@ -1496,10 +1619,12 @@ function SoundAlerter:OpenSpellFinder()
     local finder = self.findSpellFrame
     local mainFrame = LibStub("AceConfigDialog-3.0").OpenFrames["SoundAlerter"]
     local saved = self:GetFinderSettings().position
-    if saved and saved.point then
+    if mainFrame and mainFrame.frame then
+        local roomRight, roomLeft = FinderRoom(mainFrame)
+        local left = roomRight and roomRight < FINDER_MIN_WIDTH and roomLeft and roomLeft >= FINDER_MIN_WIDTH
+        finder:Dock(mainFrame.frame, left)
+    elseif saved and saved.point then
         finder:Place(saved.point, saved.relative, saved.x, saved.y)
-    elseif mainFrame and mainFrame.frame then
-        finder:Dock(mainFrame.frame)
     end
     if mainFrame and mainFrame.frame and not mainFrame.frame.soundAlerterFinderHideHooked then
         mainFrame.frame.soundAlerterFinderHideHooked = true

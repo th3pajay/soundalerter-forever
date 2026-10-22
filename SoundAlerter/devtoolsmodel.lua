@@ -120,7 +120,7 @@ function Model.DatabaseRows(info)
     if info.isBuilding then
         rows[1] = { "Progress", string.format("%.0f%%", info.progress or 0), "warn" }
         rows[2] = { "Estimated time left", "about " .. Model.Eta(info.progress, info.scanSeconds) .. " s" }
-        rows[3] = { "Scanned", number(info.totalScanned or 0) .. " / " .. number(info.maxSpellID or 0) .. " IDs" }
+        rows[3] = { "Scanned", number(info.totalScanned or 0) .. " / " .. number(info.scanTotal or info.maxSpellID or 0) .. " IDs" }
         return rows
     end
     local ranked = (info.totalSpells or 0) > 0 and (info.rankedSpells or 0) / info.totalSpells * 100 or 0
@@ -150,9 +150,10 @@ function Model.DatabaseRows(info)
 end
 
 function Model.InternalRows(info)
-    local density = (info.maxSpellID or 0) > 0 and (info.totalSpells or 0) / info.maxSpellID * 100 or 0
+    local scanTotal = info.scanTotal or info.maxSpellID or 0
+    local density = scanTotal > 0 and (info.totalSpells or 0) / scanTotal * 100 or 0
     return {
-        { "Scan range", "1 - " .. number(info.maxSpellID or 0) },
+        { "Scan range", "1 - " .. number(info.maxSpellID or 0) .. (scanTotal < (info.maxSpellID or 0) and " (empty stretch skipped)" or "") },
         { "IDs that are spells", string.format("%.1f%%", density) },
         { "Result cache", (info.cacheEntries or 0) .. " / " .. (info.cacheMax or 0) .. " entries" },
     }
