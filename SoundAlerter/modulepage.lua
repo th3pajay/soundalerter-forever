@@ -111,6 +111,11 @@ function Page.Select(key, label, hint, options, advanced, group)
     return row
 end
 
+function Page.Stepper(row)
+    row.stepper = true
+    return row
+end
+
 function Page.Action(label, hint, onClick, advanced, group)
     local row = Row("action", nil, label, hint, advanced, group)
     row.onClick = onClick
@@ -895,7 +900,7 @@ function Methods:AddRow(row, advanced)
         local options = type(row.options) == "function" and row.options({}) or row.options
         local characters = 0
         for index = 1, options and #options or 0 do characters = characters + #tostring(options[index][2]) end
-        if options and (#options > 4 or characters > 36) then
+        if row.stepper or (options and (#options > 4 or characters > 36)) then
             control = MakeStepper(frame, row, function(value) page:Change(row.key, value) end)
         else
             control = MakeSelect(frame, row, function(value) page:Change(row.key, value) end)

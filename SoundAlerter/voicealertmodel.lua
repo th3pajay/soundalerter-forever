@@ -154,10 +154,70 @@ function Model.SetChip(db, spell, event, value)
     for _, key in ipairs(keys) do db[key] = value and true or false end
 end
 
-function Model.Count(db, spells)
+Model.ALL = "All"
+
+local single = {}
+
+function Model.Shown(spell, filter)
+    if filter == nil or filter == Model.ALL then return spell.events end
+    if not spell.eventKeys[filter] then return {} end
+    single[filter] = single[filter] or { filter }
+    return single[filter]
+end
+
+function Model.EventsIn(spells)
+    local present = {}
+    for _, spell in ipairs(spells) do
+        for _, event in ipairs(spell.events) do present[event] = true end
+    end
+    local list = { Model.ALL }
+    for _, event in ipairs(Model.EVENTS) do
+        if present[event] then list[#list + 1] = event end
+    end
+    return list
+end
+
+function Model.ByEvent(spells, filter)
+    if filter == nil or filter == Model.ALL then return spells end
+    local list = {}
+    for _, spell in ipairs(spells) do
+        if spell.eventKeys[filter] then list[#list + 1] = spell end
+    end
+    return list
+end
+
+function Model.TileState(db, spell, filter, silenced)
+    local on, live = 0, 0
+    for _, event in ipairs(Model.Shown(spell, filter)) do
+        if not (silenced and silenced[event]) then
+            live = live + 1
+            if Model.ChipOn(db, spell, event) then on = on + 1 end
+        end
+    end
+    if live == 0 then return "muted" end
+    if on == live then return "on" end
+    if on == 0 then return "off" end
+    return "some"
+end
+
+function Model.ToggleTile(db, spell, filter, silenced)
+    local state = Model.TileState(db, spell, filter, silenced)
+    if state == "muted" then return nil end
+    local value = state ~= "on"
+    local first
+    for _, event in ipairs(Model.Shown(spell, filter)) do
+        if not (silenced and silenced[event]) then
+            Model.SetChip(db, spell, event, value)
+            first = first or event
+        end
+    end
+    return value, first
+end
+
+function Model.Count(db, spells, filter)
     local total, on = 0, 0
     for _, spell in ipairs(spells) do
-        for _, event in ipairs(spell.events) do
+        for _, event in ipairs(Model.Shown(spell, filter)) do
             total = total + 1
             if Model.ChipOn(db, spell, event) then on = on + 1 end
         end
@@ -165,9 +225,9 @@ function Model.Count(db, spells)
     return on, total
 end
 
-function Model.SetAll(db, spells, value)
+function Model.SetAll(db, spells, value, filter)
     for _, spell in ipairs(spells) do
-        for _, event in ipairs(spell.events) do Model.SetChip(db, spell, event, value) end
+        for _, event in ipairs(Model.Shown(spell, filter)) do Model.SetChip(db, spell, event, value) end
     end
 end
 

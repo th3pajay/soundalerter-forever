@@ -203,7 +203,7 @@ function Model.RebuildWarning(maxID, seconds)
 end
 
 function Model.Report(info, timings, description, version)
-    local level, label, reasons = Model.Verdict(info)
+    local _, label, reasons = Model.Verdict(info)
     local lines = {}
     lines[#lines + 1] = "SoundAlerter " .. (version or "unknown") .. " on game build " .. tostring(info.currentVersion)
     lines[#lines + 1] = "Verdict: " .. label .. (#reasons > 0 and (" (" .. table.concat(reasons, "; ") .. ")") or "")

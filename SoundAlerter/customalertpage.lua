@@ -5,7 +5,7 @@ local Model = SA_CustomModel
 local List = SA_FinderList
 local FX = SA_MenuFX
 
-local COLOR, Paint, Outline, Text, Tint = Kit.COLOR, Kit.Paint, Kit.Outline, Kit.Text, Kit.Tint
+local COLOR, Paint, Text, Tint = Kit.COLOR, Kit.Paint, Kit.Text, Kit.Tint
 local NewView, NewDivider, PlaceDivider, NewCard, PlaceCard = Kit.NewView, Kit.NewDivider, Kit.PlaceDivider, Kit.NewCard, Kit.PlaceCard
 
 local WIDGET = "SoundAlerterCustomPage"
@@ -387,7 +387,6 @@ function Custom:BindEditor()
     self.editor.frame:SetShown(alert ~= nil)
     self.none:SetShown(alert == nil)
     if not alert then return end
-    local spec = self.spec
     self.nameRow.control:Set(alert.name or self.key)
     self.spellRow.control:Set(alert.spellid or "")
     local hint, level = Model.SpellHint(alert)

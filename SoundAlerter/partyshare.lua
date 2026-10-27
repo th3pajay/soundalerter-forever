@@ -6,6 +6,7 @@ local KINDS = { S = true, P = true, W = true }
 local MAX_LENGTH = 240
 local MAX_NAME = 32
 local BREAKER_LIMIT = 5
+local BREAKER_RETRY = 60
 
 SA_PartyShare.PREFIX = "SoundAlerter"
 
@@ -80,19 +81,34 @@ function SA_PartyShare.Allow(budget, now, perSecond)
 end
 
 function SA_PartyShare.NewBreaker()
-    return { failures = 0 }
+    return { failures = 0, openedAt = nil, trips = 0 }
 end
 
-function SA_PartyShare.Record(breaker, success)
-    breaker.failures = success and 0 or breaker.failures + 1
+function SA_PartyShare.Record(breaker, success, now)
+    if success then
+        breaker.failures, breaker.openedAt = 0, nil
+        return false
+    end
+    breaker.failures = breaker.failures + 1
+    if breaker.failures < BREAKER_LIMIT then return false end
+    breaker.openedAt = now or 0
+    breaker.trips = breaker.trips + 1
+    return breaker.failures == BREAKER_LIMIT
 end
 
-function SA_PartyShare.Open(breaker)
-    return breaker.failures >= BREAKER_LIMIT
+function SA_PartyShare.Open(breaker, now)
+    if breaker.failures < BREAKER_LIMIT then return false end
+    return not (now and breaker.openedAt and now - breaker.openedAt >= BREAKER_RETRY)
 end
 
 function SA_PartyShare.Succeeded(result, successValue)
     return result == nil or result == true or (successValue ~= nil and result == successValue)
+end
+
+function SA_PartyShare.Throttled(result)
+    local results = Enum and Enum.SendAddonMessageResult
+    local throttle = results and results.AddonMessageThrottle
+    return throttle ~= nil and result == throttle
 end
 
 function SA_PartyShare.Api()
@@ -144,11 +160,11 @@ end
 
 function SoundAlerter:ShareAlert(kind, guid, spellID, class, level, name)
     local profile = self.db1.profile
-    if not profile.shareAlertsSend or SA_PartyShare.Open(breaker) then return end
+    local now = GetTime()
+    if not profile.shareAlertsSend or SA_PartyShare.Open(breaker, now) then return end
     local _, send = SA_PartyShare.Api()
     if not send then return end
     guid = Plain(guid)
-    local now = GetTime()
     if not SA_Spacing.Ready(sent, kind, guid, now, SEND_SPACING) then return end
     local channel = GroupChannel()
     if not channel then return end
@@ -159,7 +175,9 @@ function SoundAlerter:ShareAlert(kind, guid, spellID, class, level, name)
     local successValue = Enum and Enum.SendAddonMessageResult and Enum.SendAddonMessageResult.Success
     local ok, result = pcall(send, PREFIX, text, channel)
     local success = ok and SA_PartyShare.Succeeded(result, successValue)
-    SA_PartyShare.Record(breaker, success)
+    if not (ok and SA_PartyShare.Throttled(result)) and SA_PartyShare.Record(breaker, success, now) and breaker.trips == 1 then
+        self:Print("Party sharing paused after repeated send failures; it retries every minute.")
+    end
     if success then RecordParty("sent") end
     self:Debug("PartyShare", "sent %s to %s: %s (%s)", kind, channel, success and "ok" or "failed", tostring(result))
 end

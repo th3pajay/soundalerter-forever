@@ -396,7 +396,7 @@ function SpellTracker:OnEvent(event, ...)
             self:OnTrackedCast(spellID)
         end
     elseif event == "PLAYER_TARGET_CHANGED" then
-        for spellID, config in pairs(trackedSpellsByUnit.target) do
+        for _, config in pairs(trackedSpellsByUnit.target) do
             self.state:ClearPredicted(config.trackerIndex)
         end
         self:ScanAuras("target")

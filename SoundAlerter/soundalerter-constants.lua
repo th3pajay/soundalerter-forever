@@ -122,16 +122,120 @@ SA_COMPAT.UnitAura = function(unit, indexOrName, filter)
     if type(indexOrName) == "number" then
         return BuildAuraTuple(SafeGetAuraDataByIndex(unit, indexOrName, filter))
     end
+    if indexOrName == nil then return nil end
 
     filter = filter or "HELPFUL"
     for i = 1, 40 do
         local data = SafeGetAuraDataByIndex(unit, i, filter)
-        if not data then break end
-        if data.name == indexOrName then
+        if issecretvalue(data) then
+            return nil
+        elseif data == nil then
+            break
+        elseif SA_COMPAT.Plain(data.name) == indexOrName then
             return BuildAuraTuple(data)
         end
     end
     return nil
+end
+
+SA_COMPAT.AuraTiming = function(unit, index, filter)
+    local data = SafeGetAuraDataByIndex(unit, index, filter)
+    if issecretvalue(data) or data == nil then return false end
+    return true, data.icon, SA_COMPAT.Plain(data.duration), SA_COMPAT.Plain(data.expirationTime)
+end
+
+SA_COMPAT.InventoryItem = function(slot)
+    return SA_COMPAT.Plain(GetInventoryItemID("player", slot)), SA_COMPAT.Plain(GetInventoryItemTexture("player", slot))
+end
+
+SA_COMPAT.InventoryCooldown = function(slot)
+    local start, duration, enable = GetInventoryItemCooldown("player", slot)
+    return SA_COMPAT.Plain(start), SA_COMPAT.Plain(duration), SA_COMPAT.Plain(enable)
+end
+
+SA_COMPAT.ContainerSlots = function(bag)
+    local count = C_Container and C_Container.GetContainerNumSlots and C_Container.GetContainerNumSlots(bag)
+    return SA_COMPAT.Plain(count) or 0
+end
+
+SA_COMPAT.ContainerItemID = function(bag, slot)
+    return SA_COMPAT.Plain(C_Container.GetContainerItemID(bag, slot))
+end
+
+SA_COMPAT.ItemBasics = function(itemID)
+    local info = C_Item and C_Item.GetItemInfoInstant or GetItemInfoInstant
+    if not info or not itemID then return nil end
+    local _, _, _, equipLoc, icon = info(itemID)
+    return SA_COMPAT.Plain(equipLoc), SA_COMPAT.Plain(icon)
+end
+
+SA_COMPAT.ItemName = function(itemID)
+    if C_Item and C_Item.GetItemNameByID then
+        return SA_COMPAT.Plain(C_Item.GetItemNameByID(itemID))
+    end
+    return SA_COMPAT.Plain((GetItemInfo(itemID)))
+end
+
+SA_COMPAT.ItemCooldown = function(itemID)
+    local read = C_Container and C_Container.GetItemCooldown or C_Item and C_Item.GetItemCooldown
+    if not read then return nil end
+    local start, duration, enable = read(itemID)
+    return SA_COMPAT.Plain(start), SA_COMPAT.Plain(duration), SA_COMPAT.Plain(enable)
+end
+
+SA_COMPAT.EquipItem = function(itemID, slot)
+    local equip = C_Item and C_Item.EquipItemByName or EquipItemByName
+    equip(itemID, slot)
+end
+
+SA_COMPAT.GearAvailable = function()
+    local api = C_EquipmentSet
+    if not (api and api.GetEquipmentSetIDs and api.GetEquipmentSetInfo and api.UseEquipmentSet) then return false end
+    if not api.CanUseEquipmentSets then return true end
+    local ok, can = pcall(api.CanUseEquipmentSets)
+    return ok and SA_COMPAT.Plain(can) ~= false
+end
+
+local function ReadGearSets(sets)
+    local api = C_EquipmentSet
+    for _, id in ipairs(api.GetEquipmentSetIDs() or {}) do
+        id = SA_COMPAT.Plain(id)
+        if id then
+            local name, icon, _, equipped, _, _, _, missing = api.GetEquipmentSetInfo(id)
+            name = SA_COMPAT.Plain(name)
+            if name and name ~= "" then
+                sets[#sets + 1] = {
+                    id = id, name = name, icon = SA_COMPAT.Plain(icon),
+                    equipped = SA_COMPAT.Plain(equipped) == true,
+                    missing = tonumber(SA_COMPAT.Plain(missing)) or 0,
+                }
+            end
+        end
+    end
+end
+
+local function ByGearName(a, b)
+    return a.name < b.name
+end
+
+SA_COMPAT.GearSets = function()
+    local sets = {}
+    if not SA_COMPAT.GearAvailable() then return sets end
+    if not pcall(ReadGearSets, sets) then return {} end
+    table.sort(sets, ByGearName)
+    return sets
+end
+
+SA_COMPAT.GearSetLocked = function(id)
+    local check = C_EquipmentSet and C_EquipmentSet.EquipmentSetContainsLockedItems
+    if not check then return false end
+    local ok, locked = pcall(check, id)
+    return ok and SA_COMPAT.Plain(locked) == true
+end
+
+SA_COMPAT.UseGearSet = function(id)
+    local ok, done = pcall(C_EquipmentSet.UseEquipmentSet, id)
+    return ok and SA_COMPAT.Plain(done) ~= false
 end
 
 SA_COMPAT.PlayFile = function(path)

@@ -29,8 +29,6 @@ local math_min = math.min
 local math_floor = math.floor
 local math_sin = math.sin
 local math_pi = math.pi
-local tonumber = tonumber
-local type = type
 local pairs = pairs
 local ipairs = ipairs
 
@@ -126,7 +124,7 @@ end
 function FlagAlerts:OnInitialize()
     sadb = SoundAlerter.db1.profile
 
-    self.inCombat = false
+    self.inCombat = InCombatLockdown() and true or false
 
     self.nameToClassCache = {}
     self.cacheSize = 0
@@ -1219,7 +1217,7 @@ function FlagAlerts:CreateFlagToastFrame(index, isSecure)
 end
 
 function FlagAlerts:AcquireFlagToast()
-    self.flagPoolState.inCombat = self.inCombat
+    self.flagPoolState.inCombat = self.inCombat or InCombatLockdown()
     return SoundAlerter.BarUtils:AcquireToastFromPool(self.flagPoolState,
         function(toast) self:ReleaseFlagToast(toast) end,
         function()
@@ -1514,7 +1512,7 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
     end
 
     if toast.secureButton and not InCombatLockdown() then
-        local macroText = "/target " .. playerName
+        local macroText = SA_ToastClick.TargetMacro(playerName)
         toast.secureButton:SetAttribute("macrotext1", macroText)
         toast.secureButton:SetAttribute("macrotext", macroText)
         toast.secureButton:SetAlpha(1)
@@ -1619,7 +1617,7 @@ function FlagAlerts:CopyFlagToastData(oldFrame, newFrame)
     if newFrame.secureButton and not InCombatLockdown() then
         local unitName = newFrame.userData.unitName
         if unitName then
-            local macroText = "/target " .. unitName
+            local macroText = SA_ToastClick.TargetMacro(unitName)
             newFrame.secureButton:SetAttribute("macrotext1", macroText)
             newFrame.secureButton:SetAttribute("macrotext", macroText)
             newFrame.secureButton:SetAlpha(1)

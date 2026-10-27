@@ -3,13 +3,13 @@ local CastFeed = {}
 local Row = {}
 Row.__index = Row
 
-local GetSpellInfo, Plain = SA_COMPAT.GetSpellInfo, SA_COMPAT.Plain
+local Model = SA_CastFeedModel
+local GetSpellInfo, Plain, SafeUnitClass = SA_COMPAT.GetSpellInfo, SA_COMPAT.Plain, SA_COMPAT.SafeUnitClass
 local UnitCastingInfo, UnitChannelInfo = SA_COMPAT.UnitCastingInfo, SA_COMPAT.UnitChannelInfo
 local GetTime = GetTime
 local setmetatable = setmetatable
 local math_floor, math_max, math_min, math_ceil = math.floor, math.max, math.min, math.ceil
 local table_remove = table.remove
-local string_format = string.format
 local ipairs, wipe = ipairs, wipe
 
 local FRAME_PREFIX = "SoundAlerterCastFeed_"
@@ -21,6 +21,15 @@ local DUPLICATE_WINDOW = 0.25
 local GAP_LABEL_PADDING = 2
 local GAP_LABEL_GLYPHS = 5.5
 local INSTANT_ICON = "Interface\\Icons\\Spell_Nature_Lightning"
+local GLOW_TEXTURE = "Interface\\Buttons\\UI-ActionButton-Border"
+local DOT_TEXTURE = "Interface\\AddOns\\SoundAlerter\\Textures\\circle"
+local GLOW_SCALE = 1.72
+local GLOW_ALPHA = 0.55
+local SWEEP_ALPHA = 0.62
+local BADGE_SIZE = 14
+local PIP_SIZE = 7
+local STACK_FONT_SIZE = 10
+local BASELINE_ALPHA = 0.08
 
 local ROW_UNITS = { "player", "target", "focus", "party1", "party2", "party3", "party4", "enemies" }
 
@@ -63,6 +72,9 @@ local FEED_KEYS = {
 	auraDisplay = true,
 	showGaps = true,
 	gapFontSize = true,
+	animQuality = true,
+	baseline = true,
+	showClass = true,
 }
 
 local DIRECTIONS = {
@@ -165,9 +177,48 @@ function CastFeed:SetSetting(key, value)
 	end
 end
 
-local function ApplyStatus(button, status)
+local function CastWindow(unit, status)
+	local info = status == "channeling" and UnitChannelInfo or UnitCastingInfo
+	local _, _, _, _, startMS, endMS = info(unit)
+	startMS, endMS = Plain(startMS), Plain(endMS)
+	if type(startMS) == "number" and type(endMS) == "number" and endMS > startMS then
+		return startMS / 1000, (endMS - startMS) / 1000
+	end
+end
+
+local function ClassColor(unit)
+	local class = SafeUnitClass(unit)
+	return class and RAID_CLASS_COLORS[class] or nil
+end
+
+local function ApplyStatus(button, entry)
+	local status, face = entry.status, button.face
 	local color = STATUS_COLORS[status]
-	button:SetBackdropBorderColor(color[1], color[2], color[3], 1)
+	face:SetBackdropBorderColor(color[1], color[2], color[3], 1)
+	face.glow:SetVertexColor(color[1], color[2], color[3], GLOW_ALPHA)
+
+	local glyph = Model.GLYPHS[status]
+	face.badge:SetShown(glyph ~= nil)
+	face.badgeBack:SetShown(glyph ~= nil)
+	if glyph then
+		face.badge:SetTexture(glyph)
+		face.badge:SetDesaturated(status == "cancelled")
+	end
+
+	if FINAL_STATUS[status] or not CastFeed.tier.sweep or not entry.castStart then
+		face.cooldown:Clear()
+	else
+		face.cooldown:SetCooldown(entry.castStart, entry.castDuration)
+	end
+
+	local classColor = CastFeed.showClass and entry.classColor or nil
+	face.pip:SetShown(classColor ~= nil)
+	face.pipBack:SetShown(classColor ~= nil)
+	if classColor then
+		face.pip:SetVertexColor(classColor.r, classColor.g, classColor.b, 1)
+	end
+
+	face.stack:SetText(Model.StackText(entry.count) or "")
 end
 
 local function OnUpdate(frame)
@@ -216,6 +267,10 @@ function Row:Create(unit)
 	frame.title:SetPoint("BOTTOM", frame, "TOP", 0, 2)
 	frame.title:SetText(ROW_LABELS[unit])
 	frame.title:SetTextColor(0.8, 0.8, 0.8, 1)
+
+	frame.baseline = frame:CreateTexture(nil, "BORDER")
+	frame.baseline:SetColorTexture(1, 1, 1, BASELINE_ALPHA)
+	frame.baseline:Hide()
 
 	row.frame = frame
 
@@ -299,10 +354,18 @@ function Row:LoadSettings()
 	end
 
 	local long, short = CastFeed.length * self.scale, CastFeed.iconSize * self.scale
+	local baseline = self.frame.baseline
+	baseline:ClearAllPoints()
 	if self.dir.horizontal then
 		self.frame:SetSize(long, short)
+		baseline:SetPoint("LEFT")
+		baseline:SetPoint("RIGHT")
+		baseline:SetHeight(1)
 	else
 		self.frame:SetSize(short, long)
+		baseline:SetPoint("TOP")
+		baseline:SetPoint("BOTTOM")
+		baseline:SetWidth(1)
 	end
 
 	CastFeed.addon.BarUtils:LoadPosition(self.frame, settings, "", 0, DEFAULT_Y)
@@ -323,16 +386,61 @@ function Row:LoadSettings()
 end
 
 function Row:CreateButton()
-	local button = CreateFrame("Button", nil, self.frame, "BackdropTemplate")
+	local button = CreateFrame("Button", nil, self.frame)
 	button:SetFrameLevel(self.frame:GetFrameLevel() + 1)
 	button.row = self
 
-	button.tex = button:CreateTexture(nil, "ARTWORK")
-	button.tex:SetPoint("TOPLEFT", 2, -2)
-	button.tex:SetPoint("BOTTOMRIGHT", -2, 2)
-	button.tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	local face = CreateFrame("Frame", nil, button, "BackdropTemplate")
+	face:SetPoint("CENTER")
+	button.face = face
+	CastFeed.addon.BarUtils:CreateBackdrop(face, 0.5, 0.5, 0.5, 1, nil, nil, nil, nil, nil, 8, 1)
 
-	CastFeed.addon.BarUtils:CreateBackdrop(button, 0.5, 0.5, 0.5, 1, nil, nil, nil, nil, nil, 8, 1)
+	face.glow = face:CreateTexture(nil, "BACKGROUND")
+	face.glow:SetTexture(GLOW_TEXTURE)
+	face.glow:SetBlendMode("ADD")
+	face.glow:SetPoint("CENTER")
+
+	face.tex = face:CreateTexture(nil, "ARTWORK")
+	face.tex:SetPoint("TOPLEFT", 2, -2)
+	face.tex:SetPoint("BOTTOMRIGHT", -2, 2)
+	face.tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	button.tex = face.tex
+
+	face.cooldown = CreateFrame("Cooldown", nil, face, "CooldownFrameTemplate")
+	face.cooldown:SetAllPoints(face.tex)
+	face.cooldown:SetFrameLevel(face:GetFrameLevel() + 1)
+	face.cooldown:SetDrawEdge(false)
+	face.cooldown:SetDrawBling(false)
+	face.cooldown:SetHideCountdownNumbers(true)
+	face.cooldown:SetSwipeColor(0, 0, 0, SWEEP_ALPHA)
+	face.cooldown.noCooldownCount = true
+
+	local over = CreateFrame("Frame", nil, face)
+	over:SetAllPoints(face)
+	over:SetFrameLevel(face:GetFrameLevel() + 2)
+
+	face.pipBack = over:CreateTexture(nil, "OVERLAY", nil, 1)
+	face.pipBack:SetTexture(DOT_TEXTURE)
+	face.pipBack:SetVertexColor(0, 0, 0, 0.7)
+	face.pipBack:SetSize(PIP_SIZE + 3, PIP_SIZE + 3)
+	face.pipBack:SetPoint("TOPLEFT", 1, -1)
+	face.pip = over:CreateTexture(nil, "OVERLAY", nil, 2)
+	face.pip:SetTexture(DOT_TEXTURE)
+	face.pip:SetSize(PIP_SIZE, PIP_SIZE)
+	face.pip:SetPoint("CENTER", face.pipBack)
+
+	face.badgeBack = over:CreateTexture(nil, "OVERLAY", nil, 1)
+	face.badgeBack:SetTexture(DOT_TEXTURE)
+	face.badgeBack:SetVertexColor(0, 0, 0, 0.85)
+	face.badgeBack:SetSize(BADGE_SIZE + 2, BADGE_SIZE + 2)
+	face.badgeBack:SetPoint("BOTTOMRIGHT", 4, -4)
+	face.badge = over:CreateTexture(nil, "OVERLAY", nil, 2)
+	face.badge:SetSize(BADGE_SIZE, BADGE_SIZE)
+	face.badge:SetPoint("CENTER", face.badgeBack)
+
+	face.stack = over:CreateFontString(nil, "OVERLAY")
+	face.stack:SetFont(STANDARD_TEXT_FONT, STACK_FONT_SIZE, "OUTLINE")
+	face.stack:SetPoint("TOPRIGHT", 4, 4)
 
 	button.gap = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	button.gap:Hide()
@@ -370,9 +478,17 @@ function Row:AcquireButton(entry)
 	end
 
 	local size = CastFeed.iconSize * self.scale
+	local face = button.face
 	button:SetSize(size, size)
 	button:ClearAllPoints()
 	button.offset = nil
+	face:SetSize(size, size)
+	face.glow:SetSize(size * GLOW_SCALE, size * GLOW_SCALE)
+	face:SetScale(1)
+	face:SetAlpha(1)
+	face:ClearAllPoints()
+	face:SetPoint("CENTER")
+	button.faceScale, button.faceAlpha, button.faceShift = 1, 1, 0
 	if pcall(button.tex.SetTexture, button.tex, entry.icon) then
 		if issecretvalue(entry.icon) then SA_Secret.Succeed("sink", true) end
 	else
@@ -381,7 +497,7 @@ function Row:AcquireButton(entry)
 	button.entry = entry
 	entry.button = button
 
-	ApplyStatus(button, entry.status)
+	ApplyStatus(button, entry)
 	self:ApplyGap(button, entry)
 	button:Show()
 
@@ -404,9 +520,10 @@ function Row:SetStatus(entry, status)
 	if entry.status == status then return end
 
 	entry.status = status
+	if FINAL_STATUS[status] then entry.resultAt = GetTime() end
 
 	if entry.button then
-		ApplyStatus(entry.button, status)
+		ApplyStatus(entry.button, entry)
 	end
 end
 
@@ -419,8 +536,12 @@ function Row:RemoveAt(index)
 	if self.byKey[entry.key] == entry then
 		self.byKey[entry.key] = nil
 	end
+	if entry.alias and self.byKey[entry.alias] == entry then
+		self.byKey[entry.alias] = nil
+	end
 
 	entry.key = nil
+	entry.alias = nil
 	entry.pos = nil
 
 	self.freeEntries[#self.freeEntries + 1] = entry
@@ -428,6 +549,7 @@ end
 
 function Row:Clear()
 	self.hovered = nil
+	self.frame.baseline:Hide()
 	self:Detach()
 
 	local active = self.active
@@ -570,8 +692,21 @@ function Row:Begin(key, spellID, status, isFallback, caster, secretID, castUnit)
 		end
 	end
 
+	local stackKey = Model.StackKey(unit, spellID)
+	local stacked = stackKey and self:FindStack(stackKey, now)
+	if stacked then
+		self:Stack(stacked, key, status, unit, now)
+		return
+	end
+
 	local entry = self:Push(key, now)
 	if not entry then return end
+	entry.stackKey = stackKey
+	entry.count = 1
+	entry.classColor = self.unit ~= "player" and ClassColor(unit) or nil
+	if status == "casting" or status == "channeling" then
+		entry.castStart, entry.castDuration = CastWindow(unit, status)
+	end
 
 	if secretID ~= nil then
 		if issecretvalue(label) then SA_Secret.Succeed("name", true) end
@@ -586,7 +721,37 @@ function Row:Begin(key, spellID, status, isFallback, caster, secretID, castUnit)
 	entry.status = status
 	entry.caster = caster or CastFeed.addon.SafeUnitName(unit)
 
+	self.frame.baseline:SetShown(CastFeed.baseline)
 	self:Attach()
+end
+
+function Row:FindStack(stackKey, now)
+	local active = self.active
+	for i = #active, 1, -1 do
+		local entry = active[i]
+		if now - entry.lastAt >= Model.STACK_WINDOW then return nil end
+		if entry.stackKey == stackKey then return entry end
+	end
+	return nil
+end
+
+function Row:Stack(entry, key, status, unit, now)
+	if entry.alias and self.byKey[entry.alias] == entry then
+		self.byKey[entry.alias] = nil
+	end
+	entry.alias = key
+	self.byKey[key] = entry
+	entry.count = entry.count + 1
+	entry.lastAt = now
+	entry.status = status
+	entry.castStart, entry.castDuration = nil, nil
+	if status == "casting" or status == "channeling" then
+		entry.castStart, entry.castDuration = CastWindow(unit, status)
+	end
+	entry.resultAt = FINAL_STATUS[status] and now or nil
+	if entry.button then
+		ApplyStatus(entry.button, entry)
+	end
 end
 
 function Row:Push(key, now)
@@ -611,11 +776,12 @@ function Row:Push(key, now)
 	wipe(entry)
 	entry.key = key
 	entry.t = now
+	entry.born = now
+	entry.lastAt = now
 
 	local previous = active[#active]
 	if previous then
-		local seconds = now - previous.t
-		entry.gapText = string_format("%02d:%02d:%03d", math_floor(seconds / 60), math_floor(seconds % 60), math_floor(seconds * 1000) % 1000)
+		entry.gapText = Model.GapText(now - previous.t)
 	end
 
 	active[#active + 1] = entry
@@ -705,12 +871,14 @@ function Row:Step()
 	end
 
 	if #active == 0 then
+		self.frame.baseline:Hide()
 		self:Detach()
 		return
 	end
 
 	local dir, scale, frame = self.dir, self.scale, self.frame
 	local anchor, sign, horizontal = dir.anchor, dir.sign, dir.horizontal
+	local tier = CastFeed.tier
 
 	for i = 1, #active do
 		local entry = active[i]
@@ -727,7 +895,38 @@ function Row:Step()
 						button:SetPoint(anchor, frame, anchor, 0, offset)
 					end
 				end
+				self:Animate(button, entry, tier, now, pos, length)
 			end
+		end
+	end
+end
+
+function Row:Animate(button, entry, tier, now, pos, length)
+	local face = button.face
+	local alpha, scale = Model.Appear(tier, now - entry.born)
+	local pulse, shift = 1, 0
+	if entry.resultAt then
+		pulse, shift = Model.Result(tier, entry.status, now - entry.resultAt)
+	end
+	alpha = alpha * Model.Edge(tier, pos, length)
+	scale = scale * pulse
+
+	if button.faceAlpha ~= alpha then
+		button.faceAlpha = alpha
+		face:SetAlpha(alpha)
+		button.gap:SetAlpha(alpha)
+	end
+	if button.faceScale ~= scale then
+		button.faceScale = scale
+		face:SetScale(scale)
+	end
+	if button.faceShift ~= shift then
+		button.faceShift = shift
+		face:ClearAllPoints()
+		if self.dir.horizontal then
+			face:SetPoint("CENTER", button, "CENTER", shift, 0)
+		else
+			face:SetPoint("CENTER", button, "CENTER", 0, shift)
 		end
 	end
 end
@@ -774,6 +973,9 @@ function CastFeed:LoadSettings()
 	self.length = math_max(db.length, self.iconSize)
 	self.maxIcons = math_max(db.maxIcons, 1)
 	self.showGaps = db.showGaps
+	self.tier = Model.Tier(db.animQuality)
+	self.baseline = db.baseline ~= false
+	self.showClass = db.showClass ~= false
 	self.gapFontSize = math_min(math_max(db.gapFontSize, 8), 20)
 	self.gapExtent = self.showGaps and (self.gapFontSize + GAP_LABEL_PADDING) or 0
 	self.buttonCap = math_max(self.maxIcons, math_ceil(self.length / (self.iconSize + self.spacing + self.gapExtent)) + 2)

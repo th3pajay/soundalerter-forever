@@ -60,8 +60,6 @@ self.SA_TYPE = {
     [FILTER_TYPE_MY_PET] = L["My pet"],
 }
 
-local function log(msg) DEFAULT_CHAT_FRAME:AddMessage("|cFF33FF22SA|r:"..msg) end
-
 function SoundAlerter:Debug(module, fmt, ...)
     if not (sadb and sadb.debugmode) then return end
     DEFAULT_CHAT_FRAME:AddMessage(SA_DebugLog.Format(GetTime(), module, fmt, ...))
@@ -115,6 +113,10 @@ function SoundAlerter:ChangeProfile()
 
 	if self.SpeedMeter then
 		self.SpeedMeter:OnProfileChanged()
+	end
+
+	if self.TrinketMenu then
+		self.TrinketMenu:OnProfileChanged()
 	end
 
 	if self.FlagAlerts then
@@ -174,9 +176,11 @@ function SoundAlerter:OnInitialize()
         end
     end
 
+    local existingInstall = SoundAlerterDB ~= nil
     local defaultProfile = SA_ProfileModel.NewCharacterDefault(SoundAlerterDB) or "Default"
     self.db1 = LibStub("AceDB-3.0"):New("SoundAlerterDB", dbDefaults, defaultProfile)
     SA_ProfileCleanup.Run(SoundAlerterDB)
+    SA_QuickStart.Seed(self.db1.global, existingInstall)
     sadb = self.db1.profile
 
     self.db1.RegisterCallback(self, "OnProfileChanged", "ChangeProfile")
@@ -274,10 +278,12 @@ function SoundAlerter:OnEnable()
     self:InitializeModule("AuraDisplay")
     self:InitializeModule("CombatTimer")
     self:InitializeModule("SpeedMeter")
+    self:InitializeModule("TrinketMenu")
     self:InitializeModule("MinimapTracking")
     self:InitializeModule("Footsteps")
     self:InitializeModule("SpellTest")
     self:InitializeModule("Notices")
+    self:CheckQuickStartSetup()
 
     local Statistics = self:GetModule("Statistics")
     if Statistics then
@@ -363,11 +369,17 @@ function SoundAlerter:SendChat(message, channels)
     end
     local sent = false
     local inInstance = IsInInstance()
+    local targets = {}
     for _, channel in ipairs(channels) do
         local target, reason = ResolveChatChannel(channel, inInstance)
-        if not target then
+        if target then
+            targets[#targets + 1] = target
+        else
             self:Debug("Chat", "%s skipped, %s", channel, reason)
-        elseif pcall(SendChatMessage, message, target, nil, nil) then
+        end
+    end
+    for _, target in ipairs(SA_ChatTargets.Pick(targets)) do
+        if pcall(SendChatMessage, message, target, nil, nil) then
             sent = true
             self:Debug("Chat", "sent to %s: %s", target, message)
         else
@@ -523,9 +535,17 @@ function SoundAlerter:PLAYER_REGEN_ENABLED()
         self.totemPlatesPending = false
         self:ApplyTotemPlates()
     end
+    if self.nameplateRangePending then
+        self.nameplateRangePending = false
+        self:ApplyNameplateRange()
+    end
 end
 
 function SoundAlerter:ApplyNameplateRange()
+    if InCombatLockdown() then
+        self.nameplateRangePending = true
+        return
+    end
     local global = self.db1.global
     local value, backup = SA_NameplateRange.Plan(sadb.overrideNameplateRange, sadb.nameplateRange or 60,
         GetCVar("nameplateMaxDistance"), global.nameplateDistanceBackup)
@@ -622,15 +642,17 @@ function SoundAlerter:HandleCommand(input)
         end
     elseif command == "fxstats" then
         self:ShowFxStats(rest:lower())
+    elseif command == "setup" then
+        self:ShowQuickStartSetup()
     elseif command == "help" then
         self:Print("|cffFFD700=== SoundAlerter Commands ===|r")
         self:Print("|cff00FFFF[General]|r")
-        self:Print("  |cffFFFFFF/sa|r - Open options panel")
+        self:Print("  |cffFFFFFF/sa|r - Open options panel; |cffFFFFFF/sa setup|r runs the Quick Start setup")
         self:Print("  |cffFFFFFF/sa stats|r - Show alert diagnostics (duplicate alerts, aura resyncs); |cffFFFFFF/sa stats reset|r clears them")
         self:Print("  |cffFFFFFF/sa speed|r - Print the raw speed values and what the Speed Meter would show (stand in the water, then run it)")
         self:Print("  |cffFFFFFF/sa fxstats [reset]|r - Show how often the casting bars and spell tracker icons update at the current animation quality")
         self:Print("  |cffFFFFFF/sa probe|r - Print what the client lets the addon read (turn on Debug Mode first to record events)")
-        self:Print("  |cffFFFFFF/sa global|r - Global sightings status: channel, messages, tracked enemies, ignored senders; |cffFFFFFF/sa global mute <name>|r or |cffFFFFFFunmute <name>|r for this session")
+        self:Print("  |cffFFFFFF/sa global|r - Global sightings status: channel, messages, tracked enemies, ignored senders; |cffFFFFFF/sa global mute <name>|r or |cffFFFFFFunmute <name>|r (saved for all your characters)")
         self:Print("  |cffFFFFFF/sa snooze [minutes]|r / |cffFFFFFF/sa unsnooze|r - Silence proximity and enemy awareness alerts for a while")
         self:Print("  |cffFFFFFF/sa watch [guild] <name>|r / |cffFFFFFF/sa unwatch [guild] <name>|r / |cffFFFFFF/sa watchlist|r - Manage the watchlist")
         self:Print("  |cffFFFFFF/sa secrets|r - Show whether the hidden-spell display routes work on this client")
@@ -863,6 +885,7 @@ function SoundAlerter:CleanupProximityCaches()
 
 end
 
+local DRINK_SPELL_ID = 430
 local DRINK_SPELL
 local unitAuraMap = {}
 local unitAuraCount = {}
@@ -1611,10 +1634,10 @@ function SoundAlerter:UNIT_AURA(event, unit, updateInfo)
     if isArena then
         local currentZoneType, pvpType = self.cachedInstanceType, self.cachedZonePvpType
         if ((currentZoneType == "arena") or (pvpType == "arena")) and sadb.drinking then
-            if not DRINK_SPELL then
-                DRINK_SPELL = GetSpellInfo(57073)
+            if DRINK_SPELL == nil then
+                DRINK_SPELL = GetSpellInfo(DRINK_SPELL_ID) or false
             end
-            if UnitAura(unit, DRINK_SPELL) then
+            if DRINK_SPELL and UnitAura(unit, DRINK_SPELL) then
                 SoundAlerter:PlayVoice(sadb.sapath.."drinking.mp3");
             end
         end
@@ -1632,9 +1655,9 @@ function SoundAlerter:UNIT_AURA(event, unit, updateInfo)
     local tracked = GetTrackedAuraSpellIDs()
     local usable, added, removed = ReadableDelta(updateInfo)
     if sadb.debugmode then
-        local kind = isPlayer and "player" or isTargetOrFocus and unit or isArena and "arena" or isNameplate and "nameplate" or "party"
+        local probeKind = isPlayer and "player" or isTargetOrFocus and unit or isArena and "arena" or isNameplate and "nameplate" or "party"
         local path = (usable and unitAuraMap[unit]) and "delta" or (not unitAuraMap[unit] and "resync (first sight)" or "resync (payload unreadable)")
-        self:ProbeAuraUpdate(unit, kind, updateInfo, path)
+        self:ProbeAuraUpdate(unit, probeKind, updateInfo, path)
     end
 
     if not unitAuraMap[unit] or not usable then
@@ -1860,14 +1883,18 @@ local function ProximityBandAllowed(band)
     return not SA_Distance.IsRestricted(sadb.proximityMaxBand) or SA_Distance.Allows(sadb.proximityMaxBand, band)
 end
 
-function SoundAlerter:FireProximityAlert(guid, unitName, unitClass, unitLevel, band, unitToken, nearbyCount, title)
-    local classAudioFile = CLASS_AUDIO_MAP[unitClass]
-    if classAudioFile then
-        SoundAlerter:PlayVoice(sadb.sapath .. classAudioFile .. ".mp3", "Master")
+function SoundAlerter:FireProximityAlert(guid, unitName, unitClass, unitLevel, band, unitToken, nearbyCount, title, shared)
+    if shared then
+        SoundAlerter:PlayVoice(sadb.sapath .. "sharedintel.mp3", "Master")
+    else
+        local classAudioFile = CLASS_AUDIO_MAP[unitClass]
+        if classAudioFile then
+            SoundAlerter:PlayVoice(sadb.sapath .. classAudioFile .. ".mp3", "Master")
+        end
+        self:ScheduleTimer(function()
+            SoundAlerter:PlayVoice(sadb.sapath .. "detected.mp3", "Master")
+        end, 0.8)
     end
-    self:ScheduleTimer(function()
-        SoundAlerter:PlayVoice(sadb.sapath .. "detected.mp3", "Master")
-    end, 0.8)
 
     do
         local Statistics = self:GetModule("Statistics")
@@ -1890,7 +1917,7 @@ function SoundAlerter:AlertSharedProximity(guid, unitClass, unitName, unitLevel,
     if not self:IsProximityZoneAllowed() or self:IsQuiet() then return false end
     self.proximityAlertCache[guid] = now
     SA_Plates.ClearPending(guid)
-    self:FireProximityAlert(guid, unitName, unitClass, unitLevel or -1, "Spotted", nil, nil, "Spotted by " .. sender)
+    self:FireProximityAlert(guid, unitName, unitClass, unitLevel or -1, "Spotted", nil, nil, "Spotted by " .. sender, true)
     return true
 end
 

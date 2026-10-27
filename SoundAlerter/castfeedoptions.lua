@@ -96,7 +96,7 @@ function SoundAlerter:BuildCastFeedOptions()
         Page.Toggle("locked", "Lock position", "Unlock to drag the rows. A shaded outline marks each row while unlocked.", false, "General"),
         Page.Toggle("showInstants", "Show instant casts", "Include casts that have no cast time. The client sends no cast event for most enemy instants, so only readable ones appear here (yours and your group's). The enemy buff and duel debuff option below is the way to see enemy instants.", false, "General"),
         Page.Visible(SA_Secret.Supported, Page.Toggle("auraDisplay", "Enemy buffs, duel debuffs", "Experimental. Flashes new buffs on your target and focus, and in duels new debuffs on you, beside their rows. Needs Show hidden enemy spells on (General).", false, "Experimental")),
-        Page.Toggle("showGaps", "Show time between casts", "Show the time between two casts (MM:SS:ms) between their icons. Icons spread out to make room.", false, "General"),
+        Page.Toggle("showGaps", "Show time between casts", "Show the time between two casts (such as 1.4s) between their icons. Icons spread out to make room.", false, "General"),
         Page.Action("Test", "Spawn a few sample casts.", function()
             local active = feed()
             if active then active:RunTest() end
@@ -113,7 +113,10 @@ function SoundAlerter:BuildCastFeedOptions()
     rows[#rows + 1] = Page.Range("maxIcons", "Max icons", "Casts kept in each row; extra casts wait their turn.", 3, 30, 1, true, "Look")
     rows[#rows + 1] = Page.Range("speed", "Speed", "Travel speed in pixels per second.", 20, 300, 5, true, "Look", " px/s")
     rows[#rows + 1] = Page.Range("catchUp", "Catch-up speed", "How many times faster a row moves after you stop hovering, until it is current again.", 1.5, 10, 0.5, true, "Look", "x")
-    rows[#rows + 1] = Page.Range("gapFontSize", "Time text size", "Font size of the time between casts.", 8, 20, 1, true, "Look", " px")
+    rows[#rows + 1] = Page.Toggle("baseline", "Baseline", "A faint line the icons ride along while a row has casts.", true, "Look")
+    rows[#rows + 1] = Page.Toggle("showClass", "Class marker", "A small class-coloured dot on casts by your target, focus, party and nearby enemies.", true, "Look")
+    rows[#rows + 1] = Page.Select("animQuality", "Animation quality", "Low turns every icon animation off. Normal adds the fade-in, the cast sweep and the fade at the row's end. High adds a settle on arrival, a pulse on success and a shake on interrupt.", SA_CastFeedModel.QUALITIES, true, "Look")
+    rows[#rows + 1] = Page.Range("gapFontSize","Time text size", "Font size of the time between casts.", 8, 20, 1, true, "Look", " px")
     rows[#rows + 1] = Page.Action("Reset positions", "Put every row back where it started.", function()
         local active = feed()
         if active then active:ResetPositions() end

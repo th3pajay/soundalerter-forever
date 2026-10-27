@@ -285,7 +285,7 @@ end
 do
 SA_ProfileCleanup = {}
 
-SA_ProfileCleanup.PASS = 3
+SA_ProfileCleanup.PASS = 4
 
 SA_ProfileCleanup.DEAD_KEYS = {
     "objectiveAlertsEnabled", "ArenaPartner", "prowlhenemy", "vanishalert", "enemyinterrupts",
@@ -301,6 +301,16 @@ SA_ProfileCleanup.DEAD_RESOURCE_KEYS = {
     "showOverCapAlert", "showLowEnergyAlert", "showLowRageAlert", "showLowManaAlert",
     "smoothPower", "cpAnimations", "fullCPAnimation",
 }
+
+SA_ProfileCleanup.COPIED_KEYS = {
+    { from = "friendcountered", to = "lockout" },
+}
+
+local function copyAcross(profile)
+    for _, rule in ipairs(SA_ProfileCleanup.COPIED_KEYS) do
+        if profile[rule.to] == nil and profile[rule.from] ~= nil then profile[rule.to] = profile[rule.from] end
+    end
+end
 
 local function strip(target, keys)
     local removed = 0
@@ -321,6 +331,7 @@ function SA_ProfileCleanup.Run(saved)
     local removed = 0
     for _, profile in pairs(saved.profiles) do
         if type(profile) == "table" then
+            copyAcross(profile)
             removed = removed + strip(profile, SA_ProfileCleanup.DEAD_KEYS)
             if type(profile.resourceBar) == "table" then
                 removed = removed + strip(profile.resourceBar, SA_ProfileCleanup.DEAD_RESOURCE_KEYS)

@@ -1,9 +1,7 @@
 local sadb
 local AceConfigDialog = LibStub("AceConfigDialog-3.0")
 local AceConfig = LibStub("AceConfig-3.0")
-local L = LibStub("AceLocale-3.0"):GetLocale("SoundAlerter")
-local self, SoundAlerter = SoundAlerter, SoundAlerter
-local GetSpellInfo = SA_COMPAT.GetSpellInfo
+local SoundAlerter = SoundAlerter
 
 local function initOptions()
 	if SoundAlerter.options.args.general then
@@ -83,6 +81,8 @@ function SoundAlerter:OnOptionsCreate()
 	self:AddOption('Footsteps', self:BuildFootstepsOptions())
 
 	self:AddOption('SpellTracker', self:BuildSpellTrackerOptions())
+
+	self:AddOption('TrinketMenu', self:BuildTrinketMenuOptions())
 
 	self:AddOption('Statistics', self:BuildStatisticsOptions())
 

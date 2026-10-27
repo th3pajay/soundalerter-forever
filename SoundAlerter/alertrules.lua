@@ -51,6 +51,28 @@ end
 end
 
 do
+SA_ChatTargets = {}
+
+local COVERED_BY_INSTANCE = { PARTY = true, RAID = true }
+
+function SA_ChatTargets.Pick(targets)
+    if #targets <= 1 then return targets end
+    local hasInstance = false
+    for _, target in ipairs(targets) do
+        if target == "INSTANCE_CHAT" then hasInstance = true end
+    end
+    local seen, picked = {}, {}
+    for _, target in ipairs(targets) do
+        if not seen[target] and not (hasInstance and COVERED_BY_INSTANCE[target]) then
+            seen[target] = true
+            picked[#picked + 1] = target
+        end
+    end
+    return picked
+end
+end
+
+do
 SA_Interrupt = {}
 
 local COOLDOWN = {
@@ -399,6 +421,15 @@ local RESTORE = {
     none = "\n/focus target\n/cleartarget",
     other = "\n/focus target\n/targetlasttarget",
 }
+
+function SA_ToastClick.Sanitize(text)
+    if type(text) ~= "string" then return "" end
+    return (text:gsub("[%z\r\n]", ""))
+end
+
+function SA_ToastClick.TargetMacro(name)
+    return "/target " .. SA_ToastClick.Sanitize(name)
+end
 
 function SA_ToastClick.TargetState(hasTarget, targetName, unitName)
     if not hasTarget then return "none" end

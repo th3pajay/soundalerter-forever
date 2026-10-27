@@ -102,6 +102,8 @@ end
 function SoundAlerter:AlertSharedWatch(guid, name, sender)
     local profile = self.db1.profile
     if not profile.watchlistEnabled then return false end
+    local names, guilds = Sets(profile)
+    if not SA_Watchlist.Match(names, guilds, name, nil) then return false end
     local now = GetTime()
     local last = watchAlertAt[guid]
     if last and now - last < WATCH_SPACING then return false end

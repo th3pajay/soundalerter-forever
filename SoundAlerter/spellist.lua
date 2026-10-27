@@ -92,6 +92,22 @@ SoundAlerterSpells = {
         [429125] = "icyveins",
         [401724] = "hotstreak",
         [429303] = "deepfreeze",
+        [20216] = "divinefavor",
+        [400023] = "cheatdeath",
+        [586] = "fade",
+        [9578] = "fade",
+        [9579] = "fade",
+        [9592] = "fade",
+        [10941] = "fade",
+        [10942] = "fade",
+        [467] = "thorns",
+        [782] = "thorns",
+        [1075] = "thorns",
+        [8914] = "thorns",
+        [9756] = "thorns",
+        [9910] = "thorns",
+        [20043] = "aspectofthewild",
+        [20190] = "aspectofthewild",
     },
     auraRemoved = {
 
@@ -338,8 +354,8 @@ SoundAlerterSpells = {
         [339] = "roots",
     },
     interruptFriend = {
-        [2139] = "friendcountered",
-        [1766] = "friendcountered",
+        [2139] = "lockout",
+        [1766] = "lockout",
     },
     friendCCs = {
         [450600] = "hexfriend",
@@ -427,6 +443,21 @@ SoundAlerterSpells = {
         [19434] = "aimedshot",
         [24335] = "wyvernsting",
         [6358] = "seduction",
+        [15286] = "vampiricembrace",
+        [461966] = "vampiricembrace",
+        [14251] = "riposte",
+        [703] = "garrote",
+        [8631] = "garrote",
+        [8632] = "garrote",
+        [8633] = "garrote",
+        [11289] = "garrote",
+        [11290] = "garrote",
+        [462724] = "garrote",
+        [462726] = "garrote",
+        [462727] = "garrote",
+        [462728] = "garrote",
+        [462729] = "garrote",
+        [462730] = "garrote",
     },
 }
 
@@ -448,6 +479,7 @@ SoundAlerterSpellMeta = {
     starfire = { "Druid", "Starfire" },
     survivalinstincts = { "Druid", "Survival Instincts" },
     tranquility = { "Druid", "Tranquility" },
+    thorns = { "Druid", "Thorns" },
 
     aimedshot = { "Hunter", "Aimed Shot" },
     deterrence = { "Hunter", "Deterrence" },
@@ -463,11 +495,13 @@ SoundAlerterSpellMeta = {
     beastwithindown = { "Hunter", "The Beast Within" },
     thebeastwithin = { "Hunter", "The Beast Within" },
     wyvernsting = { "Hunter", "Wyvern Sting" },
+    aspectofthewild = { "Hunter", "Aspect of the Wild" },
 
     arcanepower = { "Mage", "Arcane Power" },
     coldsnap = { "Mage", "Cold Snap" },
     combustion = { "Mage", "Combustion" },
     counterspell = { "Mage", "Counterspell" },
+    friendcountered = { "Mage", "Counterspell" },
     deepfreeze = { "Mage", "Deep Freeze" },
     evocation = { "Mage", "Evocation" },
     frozenorb = { "Mage", "Frozen Orb" },
@@ -501,6 +535,7 @@ SoundAlerterSpellMeta = {
     layonhands = { "Paladin", "Lay on Hands" },
     repentance = { "Paladin", "Repentance" },
     turnevil = { "Paladin", "Turn Undead" },
+    divinefavor = { "Paladin", "Divine Favor" },
 
     dispersion = { "Priest", "Dispersion" },
     dispersiondown = { "Priest", "Dispersion" },
@@ -515,6 +550,8 @@ SoundAlerterSpellMeta = {
     shackleundead = { "Priest", "Shackle Undead" },
     shadowfiend = { "Priest", "Shadowfiend" },
     silence = { "Priest", "Silence" },
+    fade = { "Priest", "Fade" },
+    vampiricembrace = { "Priest", "Vampiric Embrace" },
 
     adrenalinerush = { "Rogue", "Adrenaline Rush" },
     adrenalinerushdown = { "Rogue", "Adrenaline Rush" },
@@ -540,6 +577,9 @@ SoundAlerterSpellMeta = {
     sprint = { "Rogue", "Sprint" },
     stealth = { "Rogue", "Stealth" },
     vanish = { "Rogue", "Vanish" },
+    cheatdeath = { "Rogue", "Cheat Death" },
+    riposte = { "Rogue", "Riposte" },
+    garrote = { "Rogue", "Garrote" },
 
     bloodlust = { "Shaman", "Bloodlust" },
     earthshield = { "Shaman", "Earth Shield" },
@@ -604,6 +644,6 @@ SoundAlerterSpellMeta = {
     willoftheforsaken = { "Races", "Will of the Forsaken" },
 
     bigheal = { "Other", "Big heals" },
-    friendcountered = { "Other", "Interrupts on you" },
+    lockout = { "Other", "Interrupts on you" },
     resurrection = { "Other", "Resurrections" },
 }

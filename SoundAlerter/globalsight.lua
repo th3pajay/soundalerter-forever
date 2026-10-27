@@ -7,6 +7,7 @@ local FUTURE_LIMIT = 120
 local PAST_LIMIT = 600
 local SIGHT_FIELDS = 15
 local PRESENCE_FIELDS = 5
+local CONFIRM_DRIFT = 2
 
 local CLASSES = {
     WARRIOR = true, PALADIN = true, HUNTER = true, ROGUE = true, PRIEST = true, DEATHKNIGHT = true, SHAMAN = true,
@@ -21,7 +22,7 @@ SA_GlobalSight.SELF = "@self"
 SA_GlobalSight.BAND_CODE = { Close = "C", Nearby = "N", Medium = "M", Detected = "D", Spotted = "D" }
 
 local string_find, string_sub, string_byte, string_format = string.find, string.sub, string.byte, string.format
-local math_floor, tonumber, type = math.floor, tonumber, type
+local math_floor, math_abs, tonumber, type = math.floor, math.abs, tonumber, type
 
 local parts = {}
 local buffer = {}
@@ -96,6 +97,14 @@ end
 function SA_GlobalSight.MainName(sender)
     if type(sender) ~= "string" then return nil end
     return sender:match("^([^%s%-]+)")
+end
+
+function SA_GlobalSight.Oldest(stamps)
+    local oldestKey, oldest
+    for key, at in pairs(stamps) do
+        if type(at) == "number" and (not oldest or at < oldest) then oldestKey, oldest = key, at end
+    end
+    return oldestKey
 end
 
 function SA_GlobalSight.NewTag()
@@ -186,11 +195,21 @@ local function EvictOldest(store)
     if oldestGuid then Release(store, oldestGuid, oldest) end
 end
 
+local function Drifted(record, sight)
+    return record.anchorMapID ~= sight.mapID or math_abs(record.anchorCx - sight.cx) > CONFIRM_DRIFT or math_abs(record.anchorCy - sight.cy) > CONFIRM_DRIFT
+end
+
 function SA_GlobalSight.Merge(store, sight, reporter, now, isSelf)
     local guid = sight.guid
     local record = store.records[guid]
     local moved = true
     if record then
+        local mismatch = record.class ~= sight.class or record.name ~= sight.name
+        if mismatch and not isSelf then return nil, false end
+        if mismatch or Drifted(record, sight) then
+            record.reporterCount, record.selfSeen = 0, false
+            record.anchorMapID, record.anchorCx, record.anchorCy = sight.mapID, sight.cx, sight.cy
+        end
         local changed = record.mapID ~= sight.mapID or record.cx ~= sight.cx or record.cy ~= sight.cy
         moved = changed or now - record.lastSeen > store.freshAge
         if changed then
@@ -209,6 +228,7 @@ function SA_GlobalSight.Merge(store, sight, reporter, now, isSelf)
         record.guid, record.firstSeen, record.reporterCount = guid, now, 0
         record.prevMapID, record.prevCx, record.prevCy = nil, nil, nil
         record.selfSeen = false
+        record.anchorMapID, record.anchorCx, record.anchorCy = sight.mapID, sight.cx, sight.cy
         store.records[guid] = record
         store.count = store.count + 1
     end
@@ -333,6 +353,8 @@ local Plain = SA_COMPAT.Plain
 local PREFIX = G.PREFIX
 local JOIN_ATTEMPTS = 2
 local MAX_IGNORED = 200
+local MAX_MUTED = 200
+local THROTTLE_HOLD = 5
 local TICK = 1
 local RECORD_AGE = 600
 local WATCHER_AGE = 120
@@ -356,7 +378,8 @@ local frame = CreateFrame("Frame")
 local tag = G.NewTag()
 local store, sentState, senderWindows, bucket, receiveBudget
 local channel, channelIndex, channelDay, joinAttempts = nil, 0, nil, 0
-local offenses, ignored, ignoredCount = {}, {}, 0
+local offenses, ignored, ignoredAt, ignoredCount = {}, {}, {}, 0
+local holdUntil = 0
 local breaker = SA_PartyShare.NewBreaker()
 local active, joined, filtered, prefixRegistered = false, false, false, false
 local ticker
@@ -368,10 +391,10 @@ local profilerClock = debugprofilestop
 
 local function ResetCounters()
     counters.received, counters.merged, counters.presence, counters.own = 0, 0, 0, 0
-    counters.rejected, counters.overBudget, counters.overSender = 0, 0, 0
+    counters.rejected, counters.overBudget, counters.overSender, counters.conflicts = 0, 0, 0, 0
     counters.sent, counters.sentPresence, counters.sendFailed, counters.swept = 0, 0, 0, 0
     counters.decodeTotal, counters.decodeMax, counters.decodeCount = 0, 0, 0
-    counters.ignored, counters.fallbacks = 0, 0
+    counters.ignored, counters.fallbacks, counters.throttled = 0, 0, 0
 end
 ResetCounters()
 
@@ -472,8 +495,14 @@ local function Send(text)
     local successValue = Enum and Enum.SendAddonMessageResult and Enum.SendAddonMessageResult.Success
     local ok, result = pcall(send, PREFIX, text, "CHANNEL", id)
     local success = ok and SA_PartyShare.Succeeded(result, successValue)
-    SA_PartyShare.Record(breaker, success)
+    local now = GetTime()
     if not success then counters.sendFailed = counters.sendFailed + 1 end
+    if ok and SA_PartyShare.Throttled(result) then
+        counters.throttled = counters.throttled + 1
+        holdUntil = now + THROTTLE_HOLD
+    elseif SA_PartyShare.Record(breaker, success, now) and breaker.trips == 1 then
+        SoundAlerter:Print("Global sightings paused after repeated send failures; they retry every minute.")
+    end
     return success
 end
 
@@ -494,7 +523,7 @@ local function Observe(unit, source, now)
     seen[guid] = true
     local mapID, cx, cy = TickCell()
     if not mapID then return end
-    local name = Plain(UnitName(unit))
+    local name = SA_PartyShare.CleanName(Plain(UnitName(unit)))
     local _, class = UnitClass(unit)
     class = Plain(class)
     local level = Plain(UnitLevel(unit))
@@ -560,7 +589,7 @@ local function Tick()
         nextSweep = now + sweepInterval
         Sweep(now)
     end
-    if not EnsureChannel(now) or not Eligible() or SA_PartyShare.Open(breaker) then return end
+    if not EnsureChannel(now) or not Eligible() or now < holdUntil or SA_PartyShare.Open(breaker, now) then return end
     tickResolved = false
     for guid in pairs(seen) do seen[guid] = nil end
     best.priority = 0
@@ -582,17 +611,42 @@ local function Tick()
     end
 end
 
-local function Ignore(sender, reason)
+local function Muted()
+    local global = SoundAlerter.db1 and SoundAlerter.db1.global
+    if not global then return {} end
+    global.globalMuted = global.globalMuted or {}
+    return global.globalMuted
+end
+
+local function Ignore(sender, reason, now)
     if ignored[sender] then return end
-    if ignoredCount >= MAX_IGNORED then return end
-    ignored[sender] = reason
+    if ignoredCount >= MAX_IGNORED then
+        local oldest = SA_GlobalSight.Oldest(ignoredAt)
+        if not oldest then return end
+        ignored[oldest], ignoredAt[oldest] = nil, nil
+        ignoredCount = ignoredCount - 1
+    end
+    ignored[sender], ignoredAt[sender] = reason, now
     ignoredCount = ignoredCount + 1
 end
 
+local function Mute(name)
+    local muted = Muted()
+    if muted[name] then return end
+    local count = 0
+    for _ in pairs(muted) do count = count + 1 end
+    if count >= MAX_MUTED then
+        local oldest = SA_GlobalSight.Oldest(muted)
+        if oldest then muted[oldest] = nil end
+    end
+    muted[name] = GetServerTime()
+end
+
 local function IsIgnored(sender)
-    if ignored[sender] then return true end
     local main = G.MainName(sender)
-    return main ~= nil and ignored[main] ~= nil
+    if ignored[sender] or (main ~= nil and ignored[main] ~= nil) then return true end
+    local muted = Muted()
+    return muted[sender] ~= nil or (main ~= nil and muted[main] ~= nil)
 end
 
 local function OnAddon(prefix, text, distribution, sender, _, _, _, channelName)
@@ -614,7 +668,7 @@ local function OnAddon(prefix, text, distribution, sender, _, _, _, channelName)
     if not G.SenderAllow(senderWindows, sender, now, SENDER_LIMIT, SENDER_SPAN) then
         counters.overSender = counters.overSender + 1
         local reason = G.Offend(offenses, sender, "limited", now)
-        if reason then Ignore(sender, reason) end
+        if reason then Ignore(sender, reason, now) end
         return
     end
     local started = profilerClock and profilerClock()
@@ -628,7 +682,7 @@ local function OnAddon(prefix, text, distribution, sender, _, _, _, channelName)
     if not message then
         counters.rejected = counters.rejected + 1
         local reason = G.Offend(offenses, sender, "invalid", now)
-        if reason then Ignore(sender, reason) end
+        if reason then Ignore(sender, reason, now) end
         return
     end
     if message.tag == tag then
@@ -639,7 +693,12 @@ local function OnAddon(prefix, text, distribution, sender, _, _, _, channelName)
         if G.Presence(store, sender, message.mapID, now) then counters.presence = counters.presence + 1 end
         return
     end
-    G.Merge(store, message, sender, now, false)
+    if not G.Merge(store, message, sender, now, false) then
+        counters.conflicts = counters.conflicts + 1
+        local reason = G.Offend(offenses, sender, "invalid", now)
+        if reason then Ignore(sender, reason, now) end
+        return
+    end
     counters.merged = counters.merged + 1
 end
 
@@ -661,7 +720,7 @@ local function Start()
     bucket = G.NewBucket(BUCKET_SIZE, BUCKET_RATE)
     receiveBudget = SA_PartyShare.NewBudget()
     breaker = SA_PartyShare.NewBreaker()
-    nextSweep, nextJoin = GetTime() + sweepInterval, 0
+    nextSweep, nextJoin, holdUntil = GetTime() + sweepInterval, 0, 0
     nextPresence = GetTime() + math.random(5, 15)
     ResetCounters()
     SetFilter(true)
@@ -704,12 +763,16 @@ function SoundAlerter:GlobalSightCommand(rest)
             self:Print("Usage: /sa global mute <name> or /sa global unmute <name>")
             return
         end
+        local muted = Muted()
         if command == "mute" then
-            Ignore(target, "muted by you")
-            self:Print("Ignoring global sightings from " .. target .. " for this session.")
-        elseif ignored[target] then
-            ignored[target] = nil
-            ignoredCount = ignoredCount - 1
+            Mute(target)
+            self:Print("Ignoring global sightings from " .. target .. " on all your characters until you unmute them.")
+        elseif ignored[target] or muted[target] then
+            if ignored[target] then
+                ignored[target], ignoredAt[target] = nil, nil
+                ignoredCount = ignoredCount - 1
+            end
+            muted[target] = nil
             self:Print("No longer ignoring " .. target .. ".")
         else
             self:Print(target .. " is not ignored.")
@@ -724,9 +787,9 @@ function SoundAlerter:GlobalSightCommand(rest)
     local zoneMap = PlayerCell()
     local stats = zoneMap and G.ZoneStats(store, zoneMap, now, 300, {}) or nil
     local average = counters.decodeCount > 0 and counters.decodeTotal / counters.decodeCount or 0
-    self:Print(string.format("Global sightings: channel %s (%s%s), zone %s, send %s", joined and "joined" or "not joined", channel or "none", channelIndex > 0 and ", fallback " .. channelIndex or "", Eligible() and "open world" or "not eligible", SA_PartyShare.Open(breaker) and "stopped after failures" or "ok"))
-    self:Print(string.format("Received %d: merged %d, presence %d, own %d, rejected %d, over budget %d, over sender limit %d, ignored %d", counters.received, counters.merged, counters.presence, counters.own, counters.rejected, counters.overBudget, counters.overSender, counters.ignored))
-    self:Print(string.format("Sent %d sightings, %d presence, %d failed; tracked enemies %d (pool %d), swept %d", counters.sent, counters.sentPresence, counters.sendFailed, store.count, #store.pool, counters.swept))
+    self:Print(string.format("Global sightings: channel %s (%s%s), zone %s, send %s", joined and "joined" or "not joined", channel or "none", channelIndex > 0 and ", fallback " .. channelIndex or "", Eligible() and "open world" or "not eligible", SA_PartyShare.Open(breaker, now) and "paused after failures" or (now < holdUntil and "holding, throttled" or "ok")))
+    self:Print(string.format("Received %d: merged %d, presence %d, own %d, rejected %d, conflicting %d, over budget %d, over sender limit %d, ignored %d", counters.received, counters.merged, counters.presence, counters.own, counters.rejected, counters.conflicts, counters.overBudget, counters.overSender, counters.ignored))
+    self:Print(string.format("Sent %d sightings, %d presence, %d failed (%d throttled); tracked enemies %d (pool %d), swept %d", counters.sent, counters.sentPresence, counters.sendFailed, counters.throttled, store.count, #store.pool, counters.swept))
     self:Print(string.format("Decode %.3f ms average, %.3f ms max", average, counters.decodeMax))
     if stats then
         self:Print(string.format("This zone, last 5 min: %d enemies, %d watchers", stats.enemies, stats.watchers))
@@ -739,6 +802,12 @@ function SoundAlerter:GlobalSightCommand(rest)
             self:Print(string.format("Ignored: %s (%s)", sender, reason))
         end
         if ignoredCount > 10 then self:Print(string.format("... and %d more", ignoredCount - 10)) end
+    end
+    local names = {}
+    for name in pairs(Muted()) do names[#names + 1] = name end
+    if #names > 0 then
+        table.sort(names)
+        self:Print(string.format("Muted by you (%d): %s", #names, table.concat(names, ", ", 1, math.min(#names, 10)) .. (#names > 10 and ", ..." or "")))
     end
 end
 end

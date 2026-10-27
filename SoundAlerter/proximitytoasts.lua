@@ -6,7 +6,7 @@ end
 local ProximityToasts = {}
 SoundAlerter.ProximityToasts = ProximityToasts
 
-local UnitAura = SA_COMPAT.UnitAura
+local AuraTiming = SA_COMPAT.AuraTiming
 
 ProximityToasts.inCombat = false
 
@@ -84,61 +84,13 @@ end
 
 local SafeUnitName = SA_COMPAT.SafeUnitName
 
-local function SanitizeMacroText(text)
-    if not text then return "" end
-    text = text:gsub("\n", ""):gsub("\r", ""):gsub("%z", "")
-    return text
-end
+local SanitizeMacroText = SA_ToastClick.Sanitize
 
 local function ApplyFocusMacro(button, unitName)
     local hasTarget = UnitExists("target")
     local targetName = hasTarget and SafeUnitName("target") or nil
     local state = SA_ToastClick.TargetState(hasTarget, targetName, unitName)
     button:SetAttribute("shift-macrotext1", SA_ToastClick.FocusMacro(SanitizeMacroText(unitName), state))
-end
-
-local unitScanOrder = {
-    "target", "focus", "mouseover",
-    "targettarget", "focustarget",
-    "party1target", "party2target", "party3target", "party4target",
-    "raid1target", "raid2target", "raid3target", "raid4target", "raid5target",
-    "raid6target", "raid7target", "raid8target", "raid9target", "raid10target",
-    "raid11target", "raid12target", "raid13target", "raid14target", "raid15target",
-    "raid16target", "raid17target", "raid18target", "raid19target", "raid20target",
-    "raid21target", "raid22target", "raid23target", "raid24target", "raid25target",
-    "raid26target", "raid27target", "raid28target", "raid29target", "raid30target",
-    "raid31target", "raid32target", "raid33target", "raid34target", "raid35target",
-    "raid36target", "raid37target", "raid38target", "raid39target", "raid40target",
-}
-
-local function TargetByNameCompat(targetName, unitToken)
-    if not targetName then return false end
-
-    if UnitExists("target") and SafeUnitName("target") == targetName then
-        return true
-    end
-
-    if unitToken and UnitExists(unitToken) and SafeUnitName(unitToken) == targetName then
-        TargetUnit(unitToken)
-
-        if UnitExists("target") and SafeUnitName("target") == targetName then
-            return true
-        end
-    end
-
-    for _, unitId in ipairs(unitScanOrder) do
-        if UnitExists(unitId) and SafeUnitName(unitId) == targetName then
-            TargetUnit(unitId)
-
-            if UnitExists("target") and SafeUnitName("target") == targetName then
-                return true
-            end
-        end
-    end
-
-    SoundAlerter:Debug("ProximityToasts", "toast click: could not locate %s in any scannable unit", targetName)
-
-    return false
 end
 
 local function GetClassColor(className)
@@ -555,25 +507,6 @@ local function CreateToastFrame(index, isSecure)
             return
         end
 
-        local hasTarget = UnitExists("target")
-        local targetState = SA_ToastClick.TargetState(hasTarget, hasTarget and SafeUnitName("target") or nil, targetName)
-        local targetSuccess = TargetByNameCompat(targetName, self.userData.unitToken)
-
-        if not targetSuccess then
-            SoundAlerter:Debug("ProximityToasts", "failed to target %s (unit not visible)", targetName)
-        end
-
-        if IsShiftKeyDown() then
-            if sadb.proximityToasts.enableFocusTarget then
-                FocusUnit("target")
-                if targetState == "other" then
-                    TargetLastTarget()
-                elseif targetState == "none" then
-                    ClearTarget()
-                end
-            end
-        end
-
         local dismissTime = GetTime() + 0.15
         self.pendingDismiss = true
         self.dismissTime = dismissTime
@@ -631,6 +564,7 @@ function ProximityToasts:Initialize()
     if self.initialized then
         return
     end
+    self.inCombat = InCombatLockdown() and true or false
 
     local sadb = SoundAlerter.db1.profile
     if not sadb.proximityToasts then
@@ -734,7 +668,7 @@ function ProximityToasts:SubscribeCasts()
 end
 
 function ProximityToasts:AcquireToast()
-    self.poolState.inCombat = self.inCombat
+    self.poolState.inCombat = self.inCombat or InCombatLockdown()
     return SoundAlerter.BarUtils:AcquireToastFromPool(self.poolState, function(toast) self:ReleaseToast(toast) end)
 end
 
@@ -976,8 +910,8 @@ local function CollectAuras(unitToken)
     if unitToken and UnitExists(unitToken) then
         for _, filter in ipairs(AURA_FILTERS) do
             for i = 1, AURA_SCAN_MAX do
-                local name, _, icon, _, _, duration, expirationTime = UnitAura(unitToken, i, filter)
-                if not name then break end
+                local found, icon, duration, expirationTime = AuraTiming(unitToken, i, filter)
+                if not found then break end
                 if #list < MAX_AURA_ICONS then
                     local remaining = duration and duration > 0 and expirationTime and (expirationTime - GetTime())
                     list[#list + 1] = {
@@ -1158,7 +1092,7 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
     end
 
     if toast.secureButton and unitName then
-        if not self.inCombat then
+        if not (self.inCombat or InCombatLockdown()) then
             local safeUnitName = SanitizeMacroText(unitName)
             toast.secureButton:SetAttribute("type1", "macro")
             toast.secureButton:SetAttribute("macrotext1", "/target " .. safeUnitName)

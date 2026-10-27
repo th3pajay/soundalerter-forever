@@ -18,7 +18,7 @@ local searchWrapped = setmetatable({}, { __mode = "k" })
 Nav.Sections = {
     { name = "Setup", order = 0, keys = { QuickStart = 1, General = 2, MinimapButton = 3 } },
     { name = "Alerts", order = 10, sorted = true, keys = { Spells = 11, ProximityAlerts = 12, BattlegroundAlerts = 13, Notices = 15 } },
-    { name = "Displays", order = 20, sorted = true, keys = { ResourceBar = 21, CastingBars = 22, CastFeed = 23, CombatTimer = 24, SpeedMeter = 25, Footsteps = 26, SpellTracker = 27 } },
+    { name = "Displays", order = 20, sorted = true, keys = { ResourceBar = 21, CastingBars = 22, CastFeed = 23, CombatTimer = 24, SpeedMeter = 25, Footsteps = 26, SpellTracker = 27, TrinketMenu = 28 } },
     { name = "Tools", order = 30, sorted = true, keys = { Statistics = 31, FindSpell = 32, custom = 33 } },
     { name = "Profile", order = 40, keys = { profiles = 41 } },
 }

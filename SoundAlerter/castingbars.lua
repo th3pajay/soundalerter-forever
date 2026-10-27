@@ -19,6 +19,9 @@ local WARN_TIME = 0.7
 local WARN_MIN_DURATION = 1
 local CHANNEL_PULSES = 3
 local REST_BORDER = { 0.5, 0.5, 0.5 }
+local LOCK_ICON = "Interface\\LFGFrame\\UI-LFG-ICON-LOCK"
+local LOCK_MAX = 16
+local LOCK_MIN = 8
 local NO_TIER = { throttle = 0, subpixel = false }
 local stats = { updates = 0, writes = 0, throttled = 0, since = 0 }
 
@@ -42,6 +45,7 @@ local CASTING_BAR_GROUP_KEYS = {
 	timeFormat = true,
 	showSpellIcon = true,
 	showLatency = true,
+	showLockIcon = true,
 	animQuality = true,
 	segments = true,
 	channelPulse = true,
@@ -174,6 +178,10 @@ function CastingBars:CreateCastBar(unit, config)
 	latency:SetWidth(1)
 	latency:Hide()
 
+	local lock = bar:CreateTexture(nil, "OVERLAY", nil, 7)
+	lock:SetTexture(LOCK_ICON)
+	lock:SetAlpha(0)
+
 	local b = {
 		unit = unit,
 		defaultY = config.defaultY,
@@ -184,6 +192,7 @@ function CastingBars:CreateCastBar(unit, config)
 		timeText = timeText,
 		icon = icon,
 		latency = latency,
+		lock = lock,
 		casting = false,
 		channeling = false,
 		startTime = 0,
@@ -243,6 +252,10 @@ function CastingBars:ApplyOrientation(b)
 
 	local gap = BarUtils:Snap(ICON_GAP, bar)
 	local inset = BarUtils:Snap(TEXT_INSET, bar)
+	local lock = b.lock
+	local lockSize = math_max(LOCK_MIN, math_min(LOCK_MAX, (vertical and barWidth or barHeight) - 6))
+	lock:SetSize(lockSize, lockSize)
+	lock:ClearAllPoints()
 
 	icon:ClearAllPoints()
 	spellText:ClearAllPoints()
@@ -258,10 +271,12 @@ function CastingBars:ApplyOrientation(b)
 			icon:SetPoint("BOTTOM", bar, "TOP", 0, gap)
 			timeText:SetPoint("BOTTOM", bar, "BOTTOM", 0, inset)
 			latency:SetPoint("BOTTOM", bar, "BOTTOM", 0, 0)
+			lock:SetPoint("TOP", bar, "TOP", 0, -inset)
 		else
 			icon:SetPoint("TOP", bar, "BOTTOM", 0, -gap)
 			timeText:SetPoint("TOP", bar, "TOP", 0, -inset)
 			latency:SetPoint("TOP", bar, "TOP", 0, 0)
+			lock:SetPoint("BOTTOM", bar, "BOTTOM", 0, inset)
 		end
 
 		latency:SetWidth(barWidth)
@@ -272,10 +287,12 @@ function CastingBars:ApplyOrientation(b)
 			icon:SetPoint("LEFT", bar, "RIGHT", gap, 0)
 			timeText:SetPoint("LEFT", bar, "LEFT", inset, 0)
 			latency:SetPoint("LEFT", bar, "LEFT", 0, 0)
+			lock:SetPoint("RIGHT", bar, "RIGHT", -inset, 0)
 		else
 			icon:SetPoint("RIGHT", bar, "LEFT", -gap, 0)
 			timeText:SetPoint("RIGHT", bar, "RIGHT", -inset, 0)
 			latency:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
+			lock:SetPoint("LEFT", bar, "LEFT", inset, 0)
 		end
 
 		latency:SetHeight(barHeight)
@@ -299,6 +316,8 @@ function CastingBars:Detach()
 	self.eventFrame:SetScript("OnUpdate", nil)
 end
 
+local LOCK_EVENTS = { "UNIT_SPELLCAST_INTERRUPTIBLE", "UNIT_SPELLCAST_NOT_INTERRUPTIBLE" }
+
 local UNIT_CAST_EVENTS = {
 	"UNIT_SPELLCAST_START",
 	"UNIT_SPELLCAST_STOP",
@@ -315,6 +334,9 @@ function CastingBars:RegisterEvents()
 
 	for _, event in ipairs(UNIT_CAST_EVENTS) do
 		self.eventFrame:RegisterUnitEvent(event, unpack(UNIT_ORDER))
+	end
+	for _, event in ipairs(LOCK_EVENTS) do
+		pcall(self.eventFrame.RegisterUnitEvent, self.eventFrame, event, unpack(UNIT_ORDER))
 	end
 	self.eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 	self.eventFrame:RegisterEvent("PLAYER_FOCUS_CHANGED")
@@ -354,6 +376,14 @@ local EVENT_HANDLERS = {
 	end,
 	UNIT_SPELLCAST_CHANNEL_UPDATE = function(self, unit)
 		self:Retime(unit, true)
+	end,
+	UNIT_SPELLCAST_INTERRUPTIBLE = function(self, unit)
+		local b = self.bars[unit]
+		if b.casting or b.channeling then self:ShowLock(b, false) end
+	end,
+	UNIT_SPELLCAST_NOT_INTERRUPTIBLE = function(self, unit)
+		local b = self.bars[unit]
+		if b.casting or b.channeling then self:ShowLock(b, true) end
 	end,
 }
 
@@ -451,9 +481,27 @@ function CastingBars:ApplySecretTimer(b, unit, channeling)
 	return pcall(b.bar.SetTimerDuration, b.bar, duration, nil, direction)
 end
 
+function CastingBars:ShowLock(b, notInterruptible)
+	local lock = b.lock
+	if not lock then return end
+	if not self.db.showLockIcon then
+		lock:SetAlpha(0)
+		lock:Hide()
+		return
+	end
+	lock:Show()
+	if issecretvalue(notInterruptible) then
+		local sink = lock.SetAlphaFromBoolean
+		if not (sink and pcall(sink, lock, notInterruptible, 1, 0)) then lock:SetAlpha(0) end
+	else
+		lock:SetAlpha(notInterruptible == true and 1 or 0)
+	end
+end
+
 function CastingBars:StartFx(b, fresh, notInterruptible)
 	b.warned = false
 	b.pulses = 0
+	self:ShowLock(b, notInterruptible)
 	if plainFlag(notInterruptible) == true then
 		self:Fx("Lock", b)
 	end
@@ -572,6 +620,7 @@ function CastingBars:ResetState(b)
 	b.warned = false
 	b.pulses = 0
 	self:Fx("Rest", b)
+	if b.lock then b.lock:SetAlpha(0) end
 	b.frame:SetAlpha(1)
 	b.bar:SetValue(0)
 	b.bar:SetBackdropBorderColor(REST_BORDER[1], REST_BORDER[2], REST_BORDER[3], 1)
@@ -590,6 +639,7 @@ function CastingBars:Finish(b, kind)
 	b.bounceActive = false
 	b.finishing = style
 	b.finishStart = GetTime()
+	if b.lock then b.lock:SetAlpha(0) end
 
 	b.bar:SetStatusBarColor(style.r, style.g, style.b, 1)
 	b.bar:SetBackdropBorderColor(style.r, style.g, style.b, 1)
@@ -693,7 +743,7 @@ function CastingBars:Retime(unit, channeling)
 	local b = self.bars[unit]
 	if not b then return end
 
-	local spellName, startTime, endTime
+	local spellName, startTime, endTime, _
 	if channeling then
 		spellName, _, _, _, startTime, endTime = UnitChannelInfo(unit)
 	else

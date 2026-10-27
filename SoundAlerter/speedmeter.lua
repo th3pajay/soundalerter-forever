@@ -111,12 +111,12 @@ function SpeedMeter:Render()
     local db, text = self.db, self.text
     if not db or not text then return end
 
-    local percent, mode, tint
+    local percent, tint, _
     if not db.locked then
         percent, tint = 100, "base"
     else
         local run, flight, swim, current = ReadSpeeds()
-        percent, mode, tint = SpeedMeter.Evaluate(run, flight, swim, flag(IsMounted()), flag(IsFlying()), InWater(), current)
+        percent, _, tint = SpeedMeter.Evaluate(run, flight, swim, flag(IsMounted()), flag(IsFlying()), InWater(), current)
     end
 
     local label, color

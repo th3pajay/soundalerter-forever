@@ -149,6 +149,25 @@ local function ViewRadius()
     return yards
 end
 
+local radiusMemo = {}
+
+function SoundAlerter.MinimapRadius(zone)
+    local yards = ViewRadius()
+    if yards then return yards end
+    if not Minimap or not Minimap.GetZoom then return nil end
+    local zoom = Minimap:GetZoom()
+    zone = zone or BestMap()
+    local indoors
+    if IsIndoors then indoors = Plain(IsIndoors()) end
+    if type(indoors) ~= "boolean" then indoors = nil end
+    if radiusMemo.zoom ~= zoom or radiusMemo.zone ~= zone or radiusMemo.indoors ~= indoors then
+        radiusMemo.zoom, radiusMemo.zone, radiusMemo.indoors = zoom, zone, indoors
+        if indoors == nil then indoors = ProbeIndoor(zoom) end
+        radiusMemo.yards = Model.RadiusYards(zoom, indoors and true or false)
+    end
+    return radiusMemo.yards
+end
+
 local function CompassShown()
     local compass = MinimapCompassTexture
     if not compass or not compass.IsShown then return false end

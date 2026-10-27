@@ -23,6 +23,7 @@ local SIDE_EFFECTS = {
     shareAlertsReceive = "UpdatePartyShare",
     globalSightings = "UpdateGlobalSight",
     globalQuality = "UpdateGlobalSight",
+    globalMinimap = "UpdateGlobalMap",
 }
 local SAMPLES = {
     { "Shadowstep", "Rogue", "Group of 3 - 12 yd", { 1, 0.96, 0.41 }, "Interface\\Icons\\Ability_Stealth", "ROGUE", "Close", 3 },
@@ -161,9 +162,10 @@ function SoundAlerter:BuildProximityOptions()
             Page.When("p.stealthKeepWatch", Page.Select("p.stealthWatchBand", "Keep watch within", "Only keep watch while the stealthed enemy is inside this band.", BANDS, false, "Stealth")),
             Page.When("p.stealthKeepWatch", Page.Range("p.stealthWatchGap", "Time between alerts", "Shortest time between repeat alerts for the same enemy.", 2, 30, 1, false, "Stealth", " s")),
             Page.Visible(SA_PartyShare.Supported, Page.Toggle("p.shareAlertsSend", "Share alerts with your group", "Tell group members who run SoundAlerter when you spot a stealthed or watched enemy, or a new enemy nearby. Off by default.", false, "Party sharing")),
-            Page.Visible(SA_PartyShare.Supported, Page.Playable(Page.Toggle("p.shareAlertsReceive", "Hear alerts from your group", "Alert you for enemies your group members report. Your own alert switches, zones and quiet rules still apply, and the distance limit treats them like enemies your group targets. Off by default.", false, "Party sharing"), voicePlayer("detected.mp3"))),
+            Page.Visible(SA_PartyShare.Supported, Page.Playable(Page.Toggle("p.shareAlertsReceive", "Hear alerts from your group", "Alert you for enemies your group members report, with a soft two-note tone instead of the class voice so you can tell them from your own sightings. Watched players only alert when they are on your own watchlist. Your own alert switches, zones and quiet rules still apply, and the distance limit treats them like enemies your group targets. Off by default.", false, "Party sharing"), voicePlayer("sharedintel.mp3"))),
             Page.Visible(SA_PartyShare.Supported, Page.Experimental(Page.Toggle("p.globalSightings", "Global sightings (Experimental)", "Share the enemy players you see in the open world with every SoundAlerter user of your faction on your realm, and collect theirs. Shares your rough location (a map square, never your exact position). No sounds or toasts. Off by default.", false, "Party sharing"))),
             Page.When("p.globalSightings", Page.Select("p.globalQuality", "World map detail", "How much the world map overlay draws. Low redraws every 3 s, shows at most 50 enemies, fades in steps and hides markers while you zoom or pan. Normal redraws every second with up to 150 enemies. High shows every enemy, pulses fresh sightings and adds detail to tooltips and zone badges.", GLOBAL_QUALITIES, true, "Party sharing")),
+            Page.When("p.globalSightings", Page.Toggle("p.globalMinimap", "Show on the minimap", "Class-coloured dots on the minimap for shared sightings around you. Enemies just outside the minimap show as smaller, fainter dots on its edge, pointing the way. Hover a dot for details.", false, "Party sharing")),
             Page.When("p.proximityChat", Page.Text("p.proximityChatText", "Chat message template", "Customize the chat message. Placeholders: #class# is the enemy class name, #player# is the enemy player name. Example: [#class#] #player# detected nearby!", true, "How it alerts")),
             Page.When("t.enabled", Page.Range("t.displayDuration", "Display duration", "How long the toast remains visible on screen.", 2, 8, 0.5, true, "How it alerts", " s")),
             Page.When("t.enabled", Page.Range("t.maxConcurrent", "Max concurrent toasts", "Maximum number of toasts to show at once (older toasts fade out early if the limit is exceeded).", 1, 5, 1, true, "How it alerts")),

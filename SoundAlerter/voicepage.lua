@@ -6,7 +6,7 @@ local Model = SA_VoiceModel
 local Rail = SA_OptionsRail
 local FX = SA_MenuFX
 
-local COLOR, Paint, Outline, Text = Kit.COLOR, Kit.Paint, Kit.Outline, Kit.Text
+local COLOR, Paint, Text = Kit.COLOR, Kit.Paint, Kit.Text
 
 local WIDGET = "SoundAlerterVoicePage"
 local HEADER_HEIGHT = 80
@@ -19,15 +19,21 @@ local ROW_TEXT = 48
 local CARD_TITLE = Kit.CARD_TITLE
 local PILL_HEIGHT = 20
 local PILL_STEP = 24
-local NAME_X = 38
-local NAME_WIDTH = 140
-local SPELL_ROW_MIN = 34
 local LIST_HEAD = 36
+local TILE_HEIGHT = 30
+local TILE_MIN = 168
+local TILE_GAP = 6
+local TILE_ROW_GAP = 2
+local MAX_COLUMNS = 3
+local BOX_SIZE = 14
+local PANEL_X = 37
+local FILTER_STEP = 28
 local MAX_RESULTS = 40
 local ARM_SECONDS = 4
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
 local CHAT_ICON = "Interface\\Icons\\INV_Letter_15"
 local PLAY_ICON = "Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up"
+local CHECK_ICON = "Interface\\Buttons\\UI-CheckBox-Check"
 
 local EVENT_HELP = {
     ["Gained"] = "An enemy gains this buff or cooldown.",
@@ -249,13 +255,6 @@ function Voice:UndoPreset()
     self:FlashChanged(Model.ChangedSpells(settings, self.model, before))
 end
 
-function Voice:FlashChanged(changed)
-    for index = 1, self.activeRows do
-        local row = self.rowPool[index]
-        if changed[row.spell.id] then FX.Flash(row.flash) end
-    end
-end
-
 function Voice:BuildGlobal(parent)
     self.heading = NewHeading(parent, "GLOBAL")
     self.jump = NewLink(parent, "Jump to spells", function() self.spellsView:ScrollTo(self.spellsY or 0) end)
@@ -282,8 +281,8 @@ function Voice:BuildGlobal(parent)
     self:AddSetting(self.engineCard, { kind = "toggle", key = engine.key, label = engine.label, hint = engine.hint, inline = true, available = self.spec.engineSupported })
 end
 
-local function NewPill(row)
-    local button = CreateFrame("Button", nil, row.frame)
+local function NewPill(parent)
+    local button = CreateFrame("Button", nil, parent)
     button:SetHeight(PILL_HEIGHT)
     local fill = Paint(button, COLOR.line)
     fill:SetAllPoints(button)
@@ -331,76 +330,139 @@ function Voice:Silenced(event)
     return self:Db()[Model.SILENCE_FLAG[event]] and true or false
 end
 
+function Voice:SilencedSet()
+    local settings = self:Db()
+    local silenced = self.silenced
+    for _, event in ipairs(Model.EVENTS) do silenced[event] = settings[Model.SILENCE_FLAG[event]] and true or false end
+    return silenced
+end
+
 function Voice:PlayPill(pill)
     self.spec.play(self:Db().sapath .. Model.SoundKeys(pill.event, pill.keys)[1] .. ".mp3")
 end
 
-function Voice:TogglePill(row, pill)
+function Voice:TogglePill(tile, pill)
     if self:Silenced(pill.event) then return end
     local settings = self:Db()
-    local value = not Model.ChipOn(settings, row.spell, pill.event)
-    Model.SetChip(settings, row.spell, pill.event, value)
+    local value = not Model.ChipOn(settings, tile.spell, pill.event)
+    Model.SetChip(settings, tile.spell, pill.event, value)
     if value then self:PlayPill(pill) end
     self:Refresh()
-    FX.Flash(row.flash)
+    FX.Flash(tile.flash)
 end
 
-function Voice:AcquireRow(index)
-    local row = self.rowPool[index]
-    if row then return row end
-    local page = self
-    local frame = CreateFrame("Frame", nil, self.listHolder)
-    frame:EnableMouse(true)
+function Voice:ToggleTile(tile)
+    local settings = self:Db()
+    local spell = tile.spell
+    local value, event = Model.ToggleTile(settings, spell, self.filter, self:SilencedSet())
+    if value == nil then return end
+    if value then self.spec.play(settings.sapath .. Model.SoundKeys(event, spell.eventKeys[event])[1] .. ".mp3") end
+    self:Refresh()
+    FX.Flash(tile.flash)
+end
+
+function Voice:ToggleOpen(tile)
+    local id = tile.spell.id
+    self.open[id] = not self.open[id] or nil
+    self:LayoutSpells()
+    self:Refresh()
+    if self.open[id] then FX.Flash(tile.panelFlash) end
+end
+
+local function TileTip(tile)
+    local spell = tile.spell
+    if not spell then return end
+    GameTooltip:SetOwner(tile.frame, "ANCHOR_RIGHT")
+    local link = SA_COMPAT.GetSpellLink and SA_COMPAT.GetSpellLink(spell.iconSpellID)
+    if link then
+        GameTooltip:SetHyperlink(link)
+    else
+        GameTooltip:SetText(spell.name, 1, 1, 1)
+    end
+    GameTooltip:AddLine("Announces: " .. table.concat(spell.events, ", "), 1, 0.82, 0, true)
+    GameTooltip:AddLine("Sound: " .. table.concat(spell.keys, ", "), 0.6, 0.65, 0.7, true)
+    GameTooltip:AddLine("Click to switch the events shown on or off.", 0.6, 0.65, 0.7, true)
+    GameTooltip:Show()
+end
+
+function Voice:AcquireTile(index)
+    local tile = self.tilePool[index]
+    if tile then return tile end
+    local frame = CreateFrame("Button", nil, self.listHolder)
+    frame:SetHeight(TILE_HEIGHT)
     local tint = Paint(frame, COLOR.line, 0.4)
     tint:SetAllPoints(frame)
     tint:Hide()
     local flash = Paint(frame, COLOR.accent, 0.3, "BORDER")
     flash:SetAllPoints(frame)
     flash:Hide()
-    local rule = Paint(frame, COLOR.line, 0.55)
-    rule:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
-    rule:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
-    rule:SetHeight(1)
-    row = { frame = frame, flash = flash, pills = {} }
-    local tile = CreateFrame("Button", nil, frame)
-    tile:SetSize(24, 24)
-    tile:SetPoint("TOPLEFT", frame, "TOPLEFT", 6, -5)
-    row.icon = tile:CreateTexture(nil, "ARTWORK")
-    row.icon:SetAllPoints(tile)
-    tile:SetScript("OnEnter", function()
-        local spell = row.spell
-        if not spell then return end
-        GameTooltip:SetOwner(tile, "ANCHOR_RIGHT")
-        local link = SA_COMPAT.GetSpellLink and SA_COMPAT.GetSpellLink(spell.iconSpellID)
-        if link then
-            GameTooltip:SetHyperlink(link)
-        else
-            GameTooltip:SetText(spell.name, 1, 1, 1)
-        end
-        GameTooltip:AddLine("Sound: " .. table.concat(spell.keys, ", "), 0.6, 0.65, 0.7, true)
-        GameTooltip:Show()
+    local partial = Paint(frame, COLOR.on, 1, "ARTWORK")
+    partial:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+    partial:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+    partial:SetWidth(3)
+    partial:Hide()
+    local box = Paint(frame, COLOR.line, 1, "ARTWORK")
+    box:SetSize(BOX_SIZE, BOX_SIZE)
+    box:SetPoint("LEFT", frame, "LEFT", 8, 0)
+    local check = frame:CreateTexture(nil, "OVERLAY")
+    check:SetSize(BOX_SIZE + 6, BOX_SIZE + 6)
+    check:SetPoint("CENTER", box, "CENTER", 0, 0)
+    check:SetTexture(CHECK_ICON)
+    check:Hide()
+    local icon = frame:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(20, 20)
+    icon:SetPoint("LEFT", box, "RIGHT", 7, 0)
+    local name = Text(frame, 12.5, COLOR.text)
+    name:SetPoint("LEFT", icon, "RIGHT", 7, 0)
+    name:SetPoint("RIGHT", frame, "RIGHT", -32, 0)
+
+    local badge = CreateFrame("Button", nil, frame)
+    badge:SetSize(24, 18)
+    badge:SetPoint("RIGHT", frame, "RIGHT", -5, 0)
+    local badgeFill = Paint(badge, COLOR.line, 0.8)
+    badgeFill:SetAllPoints(badge)
+    local badgeLabel = Text(badge, 10.5, COLOR.muted, "CENTER")
+    badgeLabel:SetPoint("CENTER", badge, "CENTER", 0, 0)
+    FX.Press(badge, badgeFill, badgeLabel)
+
+    local panel = CreateFrame("Frame", nil, self.listHolder)
+    panel:Hide()
+    local panelFill = Paint(panel, COLOR.line, 0.25)
+    panelFill:SetAllPoints(panel)
+    local panelFlash = Paint(panel, COLOR.accent, 0.2, "BORDER")
+    panelFlash:SetAllPoints(panel)
+    panelFlash:Hide()
+
+    tile = {
+        frame = frame, flash = flash, partial = partial, box = box, check = check, icon = icon, name = name,
+        badge = badge, badgeFill = badgeFill, badgeLabel = badgeLabel, panel = panel, panelFlash = panelFlash, pills = {}, count = 0,
+    }
+    frame:SetScript("OnClick", function() self:ToggleTile(tile) end)
+    frame:SetScript("OnEnter", function() TileTip(tile) end)
+    frame:SetScript("OnLeave", HideTip)
+    badge:SetScript("OnClick", function() self:ToggleOpen(tile) end)
+    badge:SetScript("OnEnter", function()
+        local open = self.open[tile.spell.id]
+        ShowTip(badge, open and "Hide events" or (tile.count .. " events"), open and "Fold the event list away." or "Show each event on its own, with its sound and a play button.")
     end)
-    tile:SetScript("OnLeave", HideTip)
-    row.name = Text(frame, 12.5, COLOR.text)
-    row.name:SetWidth(NAME_WIDTH)
-    row.name:SetPoint("LEFT", frame, "TOPLEFT", NAME_X, -17)
-    FX.Hover(frame, tint)
-    self.rowPool[index] = row
-    return row
+    badge:SetScript("OnLeave", HideTip)
+    FX.Hover(frame, tint, badge)
+    self.tilePool[index] = tile
+    return tile
 end
 
-function Voice:BindRow(row, spell)
-    row.spell = spell
-    row.icon:SetTexture(SpellIcon(spell.iconSpellID))
-    row.name:SetText(spell.name)
-    row.count = #spell.events
+function Voice:BindTile(tile, spell)
+    tile.spell = spell
+    tile.icon:SetTexture(SpellIcon(spell.iconSpellID))
+    tile.name:SetText(spell.name)
+    tile.count = #spell.events
     for index, event in ipairs(spell.events) do
-        local pill = row.pills[index]
+        local pill = tile.pills[index]
         if not pill then
-            pill = NewPill(row)
-            pill.frame:SetScript("OnClick", function() self:TogglePill(row, pill) end)
+            pill = NewPill(tile.panel)
+            pill.frame:SetScript("OnClick", function() self:TogglePill(tile, pill) end)
             pill.play:SetScript("OnClick", function() self:PlayPill(pill) end)
-            row.pills[index] = pill
+            tile.pills[index] = pill
         end
         pill.event = event
         pill.keys = spell.eventKeys[event]
@@ -408,39 +470,113 @@ function Voice:BindRow(row, spell)
         pill.frame:SetWidth(pill.label:GetStringWidth() + 32)
         pill.frame:Show()
     end
-    for index = #spell.events + 1, #row.pills do row.pills[index].frame:Hide() end
+    for index = #spell.events + 1, #tile.pills do tile.pills[index].frame:Hide() end
 end
 
-function Voice:LayoutRows(listWidth)
-    local available = listWidth - NAME_X - NAME_WIDTH - 14
-    local y = 0
-    for index = 1, self.activeRows do
-        local row = self.rowPool[index]
-        local x, line = 0, 0
-        for position = 1, row.count do
-            local pill = row.pills[position]
-            local size = pill.frame:GetWidth()
-            if x > 0 and x + size > available then
-                x = 0
-                line = line + 1
-            end
-            pill.frame:ClearAllPoints()
-            pill.frame:SetPoint("TOPLEFT", row.frame, "TOPLEFT", NAME_X + NAME_WIDTH + 8 + x, -(6 + line * PILL_STEP))
-            x = x + size + 6
+function Voice:LayoutPanel(tile, width)
+    local available = width - PANEL_X - 8
+    local x, line = 0, 0
+    for position = 1, tile.count do
+        local pill = tile.pills[position]
+        local size = pill.frame:GetWidth()
+        if x > 0 and x + size > available then
+            x = 0
+            line = line + 1
         end
-        local height = math.max(SPELL_ROW_MIN, 8 + (line + 1) * PILL_STEP)
-        row.frame:ClearAllPoints()
-        row.frame:SetPoint("TOPLEFT", self.listHolder, "TOPLEFT", 0, -y)
-        row.frame:SetPoint("TOPRIGHT", self.listHolder, "TOPRIGHT", 0, -y)
-        row.frame:SetHeight(height)
-        y = y + height
+        pill.frame:ClearAllPoints()
+        pill.frame:SetPoint("TOPLEFT", tile.panel, "TOPLEFT", PANEL_X + x, -(5 + line * PILL_STEP))
+        x = x + size + 6
+    end
+    return 6 + (line + 1) * PILL_STEP
+end
+
+function Voice:LayoutTiles(listWidth)
+    local columns = math.max(1, math.min(MAX_COLUMNS, math.floor((listWidth + TILE_GAP) / (TILE_MIN + TILE_GAP))))
+    local width = math.floor((listWidth - (columns - 1) * TILE_GAP) / columns)
+    self.columns = columns
+    local expandable = self.filter == Model.ALL
+    local y, first = 0, 1
+    while first <= self.activeTiles do
+        local last = math.min(self.activeTiles, first + columns - 1)
+        for position = first, last do
+            local tile = self.tilePool[position]
+            tile.frame:ClearAllPoints()
+            tile.frame:SetPoint("TOPLEFT", self.listHolder, "TOPLEFT", (position - first) * (width + TILE_GAP), -y)
+            tile.frame:SetWidth(width)
+        end
+        y = y + TILE_HEIGHT + TILE_ROW_GAP
+        for position = first, last do
+            local tile = self.tilePool[position]
+            tile.expanded = expandable and tile.count > 1 and self.open[tile.spell.id] and true or false
+            if tile.expanded then
+                local height = self:LayoutPanel(tile, listWidth)
+                tile.panel:ClearAllPoints()
+                tile.panel:SetPoint("TOPLEFT", self.listHolder, "TOPLEFT", 0, -y)
+                tile.panel:SetWidth(listWidth)
+                tile.panel:SetHeight(height)
+                tile.panel:Show()
+                y = y + height + TILE_ROW_GAP
+            else
+                tile.panel:Hide()
+            end
+        end
+        first = last + 1
+    end
+    for position = self.activeTiles + 1, #self.tilePool do
+        local tile = self.tilePool[position]
+        tile.expanded = false
+        tile.panel:Hide()
     end
     return y
 end
 
+function Voice:FlashChanged(changed)
+    for index = 1, self.activeTiles do
+        local tile = self.tilePool[index]
+        if changed[tile.spell.id] then FX.Flash(tile.flash) end
+    end
+end
+
+function Voice:SetFilter(event)
+    if self.filter == event then return end
+    self.filter = event
+    self:ShowList()
+end
+
+function Voice:SyncFilters()
+    local events = self.filterEvents or {}
+    for index, event in ipairs(events) do
+        local chip = self.filterChips[index]
+        if not chip then
+            chip = NewChip(self.filterHolder, event, function() self:SetFilter(chip.event) end)
+            chip.frame:HookScript("OnEnter", function()
+                if chip.event == Model.ALL then
+                    ShowTip(chip.frame, "All events", "Show every spell; a click on a spell switches all its events.")
+                else
+                    ShowTip(chip.frame, chip.event, (EVENT_HELP[chip.event] or chip.event) .. "\nOnly spells with this event are shown, and a click switches just this event.")
+                end
+            end)
+            chip.frame:HookScript("OnLeave", HideTip)
+            self.filterChips[index] = chip
+        end
+        chip.event = event
+        chip:SetLabel(event)
+        chip.frame:Show()
+    end
+    for index = #events + 1, #self.filterChips do self.filterChips[index].frame:Hide() end
+    self.activeChips = #events
+end
+
 function Voice:ShowList()
     local query = self.query
-    local list = Model.Filter(self.model, self.class, query)
+    local base = Model.Filter(self.model, self.class, query)
+    self.filterEvents = Model.EventsIn(base)
+    local known = false
+    for _, event in ipairs(self.filterEvents) do
+        if event == self.filter then known = true end
+    end
+    if not known then self.filter = Model.ALL end
+    local list = Model.ByEvent(base, self.filter)
     self.hiddenResults = 0
     if #list > MAX_RESULTS then
         self.hiddenResults = #list - MAX_RESULTS
@@ -450,12 +586,13 @@ function Voice:ShowList()
     end
     self.visible = list
     for index, spell in ipairs(list) do
-        local row = self:AcquireRow(index)
-        self:BindRow(row, spell)
-        row.frame:Show()
+        local tile = self:AcquireTile(index)
+        self:BindTile(tile, spell)
+        tile.frame:Show()
     end
-    for index = #list + 1, #self.rowPool do self.rowPool[index].frame:Hide() end
-    self.activeRows = #list
+    for index = #list + 1, #self.tilePool do self.tilePool[index].frame:Hide() end
+    self.activeTiles = #list
+    self:SyncFilters()
     self:LayoutSpells()
     self:Refresh()
 end
@@ -463,6 +600,7 @@ end
 function Voice:SelectClass(name)
     self.class = name
     self.query = ""
+    self.filter = Model.ALL
     self.search:SetText("")
     self.spellsView:ScrollTo(self.spellsY or 0)
     self:ShowList()
@@ -543,12 +681,15 @@ function Voice:BuildListHead(parent)
     box:SetScript("OnEnterPressed", function(frame) frame:ClearFocus() end)
     self.search = box
 
+    self.filterHolder = CreateFrame("Frame", nil, parent)
+    self.filterChips = {}
+    self.activeChips = 0
     self.listHolder = CreateFrame("Frame", nil, parent)
     self.listNote = Text(parent, 11.5, COLOR.muted)
 end
 
 function Voice:SetVisible(value)
-    Model.SetAll(self:Db(), self.visible, value)
+    Model.SetAll(self:Db(), self.visible, value, self.filter)
     self:Refresh()
     local changed = {}
     for _, spell in ipairs(self.visible) do changed[spell.id] = true end
@@ -613,16 +754,25 @@ function Voice:LayoutSpells()
     self.listHead:ClearAllPoints()
     self.listHead:SetPoint("TOPLEFT", child, "TOPLEFT", listX, -y)
     self.listHead:SetWidth(listWidth)
+    self.filterHolder:ClearAllPoints()
+    self.filterHolder:SetPoint("TOPLEFT", child, "TOPLEFT", listX, -(y + LIST_HEAD))
+    self.filterHolder:SetWidth(listWidth)
+    local chips = self.shownChips
+    for index = 1, self.activeChips do chips[index] = self.filterChips[index] end
+    for index = self.activeChips + 1, #chips do chips[index] = nil end
+    local filterHeight = #chips > 0 and Flow(self.filterHolder, chips, listWidth, 6, 0, 0, FILTER_STEP) + 4 or 0
+    self.filterHolder:SetHeight(math.max(1, filterHeight))
+    local listHeight = LIST_HEAD + filterHeight
     self.listHolder:ClearAllPoints()
-    self.listHolder:SetPoint("TOPLEFT", child, "TOPLEFT", listX, -(y + LIST_HEAD))
+    self.listHolder:SetPoint("TOPLEFT", child, "TOPLEFT", listX, -(y + listHeight))
     self.listHolder:SetWidth(listWidth)
-    local rowsHeight = self:LayoutRows(listWidth)
-    self.listHolder:SetHeight(math.max(1, rowsHeight))
-    local listHeight = LIST_HEAD + rowsHeight
+    local tilesHeight = self:LayoutTiles(listWidth)
+    self.listHolder:SetHeight(math.max(1, tilesHeight))
+    listHeight = listHeight + tilesHeight
     self.listNote:ClearAllPoints()
     self.listNote:SetPoint("TOPLEFT", child, "TOPLEFT", listX + 6, -(y + listHeight + 8))
     local note = ""
-    if self.activeRows == 0 then
+    if self.activeTiles == 0 then
         note = self.query ~= "" and ("No spell matches \"" .. self.query .. "\".") or "No spells."
     elseif self.hiddenResults > 0 then
         note = self.hiddenResults .. " more match. Narrow the search to see them."
@@ -820,8 +970,8 @@ function Voice:Reset()
     self:Refresh()
 end
 
-local function SyncPill(row, pill, settings, silenced)
-    local on = Model.ChipOn(settings, row.spell, pill.event)
+local function SyncPill(tile, pill, settings, silenced)
+    local on = Model.ChipOn(settings, tile.spell, pill.event)
     pill.muted = silenced[pill.event]
     Tint(pill.fill, on and COLOR.on or COLOR.line, on and 0.28 or 0.7)
     Tint(pill.label, on and COLOR.on or COLOR.muted)
@@ -836,11 +986,31 @@ function Voice:Refresh()
 
     for _, entry in ipairs(self.settings) do SyncSetting(entry, settings) end
 
-    local silenced = {}
-    for _, event in ipairs(Model.EVENTS) do silenced[event] = settings[Model.SILENCE_FLAG[event]] and true or false end
-    for index = 1, self.activeRows do
-        local row = self.rowPool[index]
-        for position = 1, row.count do SyncPill(row, row.pills[position], settings, silenced) end
+    local silenced = self:SilencedSet()
+    local filtered = self.filter ~= Model.ALL
+    for index = 1, self.activeTiles do
+        local tile = self.tilePool[index]
+        local state = Model.TileState(settings, tile.spell, self.filter, silenced)
+        tile.state = state
+        local on = state == "on"
+        Tint(tile.box, on and COLOR.on or COLOR.line, 1)
+        tile.check:SetShown(on)
+        tile.partial:SetShown(state == "some")
+        tile.frame:SetAlpha(state == "muted" and 0.35 or 1)
+        local multi = not filtered and tile.count > 1
+        tile.badge:SetShown(multi)
+        if multi then
+            tile.badgeLabel:SetText(tile.expanded and "x" or tostring(tile.count))
+            Tint(tile.badgeFill, tile.expanded and COLOR.accent or COLOR.line, tile.expanded and 0.35 or 0.8)
+            Tint(tile.badgeLabel, tile.expanded and COLOR.accent or COLOR.muted)
+        end
+        if tile.expanded then
+            for position = 1, tile.count do SyncPill(tile, tile.pills[position], settings, silenced) end
+        end
+    end
+    for index = 1, self.activeChips do
+        local chip = self.filterChips[index]
+        chip:Set(chip.event == self.filter)
     end
 
     local groups = settings.chatgroups or {}
@@ -858,12 +1028,12 @@ function Voice:Refresh()
     end
 
     local searching = self.query ~= ""
-    local on, total = Model.Count(settings, self.visible or {})
+    local on, total = Model.Count(settings, self.visible or {}, self.filter)
     self.listTitle:SetText(searching and "Search results" or self.class)
     local color = searching and COLOR.text or (CLASS_COLOR[self.class] or COLOR.text)
     Tint(self.listTitle, color)
-    self.listCount:SetText(on .. " of " .. total .. " on")
-    local hasRows = self.activeRows > 0
+    self.listCount:SetText(on .. " of " .. total .. (filtered and (" " .. self.filter) or "") .. " on")
+    local hasRows = self.activeTiles > 0
     for _, button in ipairs(self.allButtons) do
         button.frame:SetAlpha(hasRows and 1 or 0.4)
         button.frame:EnableMouse(hasRows)
@@ -901,7 +1071,7 @@ end
 local function BuildPage(spec)
     local frame = CreateFrame("Frame", nil, UIParent)
     frame:Hide()
-    local page = { frame = frame, spec = spec, settings = {}, rowPool = {}, activeRows = 0, query = "" }
+    local page = { frame = frame, spec = spec, settings = {}, tilePool = {}, activeTiles = 0, query = "", filter = Model.ALL, open = {}, silenced = {}, shownChips = {} }
     for name, method in pairs(Voice) do page[name] = method end
     page.model = Model.Shared(spec.spellList(), spec.spellMeta())
     page.class = page.model.classes[1] and page.model.classes[1].name or "Other"
