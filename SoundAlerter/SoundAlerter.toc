@@ -33,6 +33,7 @@ globalsight.lua
 globalmap.lua
 spellist.lua
 voicealertmodel.lua
+toast.lua
 proximitytoasts.lua
 flagalerts.lua
 bartexture.lua
