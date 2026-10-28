@@ -33,10 +33,11 @@ local function BeginPause(toast)
     if not toast.inUse or toast.pendingDismiss then
         return
     end
-    local elapsed = GetTime() - toast.startTime - toast.pauseState.totalTime
+    local now = GetTime()
+    local elapsed = now - toast.startTime - toast.pauseState.totalTime
     if elapsed >= FADE_IN_DURATION and elapsed < (FADE_IN_DURATION + toast.displayDuration) then
         toast.pauseState.active = true
-        toast.pauseState.startTime = GetTime()
+        toast.pauseState.startTime = now
     end
 end
 
@@ -83,6 +84,7 @@ local function ToastOnUpdate(toast)
     local engine = toast.engine
     local config = engine.config
     local now = GetTime()
+    local locked = IsLocked(toast)
 
     if toast.isSliding then
         local t = (now - toast.slideStartTime) / SLIDE_DURATION
@@ -93,7 +95,7 @@ local function ToastOnUpdate(toast)
             local eased = 1 - (1 - t) * (1 - t)
             toast.currentY = toast.slideFromY + (toast.slideToY - toast.slideFromY) * eased
         end
-        if not IsLocked(toast) then
+        if not locked then
             toast:SetPoint("TOP", UIParent, "TOP", toast.slideBaseX, toast.currentY)
         end
     end
@@ -110,19 +112,22 @@ local function ToastOnUpdate(toast)
     if elapsed < FADE_IN_DURATION then
         local progress = elapsed / FADE_IN_DURATION
         toast:SetAlpha(progress)
-        if not IsLocked(toast) then
+        if not locked then
             toast:SetScale(1.15 - (0.15 * progress))
         end
         if secureButton then
             secureButton:SetAlpha(progress)
         end
     elseif elapsed < (FADE_IN_DURATION + toast.displayDuration) then
-        toast:SetAlpha(1)
-        if not IsLocked(toast) then
-            toast:SetScale(1.0)
-        end
-        if secureButton then
-            secureButton:SetAlpha(1)
+        if not toast.displayApplied then
+            toast:SetAlpha(1)
+            if secureButton then
+                secureButton:SetAlpha(1)
+            end
+            if not locked then
+                toast:SetScale(1.0)
+                toast.displayApplied = true
+            end
         end
         UpdateCountdownSegments(toast, elapsed - FADE_IN_DURATION)
     elseif elapsed < (FADE_IN_DURATION + toast.displayDuration + FADE_OUT_DURATION) then
@@ -407,6 +412,7 @@ function Engine:Release(toast)
     toast.pendingDismiss = false
     toast.dismissTime = nil
     toast.segmentsHidden = false
+    toast.displayApplied = false
     toast.cachedSegmentData = nil
 
     toast.pauseState.active = false
@@ -515,11 +521,12 @@ end
 function Engine:Start(toast, displayDuration, segmentColor)
     local config = self.config
 
-    toast.creationTime = GetTime()
+    local now = GetTime()
+    toast.creationTime = now
     table.insert(self.active, toast)
     self:UpdateLayout()
 
-    toast.startTime = GetTime()
+    toast.startTime = now
     toast.displayDuration = displayDuration
     toast.elapsedTime = 0
 
@@ -555,15 +562,17 @@ function Engine:Start(toast, displayDuration, segmentColor)
     toast.pauseState.startTime = 0
     toast.pauseState.totalTime = 0
     toast.segmentsHidden = false
+    toast.displayApplied = false
 
+    local locked = IsLocked(toast)
     toast:SetAlpha(0)
-    if not IsLocked(toast) then
+    if not locked then
         toast:SetScale(1.0)
     end
     toast:Show()
 
     if config.manageMouse then
-        if not IsLocked(toast) then
+        if not locked then
             toast:EnableMouse(true)
         end
         if toast.secureButton and not InCombatLockdown() then
