@@ -1,6 +1,7 @@
 
 local SoundAlerter = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
 local FlagAlerts = SoundAlerter:NewModule("FlagAlerts", "AceEvent-3.0", "AceTimer-3.0")
+local engine
 
 SoundAlerter.FlagAlerts = FlagAlerts
 
@@ -26,9 +27,6 @@ local math_max = math.max
 local math_ceil = math.ceil
 local math_huge = math.huge
 local math_min = math.min
-local math_floor = math.floor
-local math_sin = math.sin
-local math_pi = math.pi
 local pairs = pairs
 local ipairs = ipairs
 
@@ -169,23 +167,6 @@ function FlagAlerts:OnInitialize()
         chatAlertsSuppressed = 0,
     }
 
-    self.flagSecureToastPool = {}
-    self.flagInsecureToastPool = {}
-    self.activeFlagToasts = {}
-    self.flagInsecureSwapBuffer = {}
-
-    self.flagSwapMetrics = {count = 0, totalTime = 0, maxTime = 0, histogram = {}}
-    self.flagPoolState = {
-        securePool = self.flagSecureToastPool,
-        insecurePool = self.flagInsecureToastPool,
-        activeList = self.activeFlagToasts,
-        poolSize = MAX_FLAG_TOASTS,
-        swapInProgress = false,
-        swapBuffer = self.flagInsecureSwapBuffer,
-        metrics = self.flagSwapMetrics,
-        onLayoutChanged = function() self:UpdateFlagToastLayout() end,
-    }
-
     self.flagToastMetrics = {
         toastsShown = 0,
         toastsSwapped = 0,
@@ -212,7 +193,7 @@ function FlagAlerts:OnEnable()
     self:RegisterEvent("PLAYER_REGEN_DISABLED")
     self:RegisterEvent("PLAYER_REGEN_ENABLED")
 
-    self:InitializeFlagToastPools()
+    engine:Initialize()
 
     self:ScheduleRepeatingTimer("CleanupPersistentCache", 300)
 
@@ -255,15 +236,19 @@ end
 
 function FlagAlerts:PLAYER_REGEN_ENABLED()
     self.inCombat = false
-    self:FlushDeferredFlagHides()
-    self:UpdateFlagToastLayout()
+    engine:FlushDeferred()
+    engine:UpdateLayout()
 
     if sadb.flagToastsEnabled then
-        if self.flagSecureCreationPending then
-            self:CreateSecureFlagToastPool()
+        if engine.secureCreationPending then
+            engine:CreateSecurePool()
         end
 
-        self:SwapInsecureToSecureFlagFrames()
+        local swappedCount, elapsed = engine:SwapToSecure()
+        local metrics = self.flagToastMetrics
+        metrics.toastsSwapped = metrics.toastsSwapped + swappedCount
+        metrics.swapTime = metrics.swapTime + elapsed
+        metrics.maxSwapTime = math.max(metrics.maxSwapTime, elapsed)
     end
 
     SoundAlerter:Debug("FlagAlerts", "Left combat - all features restored")
@@ -887,7 +872,7 @@ function SoundAlerter.FlagAlerts:HandleCommand(msg)
         DEFAULT_CHAT_FRAME:AddMessage(string_format("  Captures: |cff00FFFF%d|r", m.captureToasts))
         DEFAULT_CHAT_FRAME:AddMessage(" ")
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FFFF[Pool Utilization]|r")
-        DEFAULT_CHAT_FRAME:AddMessage(string_format("  Active Toasts: |cffFFFFFF%d / %d|r", #self.activeFlagToasts, 3))
+        DEFAULT_CHAT_FRAME:AddMessage(string_format("  Active Toasts: |cffFFFFFF%d / %d|r", #engine.active, MAX_FLAG_TOASTS))
         DEFAULT_CHAT_FRAME:AddMessage(string_format("  Pool Exhaustions: |cffFF6B6B%d|r", m.poolExhaustions))
         DEFAULT_CHAT_FRAME:AddMessage(" ")
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FFFF[Combat State]|r")
@@ -904,9 +889,7 @@ function SoundAlerter.FlagAlerts:HandleCommand(msg)
             DEFAULT_CHAT_FRAME:AddMessage("  No swaps yet")
         end
     elseif msg == "cleartoasts" then
-        for i = #self.activeFlagToasts, 1, -1 do
-            self:ReleaseFlagToast(self.activeFlagToasts[i])
-        end
+        engine:ReleaseAll()
         SoundAlerter:Print("[FlagAlerts] All active flag toasts cleared")
     elseif msg == "reset" then
         if not sadb.debugmode then
@@ -939,48 +922,13 @@ end
 local FLAG_TOAST_WIDTH = 300
 local FLAG_TOAST_HEIGHT = 72
 local FLAG_VERTICAL_SPACING = 8
-local FLAG_FADE_IN_DURATION = 0.2
-local FLAG_FADE_OUT_DURATION = 0.5
 local FLAG_DISPLAY_DURATION = 5.0
-local MAX_SEGMENTS = 30
 
 local FLAG_ICONS = {
     ALLIANCE_FLAG = "Interface\\WorldStateFrame\\AllianceFlag",
     HORDE_FLAG = "Interface\\WorldStateFrame\\HordeFlag",
     NEUTRAL_FLAG = "Interface\\WorldStateFrame\\NeutralFlag",
 }
-
-local function GetRainbowColor(time)
-    local frequency = math_pi * 2 / 6.0
-    local r = math_sin(frequency * time + 0) * 0.5 + 0.5
-    local g = math_sin(frequency * time + 2.0944) * 0.5 + 0.5
-    local b = math_sin(frequency * time + 4.1888) * 0.5 + 0.5
-
-    return r, g, b
-end
-
-local function UpdateFlagCountdownSegments(toast, displayElapsed)
-    if not toast.countdownBar or not toast.cachedSegmentData then
-        return
-    end
-
-    local duration = toast.cachedSegmentData.duration
-    local secondsElapsed = math_floor(displayElapsed)
-    local segmentProgress = (displayElapsed % 1)
-    local currentSegmentIndex = secondsElapsed + 1
-
-    if currentSegmentIndex <= duration and toast.countdownBar.segments[currentSegmentIndex] then
-        toast.countdownBar.segments[currentSegmentIndex]:SetAlpha(1 - segmentProgress)
-    end
-
-    local lastHidden = toast.cachedSegmentData.lastHiddenSegment or 0
-    for i = lastHidden + 1, secondsElapsed do
-        if toast.countdownBar.segments[i] then
-            toast.countdownBar.segments[i]:SetAlpha(0)
-        end
-    end
-    toast.cachedSegmentData.lastHiddenSegment = secondsElapsed
-end
 
 function FlagAlerts:ResolveToastAppearance(carrierTeam)
     local sadb = SoundAlerter.db1.profile
@@ -1013,409 +961,83 @@ function FlagAlerts:ResolveToastAppearance(carrierTeam)
     return bgFile, bgR, bgG, bgB, bgA, borderR, borderG, borderB, borderA
 end
 
-local function IsFlagToastLocked(toast)
-    return toast.isSecure and InCombatLockdown()
+local function ArmSecureButton(button, unitName)
+    local macroText = SA_ToastClick.TargetMacro(unitName)
+    button:SetAttribute("macrotext1", macroText)
+    button:SetAttribute("macrotext", macroText)
+    button:SetAlpha(1)
+    button:Show()
 end
 
-local deferredFlagHides = {}
-local deferredFlagButtons = {}
+local function CopyContent(oldFrame, newFrame)
+    newFrame.icon:SetTexture(oldFrame.icon:GetTexture())
+    newFrame.titleText:SetText(oldFrame.titleText:GetText() or "")
+    newFrame.detailText:SetText(oldFrame.detailText:GetText() or "")
 
-local function HideFlagToast(toast)
-    if IsFlagToastLocked(toast) then
-        toast:SetAlpha(0)
-        deferredFlagHides[toast] = true
-    else
-        toast:Hide()
-    end
-end
+    newFrame:SetAlpha(oldFrame:GetAlpha())
 
-function FlagAlerts:FlushDeferredFlagHides()
-    for toast in pairs(deferredFlagHides) do
-        deferredFlagHides[toast] = nil
-        if not toast.inUse then
-            toast:Hide()
-            toast:EnableMouse(false)
+    if newFrame.secureButton and not InCombatLockdown() then
+        local unitName = newFrame.userData.unitName
+        if unitName then
+            ArmSecureButton(newFrame.secureButton, unitName)
+            newFrame.secureButton:SetAlpha(newFrame:GetAlpha())
         end
-    end
-    for button in pairs(deferredFlagButtons) do
-        deferredFlagButtons[button] = nil
-        button:Hide()
-        button:SetAlpha(1)
     end
 end
 
-function FlagAlerts:CreateFlagToastFrame(index, isSecure)
-    local frameName = isSecure and "SoundAlerterFlagSecureToast"..index or "SoundAlerterFlagInsecureToast"..index
-    local toast = CreateFrame("Button", frameName, UIParent, "BackdropTemplate")
-    toast:SetSize(FLAG_TOAST_WIDTH, FLAG_TOAST_HEIGHT)
-    toast:SetFrameStrata("HIGH")
-    toast:SetFrameLevel(100)
-    toast:Hide()
-    toast:SetAlpha(0)
-
-    toast:SetBackdrop({
-        bgFile = SoundAlerter.BarUtils.BACKDROP_TEXTURES.Solid,
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 16,
-        insets = {left = 4, right = 4, top = 4, bottom = 4}
-    })
-    toast:SetBackdropColor(0, 0, 0, 0.85)
-    toast:SetBackdropBorderColor(0.8, 0.2, 0.2, 1)
-
-    toast.icon = toast:CreateTexture(nil, "ARTWORK")
-    toast.icon:SetSize(56, 56)
-    toast.icon:SetPoint("LEFT", 8, 0)
-
-    toast.titleText = toast:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    toast.titleText:SetPoint("TOPLEFT", toast.icon, "TOPRIGHT", 10, -4)
-    toast.titleText:SetPoint("RIGHT", -8, 0)
-    toast.titleText:SetJustifyH("LEFT")
-    toast.titleText:SetTextColor(1, 1, 1)
-
-    toast.detailText = toast:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    toast.detailText:SetPoint("TOPLEFT", toast.titleText, "BOTTOMLEFT", 0, -4)
-    toast.detailText:SetPoint("RIGHT", -8, 0)
-    toast.detailText:SetJustifyH("LEFT")
-    toast.detailText:SetTextColor(0.8, 0.8, 0.8)
-
-    toast.countdownBar = CreateFrame("Frame", nil, toast)
-    toast.countdownBar:SetHeight(3)
-    toast.countdownBar:SetPoint("BOTTOMLEFT", toast, "BOTTOMLEFT", 4, 4)
-    toast.countdownBar:SetPoint("BOTTOMRIGHT", toast, "BOTTOMRIGHT", -4, 4)
-    toast.countdownBar:SetFrameLevel(toast:GetFrameLevel() + 2)
-    toast.countdownBar.segments = {}
-
-    for i = 1, MAX_SEGMENTS do
-        local segment = toast.countdownBar:CreateTexture(nil, "OVERLAY")
-        segment:SetTexture("Interface\\Buttons\\WHITE8X8")
-        segment:SetHeight(3)
-        segment:SetVertexColor(0.8, 0.2, 0.2, 1)
-        segment:Hide()
-        toast.countdownBar.segments[i] = segment
-    end
-
-    toast.startTime = 0
-    toast.displayDuration = 0
-    toast.elapsedTime = 0
-    toast.poolIndex = index
-    toast.inUse = false
-    toast.creationTime = 0
-
-    toast.pauseState = {
-        active = false,
-        startTime = 0,
-        totalTime = 0
-    }
-
-    toast.cachedSegmentData = nil
-
-    toast.userData = {
-        unitName = nil,
-        className = nil,
-        eventType = nil,
-        carrierTeam = nil,
-        timestamp = nil,
-    }
-
-    toast.isSecure = isSecure
-
-    if isSecure then
-        local secureButton = CreateFrame("Button", frameName.."SecureAction", UIParent, "SecureActionButtonTemplate")
-        secureButton:SetAllPoints(toast)
-        secureButton:SetFrameStrata("HIGH")
-        secureButton:SetFrameLevel(101)
-        secureButton:Hide()
-        secureButton:RegisterForClicks("LeftButtonDown")
-        secureButton:SetAttribute("type1", "macro")
-
-        secureButton:SetScript("OnEnter", function(self)
-            if not toast.inUse or toast.pendingDismiss then
-                return
-            end
-
-            local elapsed = GetTime() - toast.startTime - toast.pauseState.totalTime
-            if elapsed >= FLAG_FADE_IN_DURATION and elapsed < (FLAG_FADE_IN_DURATION + toast.displayDuration) then
-                toast.pauseState.active = true
-                toast.pauseState.startTime = GetTime()
-            end
-        end)
-
-        secureButton:SetScript("OnLeave", function(self)
-            if toast.pauseState.active then
-                toast.pauseState.active = false
-                local pauseDuration = GetTime() - toast.pauseState.startTime
-                toast.pauseState.totalTime = toast.pauseState.totalTime + pauseDuration
-                toast.pauseState.startTime = 0
-            end
-        end)
-
-        toast.secureButton = secureButton
-    end
-
-    toast:EnableMouse(true)
-    toast:RegisterForClicks("LeftButtonDown")
-    toast:SetScript("OnClick", function(self, button)
-        if self.isSecure then
-            return
-        end
-
-        local sadb = SoundAlerter.db1.profile
-
-        if not sadb.flagToastsEnabled then
-            return
-        end
-
-        local targetName = self.userData and self.userData.unitName
-
-        if not targetName then
-            return
-        end
-
-        if SoundAlerter.ProximityToasts and SoundAlerter.ProximityToasts.TargetByNameCompat then
-            local targetSuccess = SoundAlerter.ProximityToasts.TargetByNameCompat(targetName, nil)
-
-            if not targetSuccess then
-                SoundAlerter:Debug("FlagAlerts", "failed to target %s (unit not visible)", targetName)
-            end
-        end
-
-        local dismissTime = GetTime() + 0.15
-        self.pendingDismiss = true
-        self.dismissTime = dismissTime
-
-        self:SetScript("OnUpdate", function(frame, elapsed)
-            if frame.pendingDismiss and GetTime() >= frame.dismissTime then
-                frame.pendingDismiss = false
-                frame:SetScript("OnUpdate", nil)
-                FlagAlerts:ReleaseFlagToast(frame)
-            end
-        end)
-    end)
-
-    toast:SetScript("OnEnter", function(self)
-        if not self.inUse or self.pendingDismiss then
-            return
-        end
-
-        local elapsed = GetTime() - self.startTime - self.pauseState.totalTime
-        if elapsed >= FLAG_FADE_IN_DURATION and elapsed < (FLAG_FADE_IN_DURATION + self.displayDuration) then
-            self.pauseState.active = true
-            self.pauseState.startTime = GetTime()
-        end
-    end)
-
-    toast:SetScript("OnLeave", function(self)
-        if self.pauseState.active then
-            self.pauseState.active = false
-            local pauseDuration = GetTime() - self.pauseState.startTime
-            self.pauseState.totalTime = self.pauseState.totalTime + pauseDuration
-            self.pauseState.startTime = 0
-        end
-    end)
-
-    return toast
+local function CurrentPosition()
+    local flagToasts = SoundAlerter.db1.profile.flagToasts
+    return (flagToasts and flagToasts.positionX) or 0, (flagToasts and flagToasts.positionY) or -300
 end
 
-function FlagAlerts:AcquireFlagToast()
-    self.flagPoolState.inCombat = self.inCombat or InCombatLockdown()
-    return SoundAlerter.BarUtils:AcquireToastFromPool(self.flagPoolState,
-        function(toast) self:ReleaseFlagToast(toast) end,
-        function()
-            self.flagToastMetrics.poolExhaustions = self.flagToastMetrics.poolExhaustions + 1
-            SoundAlerter:Debug("FlagAlerts", "Pool exhausted, evicted oldest toast")
-        end)
+local function CanDismissOnClick()
+    return SoundAlerter.db1.profile.flagToastsEnabled
 end
 
-function FlagAlerts:ReleaseFlagToast(toast)
-    if not toast then return end
-
-    toast:SetScript("OnUpdate", nil)
-
-    HideFlagToast(toast)
-    toast:SetAlpha(0)
-    if not IsFlagToastLocked(toast) then
-        toast:SetScale(1.0)
-        toast:EnableMouse(false)
+local function TickBorder(toast, now)
+    if SoundAlerter.ProximityToasts and SoundAlerter.ProximityToasts:GetSettings().rainbowBorder then
+        local r, g, b = SA_Toast.RainbowColor(now)
+        toast:SetBackdropBorderColor(r, g, b, 1)
     end
-
-    toast.titleText:SetText("")
-    toast.detailText:SetText("")
-    toast.icon:SetTexture(nil)
-
-    toast:SetBackdropColor(0, 0, 0, 0.85)
-    toast:SetBackdropBorderColor(0.8, 0.2, 0.2, 1)
-
-    if toast.countdownBar and toast.countdownBar.segments then
-        for i = 1, MAX_SEGMENTS do
-            if toast.countdownBar.segments[i] then
-                toast.countdownBar.segments[i]:Hide()
-                toast.countdownBar.segments[i]:SetAlpha(1)
-            end
-        end
-    end
-
-    if toast.secureButton and not InCombatLockdown() then
-        toast.secureButton:Hide()
-        toast.secureButton:EnableMouse(false)
-        toast.secureButton:SetAttribute("macrotext1", nil)
-        toast.secureButton:SetAttribute("macrotext", nil)
-    elseif toast.secureButton then
-        toast.secureButton:SetAlpha(0)
-        deferredFlagButtons[toast.secureButton] = true
-    end
-
-    toast.startTime = 0
-    toast.displayDuration = 0
-    toast.elapsedTime = 0
-    toast.creationTime = 0
-
-    toast.pauseState.active = false
-    toast.pauseState.startTime = 0
-    toast.pauseState.totalTime = 0
-
-    toast.cachedSegmentData = nil
-
-    toast.userData.unitName = nil
-    toast.userData.className = nil
-    toast.userData.eventType = nil
-    toast.userData.carrierTeam = nil
-    toast.userData.timestamp = nil
-
-    toast.pendingDismiss = false
-    toast.dismissTime = nil
-
-    toast.inUse = false
-
-    for i = #self.activeFlagToasts, 1, -1 do
-        if self.activeFlagToasts[i] == toast then
-            table.remove(self.activeFlagToasts, i)
-            break
-        end
-    end
-
-    self:UpdateFlagToastLayout()
 end
 
-function FlagAlerts:CreateSecureFlagToastPool()
-    for i = 1, MAX_FLAG_TOASTS do
-        self.flagSecureToastPool[i] = self:CreateFlagToastFrame(i, true)
-    end
-    self.flagSecureCreationPending = false
+local function CountPoolExhaustion()
+    FlagAlerts.flagToastMetrics.poolExhaustions = FlagAlerts.flagToastMetrics.poolExhaustions + 1
+    SoundAlerter:Debug("FlagAlerts", "Pool exhausted, evicted oldest toast")
 end
 
-function FlagAlerts:InitializeFlagToastPools()
-    if self.toastPoolsInitialized then return end
-    self.toastPoolsInitialized = true
-
-    for i = 1, MAX_FLAG_TOASTS do
-        self.flagInsecureToastPool[i] = self:CreateFlagToastFrame(i, false)
-    end
-
-    if InCombatLockdown() then
-        self.flagSecureCreationPending = true
-    else
-        self:CreateSecureFlagToastPool()
-    end
-
-end
+engine = SA_Toast.New({
+    label = "FlagAlerts",
+    prefix = "SoundAlerterFlag",
+    swapLabel = "FlagAlerts",
+    swapBudgetMs = 4.0,
+    maxToasts = MAX_FLAG_TOASTS,
+    width = FLAG_TOAST_WIDTH,
+    height = FLAG_TOAST_HEIGHT,
+    spacing = FLAG_VERTICAL_SPACING,
+    slide = false,
+    manageMouse = true,
+    mirrorSecureAlpha = true,
+    secureAttributes = {"macrotext1", "macrotext"},
+    userFields = {"unitName", "className", "eventType", "carrierTeam", "timestamp"},
+    backdropFile = function() return SoundAlerter.BarUtils.BACKDROP_TEXTURES.Solid end,
+    segmentWidth = function(toast, duration) return toast.countdownBar:GetWidth() / duration end,
+    position = CurrentPosition,
+    canDismissOnClick = CanDismissOnClick,
+    tickBorder = TickBorder,
+    copyContent = CopyContent,
+    onExhausted = CountPoolExhaustion,
+})
+FlagAlerts.engine = engine
 
 function FlagAlerts:UpdateFlagToastLayout()
-    local sadb = SoundAlerter.db1.profile
-
-    local baseX = (sadb.flagToasts and sadb.flagToasts.positionX) or 0
-    local baseY = (sadb.flagToasts and sadb.flagToasts.positionY) or -300
-
-    table.sort(self.activeFlagToasts, function(a, b)
-        return a.creationTime < b.creationTime
-    end)
-
-    for i, toast in ipairs(self.activeFlagToasts) do
-        if not IsFlagToastLocked(toast) then
-            toast:ClearAllPoints()
-            if i == 1 then
-                toast:SetPoint("TOP", UIParent, "TOP", baseX, baseY)
-            else
-                toast:SetPoint("TOP", self.activeFlagToasts[i-1], "BOTTOM", 0, -FLAG_VERTICAL_SPACING)
-            end
-        end
-    end
-end
-
-local function FlagToastOnUpdate(self, elapsed)
-    if not self.inUse then
-        self:SetScript("OnUpdate", nil)
-        return
-    end
-
-    if self.pauseState.active then
-        return
-    end
-
-    local currentTime = GetTime()
-    local timeSinceStart = currentTime - self.startTime - self.pauseState.totalTime
-
-    if SoundAlerter.ProximityToasts and SoundAlerter.ProximityToasts:GetSettings().rainbowBorder then
-        local r, g, b = GetRainbowColor(currentTime)
-        self:SetBackdropBorderColor(r, g, b, 1)
-    end
-
-    if timeSinceStart < FLAG_FADE_IN_DURATION then
-        local progress = timeSinceStart / FLAG_FADE_IN_DURATION
-        self:SetAlpha(progress)
-        if not IsFlagToastLocked(self) then
-            self:SetScale(1.15 - (0.15 * progress))
-        end
-
-        if self.secureButton then
-            self.secureButton:SetAlpha(progress)
-        end
-
-        return
-    end
-
-    if timeSinceStart < (FLAG_FADE_IN_DURATION + self.displayDuration) then
-        self:SetAlpha(1)
-        if not IsFlagToastLocked(self) then self:SetScale(1.0) end
-
-        if self.secureButton then
-            self.secureButton:SetAlpha(1)
-        end
-
-        local displayElapsed = timeSinceStart - FLAG_FADE_IN_DURATION
-        UpdateFlagCountdownSegments(self, displayElapsed)
-
-        return
-    end
-
-    local fadeOutTime = timeSinceStart - (FLAG_FADE_IN_DURATION + self.displayDuration)
-    if fadeOutTime < FLAG_FADE_OUT_DURATION then
-        local fadeProgress = fadeOutTime / FLAG_FADE_OUT_DURATION
-        self:SetAlpha(1 - fadeProgress)
-
-        if self.secureButton then
-            self.secureButton:SetAlpha(1 - fadeProgress)
-        end
-
-        if self.countdownBar and self.cachedSegmentData then
-            local duration = self.cachedSegmentData.duration
-            for i = 1, duration do
-                if self.countdownBar.segments[i] then
-                    self.countdownBar.segments[i]:SetAlpha(0)
-                end
-            end
-        end
-
-        return
-    end
-
-    self:SetScript("OnUpdate", nil)
-    FlagAlerts:ReleaseFlagToast(self)
+    engine:UpdateLayout()
 end
 
 function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTeam)
     local sadb = SoundAlerter.db1.profile
 
-    local toast = self:AcquireFlagToast()
+    local toast = engine:Acquire(self.inCombat)
     if not toast then
         SoundAlerter:Debug("FlagAlerts", "Failed to acquire toast frame")
         return
@@ -1474,66 +1096,11 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
     toast.userData.carrierTeam = carrierTeam
     toast.userData.timestamp = GetTime()
 
-    toast.creationTime = GetTime()
-    toast.startTime = GetTime()
-    toast.displayDuration = sadb.flagToastDisplayDuration or FLAG_DISPLAY_DURATION
-    toast.elapsedTime = 0
-
-    toast.pauseState.active = false
-    toast.pauseState.startTime = 0
-    toast.pauseState.totalTime = 0
-
-    local duration = math.ceil(toast.displayDuration)
-    local barWidth = toast.countdownBar:GetWidth()
-    local segmentWidth = barWidth / duration
-
-    toast.cachedSegmentData = {
-        duration = duration,
-        segmentWidth = segmentWidth,
-        lastHiddenSegment = 0
-    }
-
-    for i = 1, duration do
-        if i <= MAX_SEGMENTS and toast.countdownBar.segments[i] then
-            local segment = toast.countdownBar.segments[i]
-            segment:ClearAllPoints()
-            segment:SetPoint("LEFT", toast.countdownBar, "LEFT", (i-1) * segmentWidth, 0)
-            segment:SetWidth(segmentWidth - 2)
-            segment:SetVertexColor(borderR, borderG, borderB, borderA)
-            segment:SetAlpha(1)
-            segment:Show()
-        end
-    end
-
-    for i = duration + 1, MAX_SEGMENTS do
-        if toast.countdownBar.segments[i] then
-            toast.countdownBar.segments[i]:Hide()
-        end
-    end
-
     if toast.secureButton and not InCombatLockdown() then
-        local macroText = SA_ToastClick.TargetMacro(playerName)
-        toast.secureButton:SetAttribute("macrotext1", macroText)
-        toast.secureButton:SetAttribute("macrotext", macroText)
-        toast.secureButton:SetAlpha(1)
-        toast.secureButton:Show()
+        ArmSecureButton(toast.secureButton, playerName)
     end
 
-    toast:SetScript("OnUpdate", FlagToastOnUpdate)
-
-    toast:Show()
-    toast:SetAlpha(0)
-    if not IsFlagToastLocked(toast) then
-        toast:EnableMouse(true)
-    end
-
-    if toast.secureButton and not InCombatLockdown() then
-        toast.secureButton:EnableMouse(true)
-    end
-
-    table.insert(self.activeFlagToasts, toast)
-
-    self:UpdateFlagToastLayout()
+    engine:Start(toast, sadb.flagToastDisplayDuration or FLAG_DISPLAY_DURATION, {borderR, borderG, borderB, borderA})
 
     self.flagToastMetrics.toastsShown = self.flagToastMetrics.toastsShown + 1
 
@@ -1551,97 +1118,6 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
         self.flagToastMetrics.captureToasts = self.flagToastMetrics.captureToasts + 1
     end
 
-    SoundAlerter:Debug("FlagAlerts", "toast shown: %s (%s) %s, %s pool, %d/%d active", playerName, playerClass or "Unknown", eventType, self.inCombat and "insecure" or "secure", #self.activeFlagToasts, MAX_FLAG_TOASTS)
+    SoundAlerter:Debug("FlagAlerts", "toast shown: %s (%s) %s, %s pool, %d/%d active", playerName, playerClass or "Unknown", eventType, self.inCombat and "insecure" or "secure", #engine.active, MAX_FLAG_TOASTS)
 end
 
-function FlagAlerts:CopyFlagToastData(oldFrame, newFrame)
-    if not oldFrame or not newFrame then return false end
-
-    newFrame.userData.unitName = oldFrame.userData.unitName
-    newFrame.userData.className = oldFrame.userData.className
-    newFrame.userData.eventType = oldFrame.userData.eventType
-    newFrame.userData.carrierTeam = oldFrame.userData.carrierTeam
-    newFrame.userData.timestamp = oldFrame.userData.timestamp
-
-    newFrame.startTime = oldFrame.startTime
-    newFrame.displayDuration = oldFrame.displayDuration
-    newFrame.elapsedTime = oldFrame.elapsedTime
-    newFrame.creationTime = oldFrame.creationTime
-
-    newFrame.pauseState.active = oldFrame.pauseState.active
-    newFrame.pauseState.startTime = oldFrame.pauseState.active and GetTime() or 0
-    newFrame.pauseState.totalTime = oldFrame.pauseState.totalTime
-
-    if oldFrame.cachedSegmentData then
-        newFrame.cachedSegmentData = {
-            duration = oldFrame.cachedSegmentData.duration,
-            segmentWidth = oldFrame.cachedSegmentData.segmentWidth,
-            lastHiddenSegment = oldFrame.cachedSegmentData.lastHiddenSegment
-        }
-
-        for i = 1, oldFrame.cachedSegmentData.duration do
-            if i <= MAX_SEGMENTS then
-                local oldSegment = oldFrame.countdownBar.segments[i]
-                local newSegment = newFrame.countdownBar.segments[i]
-                if oldSegment and newSegment then
-                    newSegment:ClearAllPoints()
-                    newSegment:SetPoint("LEFT", newFrame.countdownBar, "LEFT",
-                        (i-1) * newFrame.cachedSegmentData.segmentWidth, 0)
-                    newSegment:SetWidth(newFrame.cachedSegmentData.segmentWidth - 2)
-
-                    if oldSegment:IsShown() then
-                        newSegment:Show()
-                    else
-                        newSegment:Hide()
-                    end
-
-                    local r, g, b, a = oldSegment:GetVertexColor()
-                    newSegment:SetVertexColor(r, g, b, a)
-                end
-            end
-        end
-    end
-
-    newFrame.icon:SetTexture(oldFrame.icon:GetTexture())
-    newFrame.titleText:SetText(oldFrame.titleText:GetText() or "")
-    newFrame.detailText:SetText(oldFrame.detailText:GetText() or "")
-
-    local r, g, b, a = oldFrame:GetBackdropColor()
-    newFrame:SetBackdropColor(r, g, b, a)
-
-    r, g, b, a = oldFrame:GetBackdropBorderColor()
-    newFrame:SetBackdropBorderColor(r, g, b, a)
-
-    newFrame:SetAlpha(oldFrame:GetAlpha())
-
-    if newFrame.secureButton and not InCombatLockdown() then
-        local unitName = newFrame.userData.unitName
-        if unitName then
-            local macroText = SA_ToastClick.TargetMacro(unitName)
-            newFrame.secureButton:SetAttribute("macrotext1", macroText)
-            newFrame.secureButton:SetAttribute("macrotext", macroText)
-            newFrame.secureButton:SetAlpha(1)
-            newFrame.secureButton:Show()
-            newFrame.secureButton:SetAlpha(newFrame:GetAlpha())
-        end
-    end
-
-    newFrame.inUse = true
-
-    newFrame:SetScript("OnUpdate", oldFrame:GetScript("OnUpdate"))
-
-    return true
-end
-
-function FlagAlerts:SwapInsecureToSecureFlagFrames()
-    local swappedCount, elapsed = SoundAlerter.BarUtils:SwapInsecureToSecurePool(
-        self.flagPoolState,
-        function(toast) self:ReleaseFlagToast(toast) end,
-        function(old, new) return self:CopyFlagToastData(old, new) end,
-        SoundAlerter, "FlagAlerts", 4.0
-    )
-
-    self.flagToastMetrics.toastsSwapped = self.flagToastMetrics.toastsSwapped + swappedCount
-    self.flagToastMetrics.swapTime = self.flagToastMetrics.swapTime + elapsed
-    self.flagToastMetrics.maxSwapTime = math.max(self.flagToastMetrics.maxSwapTime, elapsed)
-end
