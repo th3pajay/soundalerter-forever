@@ -40,7 +40,7 @@ end
 
 local function testToast()
     local active = toasts()
-    if active then active:ShowToast("TestEnemy", "ROGUE", "Close", nil, 60, nil, nil, nil, 3) end
+    if active then active:ShowToast("TestEnemy", "ROGUE", "Close", nil, 60, nil, nil, 3) end
 end
 
 local function voicePlayer(file)

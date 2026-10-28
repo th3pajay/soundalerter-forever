@@ -100,21 +100,9 @@ local function GetClassColor(className)
     return cached[1], cached[2], cached[3]
 end
 
-local function GetBackdropConfig(alertType)
-    local sadb = SoundAlerter.db1.profile
-    local textureName = "Solid"
-
-    if alertType == "FLAG_ENEMY" and sadb.flagTeamBackgroundColors and sadb.flagEnemyTexture then
-        textureName = sadb.flagEnemyTexture
-    elseif alertType == "FLAG_FRIENDLY" and sadb.flagTeamBackgroundColors and sadb.flagFriendlyTexture then
-        textureName = sadb.flagFriendlyTexture
-    end
-
-    local textures = SoundAlerter.BarUtils.BACKDROP_TEXTURES
-    local bgFile = textures[textureName] or textures["Solid"]
-
+local function GetBackdropConfig()
     return {
-        bgFile = bgFile,
+        bgFile = SoundAlerter.BarUtils.BACKDROP_TEXTURES.Solid,
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
         tile = true,
         tileSize = 16,
@@ -542,7 +530,7 @@ local function CollectAuras(unitToken)
     return list
 end
 
-function ProximityToasts:ShowToast(unitName, className, distance, guid, level, unitToken, customTitle, alertType, nearbyCount)
+function ProximityToasts:ShowToast(unitName, className, distance, guid, level, unitToken, customTitle, nearbyCount)
     local sadb = SoundAlerter.db1.profile
 
     if not self.initialized then
@@ -556,7 +544,7 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
     end
 
     if not unitName then
-        SoundAlerter:Debug("ProximityToasts", "toast blocked: no unit name (class %s, type %s)", tostring(className), tostring(alertType))
+        SoundAlerter:Debug("ProximityToasts", "toast blocked: no unit name (class %s)", tostring(className))
         return
     end
 
@@ -577,18 +565,12 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
         return
     end
 
-    SoundAlerter:Debug("ProximityToasts", "showing toast for %s (%s, %s), %d/%d active", unitName, className or "UNKNOWN", tostring(alertType), #engine.active, maxConcurrent)
+    SoundAlerter:Debug("ProximityToasts", "showing toast for %s (%s), %d/%d active", unitName, className or "UNKNOWN", #engine.active, maxConcurrent)
 
-    local backdropConfig = GetBackdropConfig(alertType)
+    local backdropConfig = GetBackdropConfig()
     toast:SetBackdrop(backdropConfig)
 
-    if alertType == "FLAG_ENEMY" and sadb.flagTeamBackgroundColors and sadb.flagEnemyRedBackground then
-
-        toast:SetBackdropColor(0.4, 0.05, 0.05, 0.85)
-    elseif alertType == "FLAG_FRIENDLY" and sadb.flagTeamBackgroundColors and sadb.flagFriendlyGreenBackground then
-
-        toast:SetBackdropColor(0.05, 0.4, 0.05, 0.85)
-    elseif sadb.proximityToasts.useClassColors and className then
+    if sadb.proximityToasts.useClassColors and className then
 
         local r, g, b = GetClassColor(className)
         toast:SetBackdropColor(r, g, b, 0.85)
@@ -606,7 +588,6 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
     local Style = SA_ToastStyle
     local style = Style.Normalize(sadb.proximityToasts.toastStyle)
     local classLabel = className and (className:sub(1, 1) .. className:sub(2):lower()) or "Enemy"
-    local isFlag = Style.IsFlag(alertType)
     local view = {
         style = style,
         className = className,
@@ -616,14 +597,14 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
         bandRank = Style.BandRank(distance),
         levelShort = Style.LevelText(level),
         groupText = Style.GroupText(nearbyCount),
-        tag = Style.Tag(alertType),
+        tag = "NEARBY",
         sideLabel = className and className:upper() or "ENEMY",
         auras = sadb.proximityToasts.showAuraIcons and CollectAuras(unitToken) or {},
     }
     if style == "threat" then
         local threatLevel, _, why = Style.Threat(className, distance, nearbyCount)
         view.threatLevel = threatLevel
-        if not isFlag then view.tag = threatLevel .. " THREAT" end
+        view.tag = threatLevel .. " THREAT"
         if customTitle then
             view.title = customTitle
         else
@@ -631,7 +612,7 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
             if why == "" then why = "Enemy player nearby" end
             view.title = lead and (lead .. "  " .. why) or why
         end
-        view.high = threatLevel == "HIGH" and not isFlag
+        view.high = threatLevel == "HIGH"
     else
         view.title = customTitle or (className and (className .. " NEARBY!") or "ENEMY NEARBY!")
     end

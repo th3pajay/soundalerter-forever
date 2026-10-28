@@ -1904,7 +1904,7 @@ function SoundAlerter:FireProximityAlert(guid, unitName, unitClass, unitLevel, b
     end
 
     if self.ProximityToasts and self.ProximityToasts:GetSettings().enabled then
-        self.ProximityToasts:ShowToast(unitName, unitClass, band, guid, unitLevel, unitToken, title, nil, nearbyCount)
+        self.ProximityToasts:ShowToast(unitName, unitClass, band, guid, unitLevel, unitToken, title, nearbyCount)
     end
 end
 

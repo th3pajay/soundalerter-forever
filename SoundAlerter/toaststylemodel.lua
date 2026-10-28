@@ -10,7 +10,6 @@ local CLASS_WEIGHT = {
     PALADIN = 1, PRIEST = 1, SHAMAN = 1,
 }
 local STEALTH = { ROGUE = true, DRUID = true }
-local FLAG_TAGS = { FLAG_ENEMY = "ENEMY FLAG", FLAG_FRIENDLY = "FRIENDLY FLAG" }
 
 function SA_ToastStyle.Normalize(style)
     for _, known in ipairs(SA_ToastStyle.STYLES) do
@@ -39,14 +38,6 @@ function SA_ToastStyle.Threat(className, band, nearbyCount)
     local why = table.concat(parts, ", ")
     if why ~= "" then why = why:sub(1, 1):upper() .. why:sub(2) end
     return level, score, why
-end
-
-function SA_ToastStyle.Tag(alertType)
-    return FLAG_TAGS[alertType] or "NEARBY"
-end
-
-function SA_ToastStyle.IsFlag(alertType)
-    return FLAG_TAGS[alertType] ~= nil
 end
 
 function SA_ToastStyle.GroupText(nearbyCount)
