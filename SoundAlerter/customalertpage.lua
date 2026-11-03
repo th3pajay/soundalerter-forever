@@ -550,10 +550,7 @@ function SoundAlerter:BuildCustomAlertOptions()
             print = function(text) SoundAlerter:Print(text) end,
             eventTip = function(key) return SoundAlerter.SA_EVENT[key] or key end,
             units = Model.Options(SoundAlerter.SA_UNIT, Model.UNIT_ORDER),
-            types = Model.Options(SoundAlerter.SA_TYPE, {
-                FILTER_TYPE_ANY, FILTER_TYPE_FRIENDLY, FILTER_TYPE_HOSTILE_PLAYER, FILTER_TYPE_HOSTILE_UNIT,
-                FILTER_TYPE_NEUTRAL, FILTER_TYPE_ME, FILTER_TYPE_MINE, FILTER_TYPE_MY_PET,
-            }),
+            types = Model.Options(SoundAlerter.SA_TYPE, SoundAlerter.SA_TYPE_ORDER),
         }
         self.customSpec = spec
     end

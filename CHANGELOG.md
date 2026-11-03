@@ -1,8 +1,58 @@
 # Changelog
 
+## 0.2.93
+
+Voice alerts
+- Templar's Bulwark: protection paladins can now have it purged or dispelled, so you hear it when an enemy gains it.
+- Death Mark: you hear it when a subtlety rogue marks you, so you can decurse it or use a defensive before the stored damage lands 6 seconds later.
+- Chain Lightning: a new cast alert now that it is a 2.5 second cast. Every rank is covered.
+- Wild Growth now has a 3 second cast and plays the Big heals alert, so it follows your existing Big heals switch.
+- Turn Undead is now called Turn Undead / Turn Evil, because the Turn Evil talent lets it hit demons, warlocks in Metamorphosis included. All three ranks are covered now, not only the highest. Your on or off choice is kept.
+- Skysight now plays for the speed buff the spell actually leaves on the enemy, not only for the cast.
+
+Spell tracker
+- New "Add Death Mark on you" action under Add a spell. It adds a red debuff icon that counts down the 6 seconds and follows every rank of Death Mark. The action is hidden once Death Mark is tracked.
+
+Resource bars
+- Poised marker: a gold edge and a Poised tag on the energy bar while Poised is up, so you can see that your next energy ability costs less. It is on by default for rogues from level 18 and druids from level 32, and can be turned off under Energy bar. Other classes never see the option or run its code.
+
+Proximity alerts
+- When an enemy hunter places a trap or traps you, their toast's spell line reads "Traps down 30s", because all hunter traps now share one 30 second cooldown. It follows the latest spell line switch.
+
+Statistics
+- Each recorded match now notes the game build it was played on, and the export shows it. Matches recorded before this version show "unknown build". This keeps matches from before and after Blizzard's tuning passes apart.
+
+## 0.2.92
+
+Breaking changes
+- The Combat timer is removed. Its page under Displays, its lock on the minimap button, its chip on the profile cards and the `/sa ctprobe` command are gone, and its saved settings are cleared from every profile once, on the first login with this version.
+
+Profiles
+- New Spell Tracker blocks section on the Profiles page, between New profile and More options. Your tracked spells are grouped into blocks by class, plus a Display block (timer, border, cooldown and ready text, animation quality) and a Layout block (icon sizes and positions), shown as one bar of clickable segments.
+- Export: pick blocks from the profile chosen above and copy the text. Nothing else from the profile goes along.
+- Import: paste a blocks text and it lists what would change in your active profile, spell by spell: new spells, changed spells and display settings, each with Take or Keep mine (Add or Skip for new ones) plus Take all and Keep all. Merge applies your choices; Replace picked blocks swaps whole classes and asks for a second click. Layout on its own only moves spells you already track.
+- Imported texts are checked entry by entry; invalid spells or values are skipped and counted, at most 60 spells are read, and the tracker never grows past its 20 icons. A full profile export pasted here, or a blocks text pasted into Import text, is refused with a pointer to the right place.
+
+Statistics
+- New "Last 20 matches" card on the Statistics page. Each arena or battleground match is recorded from entering the instance until you leave it: how long it lasted, the alerts it fired, how many enemies set one off, your top three alerted spells and your time in crowd control. A match in progress shows at the top as Live.
+- Time in CC counts stuns, fears, incapacitates and silences, not roots, disarms or school lockouts. Overlapping effects are counted once, and breaking free early stops the clock. When the game hides an effect's duration it is still counted, and the time is marked with a + as a lower bound.
+- A `/reload` inside a match keeps the match going. Short visits with no alerts are not kept, and a match left open for hours, for example after a disconnect, ends at its last alert.
+- Recent matches are added to the export text. Reset all-time also clears them, and switching profile closes the running match into the profile it started in.
+- The match card follows the Statistics switch: with tracking off, nothing is recorded.
+
+Voice Alerts
+- Loss of control voice now plays on this client. It stayed silent before because the game names the affected unit before the effect, so the effect was never found. Only control effects on you are spoken; effects on your target, focus or other players are ignored, and the same rule applies to the match card's CC time.
+
+Custom alerts
+- The "Source of the spell" and "Spell destination" pickers on the custom alert page list their choices again (Any, Friendly, Hostile player and so on). Since 0.2.81 both lists were empty.
+
+Diagnostics
+- New `/sa nextprobe` checks whether Blizzard's assisted combat (the game's own next-spell pick and its action bar highlight) is available for your character and readable by addons, as groundwork for an experimental next-action helper. `/sa nextprobe watch` follows the pick for 20 seconds while you fight and says whether it changes. Both only read, never change anything, and save their result so it survives a `/reload`.
+- `/sa apicheck` now lists which PvP honor, honor level, currency, reputation and rank functions this client has, as groundwork for a possible rank and honor projection.
+
 ## 0.2.91
 
-## Broom and sweeps - 
+## Broom and sweeps
 
 Global sightings
 - The zone panel is now a slim strip on the right edge of the map: a verdict-coloured edge, the enemy count, the change against the 5 minutes before and a vertical class bar. It slides open into the full list while the mouse is over it and collapses when you move away, so it no longer covers the map. Click the open panel's title to switch between 3 and 8 rows; your choice is still saved.
@@ -36,6 +86,7 @@ Fixes
 - Clicking an enemy toast that was shown during combat now just closes it, instead of trying a target change the game blocks.
 - Enemy and flag toasts now show up after a reload during combat. Before, they stayed missing until the fight ended.
 - Flag toast target macros now strip line breaks from names, like enemy toasts already did.
+- Stealth keep watch now waits 4 seconds between repeat alerts for the same enemy (was 5), so a rogue who restealths quickly with Camouflage is still called. If you picked a different time on the Proximity Alerts page, it is kept.
 
 ## 0.2.90
 

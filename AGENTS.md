@@ -54,16 +54,18 @@ slips through, amend it out and force-push with `--force-with-lease` only after 
 
 ## Before you call a change done
 
-There is no test suite and no `tools/` in this repo, so these are the gates that exist. Run them,
-and say which ones you ran.
+There is no test suite in this repo, so these are the gates that exist. Run them, and say which
+ones you ran.
 
-1. `luac5.1 -p <file>` over every `.lua` you touched. The client embeds Lua 5.1: no `goto`, no
-   `//`, `unpack` and not `table.unpack`. If the toolchain is not installed, write "not
-   syntax-checked" instead of implying a pass.
-2. `grep -rnE '^[[:space:]]*--' SoundAlerter/ --include=*.lua --exclude-dir=Libs` returns nothing —
-   the comment rule, checked rather than trusted. The vendored `Libs/` directory is excluded.
-3. A behaviour change ships with its README.md edit in the same commit, and the README version
+1. `luac5.1 -p <file>` over every `.lua` you touched, and
+   `grep -rnE '^[[:space:]]*--' SoundAlerter/ --include=*.lua --exclude-dir=Libs` returns nothing —
+   the comment rule, checked rather than trusted. Every TOC entry exists and every addon `.lua` is
+   in the TOC. The client embeds Lua 5.1: no `goto`, no `//`, `unpack` and not `table.unpack`.
+   Without a Lua toolchain, write "not checked" instead of implying a pass.
+2. A behaviour change ships with its README.md edit in the same commit, and the README version
    badge and the TOC's `## Version` move together and never disagree.
+3. Review the diff against `CODING_STANDARDS.md` (hidden values, event payloads, combat lockdown,
+   bounded state, UI and change hygiene) and fix or report every violation.
 4. Read the changed path end to end, and re-read whatever it reads. Name the command or code path
    you actually checked — in the commit message or the report. "Verified" with nothing behind it
    is the failure this document exists to prevent.

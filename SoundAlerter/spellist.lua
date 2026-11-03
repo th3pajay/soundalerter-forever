@@ -11,6 +11,7 @@ SoundAlerterSpells = {
 		[1259799] = "eluneslight",
 		[20577] = "cannibalize",
 		[1259686] = "skysight",
+		[1259688] = "skysight",
 
         [408024] = "survivalinstincts",
         [29166] = "innervate",
@@ -34,6 +35,7 @@ SoundAlerterSpells = {
         [642] = "divineshield",
         [1020] = "divineshield",
         [6940] = "handofsacrifice",
+        [1311015] = "templarsbulwark",
         [407804] = "divinesacrifice",
         [498] = "divineprotection",
         [5573] = "divineprotection",
@@ -190,7 +192,20 @@ SoundAlerterSpells = {
 		[740] = "tranquility",
         [21668] = "starfire",
 
+        [2878] = "turnevil",
+        [5627] = "turnevil",
         [10326] = "turnevil",
+        [408120] = "bigheal",
+        [1238214] = "bigheal",
+        [1238215] = "bigheal",
+        [421] = "chainlightning",
+        [930] = "chainlightning",
+        [2860] = "chainlightning",
+        [10605] = "chainlightning",
+        [408479] = "chainlightning",
+        [408481] = "chainlightning",
+        [408482] = "chainlightning",
+        [408484] = "chainlightning",
 
         [8129] = "manaburn",
         [9484] = "shackleundead",
@@ -458,6 +473,10 @@ SoundAlerterSpells = {
         [462728] = "garrote",
         [462729] = "garrote",
         [462730] = "garrote",
+        [1316709] = "deathmark",
+        [1325756] = "deathmark",
+        [1325757] = "deathmark",
+        [1325758] = "deathmark",
     },
 }
 
@@ -534,7 +553,8 @@ SoundAlerterSpellMeta = {
     hammerofjustice = { "Paladin", "Hammer of Justice" },
     layonhands = { "Paladin", "Lay on Hands" },
     repentance = { "Paladin", "Repentance" },
-    turnevil = { "Paladin", "Turn Undead" },
+    turnevil = { "Paladin", "Turn Undead / Turn Evil" },
+    templarsbulwark = { "Paladin", "Templar's Bulwark" },
     divinefavor = { "Paladin", "Divine Favor" },
 
     dispersion = { "Priest", "Dispersion" },
@@ -580,8 +600,10 @@ SoundAlerterSpellMeta = {
     cheatdeath = { "Rogue", "Cheat Death" },
     riposte = { "Rogue", "Riposte" },
     garrote = { "Rogue", "Garrote" },
+    deathmark = { "Rogue", "Death Mark" },
 
     bloodlust = { "Shaman", "Bloodlust" },
+    chainlightning = { "Shaman", "Chain Lightning" },
     earthshield = { "Shaman", "Earth Shield" },
     earthbind = { "Shaman", "Earthbind Totem" },
     grounding = { "Shaman", "Grounding Totem" },

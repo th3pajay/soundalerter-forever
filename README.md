@@ -8,7 +8,7 @@
 **Personal combat assistant.**
 Voiced PvP alerts, bars and trackers for WoW Forever.
 
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.91-blue.svg"/>
+<img alt="Version" src="https://img.shields.io/badge/version-0.2.93-blue.svg"/>
 <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
 <img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
 <img alt="Status" src="https://img.shields.io/badge/status-beta-yellow.svg"/>
@@ -52,10 +52,9 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 
 | | Feature | What it does | |
 | :---: | :--- | :--- | :---: |
-| <img src="Media/icons/resource.svg" width="32"/> | **Resource bars** | Health, mana, energy, rage and combo points in 10 shapes with 8 celebration animations (each with its own spend and loss exit, and a Low / Normal / High quality setting), with feral form support and 8 textures, including the Liquid look with its own bevelled border. Animated textures also run on vertical bars, and a Low / Normal / High texture quality adds a moving glint along the border at High | 🟢 |
+| <img src="Media/icons/resource.svg" width="32"/> | **Resource bars** | Health, mana, energy, rage and combo points in 10 shapes with 8 celebration animations (each with its own spend and loss exit, and a Low / Normal / High quality setting), with feral form support, a gold Poised marker on the energy bar for rogues and druids, and 8 textures, including the Liquid look with its own bevelled border. Animated textures also run on vertical bars, and a Low / Normal / High texture quality adds a moving glint along the border at High | 🟢 |
 | <img src="Media/icons/casting.svg" width="32"/> | **Casting bars** | Player, target and focus bars with a segmented look, an unfurl on cast start, bloom rings on finish, a stamped INTERRUPTED, a steel look for uninterruptible casts, a red timer flip in the last 0.7 s, channel pulses and a shrink when a cast stops. The Solid, Fog and Default bar looks each have their own matching animations (edge line and wipe, storm cloud and brackets, classic spark). Low, Normal and High animation quality. Fills from the game's timer, without time text, when enemy timing is hidden | 🟡 |
 | <img src="Media/icons/feed.svg" width="32"/> | **Cast feed** | One icon row per unit with a cast sweep, a status glow and badge, class dots, repeat counts and the time between casts, plus an optional row for nearby enemies. Casts the client hides still show their real name, drawn by the client without the addon reading it. Turn it on with **Show hidden enemy spells** on the General page. Most enemy instants send no cast event, so only an experimental option sees those: it flashes enemy buffs and, in duels, your new debuffs beside the target and focus rows | 🟡 |
-| <img src="Media/icons/timer.svg" width="32"/> | **Combat timer** | Millisecond countdown to leaving combat. An estimate that snaps to the real drop | 🟡 |
 | <img src="Media/icons/speed.svg" width="32"/> | **Speed meter** | Live movement speed as a percent of base run speed, green above 100% and red below | 🟢 |
 | <img src="Media/icons/trinket.svg" width="32"/> | **Trinket menu** | Your two trinkets on a small bar with their cooldowns and keybinds. Hover a trinket for the trinkets in your bags, right-click to swap top and bottom, keep three saved sets on a set button, and switch between two equipment sets (for example damage and healing) on a gear button. Swaps in combat wait until combat ends. Vertical or horizontal, fade when idle, or collapse to a diamond | 🟣 |
 | <img src="Media/icons/foot.svg" width="32"/> | **Footsteps** | A dotted trail on the minimap and zone map of where you walked. Off by default, not recorded in instances or on flight paths | 🟡 |
@@ -64,10 +63,10 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 
 | | Feature | What it does | |
 | :---: | :--- | :--- | :---: |
-| <img src="Media/icons/tracker.svg" width="32"/> | **Spell tracker** | Buff, debuff and cooldown icons that work in combat, with spiral and border timers, a pop-in, a border that shifts from green to red as time runs out, a red tint warning, a shrink when the aura ends and a shine when a cooldown is ready. Low, Normal and High animation quality. The timer starts on cast, because a landed hit cannot be confirmed in combat | 🟢 |
+| <img src="Media/icons/tracker.svg" width="32"/> | **Spell tracker** | Buff, debuff and cooldown icons that work in combat, with spiral and border timers, a pop-in, a border that shifts from green to red as time runs out, a red tint warning, a shrink when the aura ends and a shine when a cooldown is ready. Low, Normal and High animation quality. One click adds Death Mark on you as a debuff countdown, every rank included. The timer starts on cast, because a landed hit cannot be confirmed in combat | 🟢 |
 | <img src="Media/icons/minimap.svg" width="32"/> | **Minimap tracking** | Keeps target and focus on the minimap across loading screens | 🟢 |
 | <img src="Media/icons/finder.svg" width="32"/> | **Spell Finder** | Search spell IDs, names and descriptions with fuzzy match, filters, keyboard control and full spell details in a draggable window, plus a Developer Tools page with a health verdict for the spell database | 🟢 |
-| <img src="Media/icons/stats.svg" width="32"/> | **Statistics** | Session and all-time counts of which alerts fired, from whom, and where, with a Snapshot panel (Now, Trends, Rivals) that also shows party sharing | 🟢 |
+| <img src="Media/icons/stats.svg" width="32"/> | **Statistics** | Session and all-time counts of which alerts fired, from whom, and where, with a Snapshot panel (Now, Trends, Rivals) that also shows party sharing, and a debrief of your last 20 arena and battleground matches (length, alerts, enemies, top spells, time in CC) | 🟢 |
 | <img src="Media/icons/quick.svg" width="32"/> | **Quick Start** | A six-step setup wizard: style, what to hear with volume and a test sound, on-screen helpers, awareness, party sharing and a summary. Opens by itself once on a new install and any time from the Quick Start page or `/sa setup` | 🟢 |
 | 🎞️ | **Options window motion** | Pages slide in, rows tint on hover, switches glide, a changed setting flashes its row, buttons dip when pressed and a failed import shakes. One setting in General turns all of it off | 🟡 |
 | 🗺️ | **Minimap button** | Every Shift, Ctrl and Alt click on the left, right and middle button can run an action: options, a quick switch menu, proximity, battleground, snooze, lock bars, chat alerts, notices, next profile, Spell Finder, statistics or a test voice. The icon and tooltip follow your settings, with 12 icons to choose per state | 🟡 |
@@ -80,6 +79,7 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 | `/sa setup` | Run the Quick Start setup wizard |
 | `/sa help` | Full command list |
 | `/sa probe` | What the client lets the addon read right now |
+| `/sa nextprobe` | Whether Blizzard's assisted combat pick is available and readable; `/sa nextprobe watch` follows it for 20 s in a fight |
 | `/sa secrets` | Whether the hidden-spell display routes work on this client |
 | `/sa stats [reset]` | Alert diagnostics: same spell alerted twice, aura resyncs, proximity checks skipped just after loading a zone |
 | `/sa speed` | The raw speed values and what the Speed Meter would show, for checking swimming |
@@ -88,7 +88,7 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 | `/sa snooze [min]` / `unsnooze` | Silence proximity alerts |
 | `/sa watch [guild] <name>` | Manage the watchlist |
 
-Built on Ace3 with per-character profiles you can list, switch, copy, create, delete and reset from one page, and a custom alert editor with your own sounds for any spell event. Protected frames are never touched in combat.
+Built on Ace3 with per-character profiles you can list, switch, copy, create, delete and reset from one page, plus Spell Tracker blocks that share or merge just your tracked spells, display settings or icon layout, and a custom alert editor with your own sounds for any spell event. Protected frames are never touched in combat.
 
 ## Credits
 

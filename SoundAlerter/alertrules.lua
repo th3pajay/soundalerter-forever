@@ -197,6 +197,16 @@ function SA_LossOfControl.Category(locType)
     return CATEGORY[locType:upper()]
 end
 
+function SA_LossOfControl.PlayerIndex(first, second)
+    if type(first) == "number" then return first end
+    if first == "player" and type(second) == "number" then return second end
+    return nil
+end
+
+function SA_LossOfControl.ForPlayer(unit)
+    return unit == nil or unit == "player"
+end
+
 function SA_LossOfControl.Voice(category)
     return VOICE[category]
 end
@@ -295,7 +305,7 @@ SA_StealthWatch = {}
 local GROUP = { stealth = true, prowl = true, vanish = true, shadowmeld = true, invisibility = true }
 local RANK = { Close = 1, Nearby = 2, Medium = 3, Detected = 4 }
 local ALERT_COOLDOWN = 3
-local DEFAULT_GAP = 5
+local DEFAULT_GAP = 4
 local ENTRY_MAX_AGE = 60
 local SWEEP_ABOVE = 40
 

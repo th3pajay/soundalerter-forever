@@ -11,6 +11,22 @@ Model.PRESETS = {
     { id = "auras", name = "Only auras", note = "Turns every spell on and stops tracking cooldowns" },
 }
 
+Model.RANK_ALIASES = {
+    [1316709] = { 1325756, 1325757, 1325758 },
+}
+
+Model.SUGGESTED = {
+    { spellID = 1316709, unit = "player", auraType = "HARMFUL", name = "Add Death Mark on you", note = "Rogue curse that bursts 6 seconds after it lands. Shows a red debuff icon with the time left, every rank included" },
+}
+
+function Model.IsTracked(icons, spellID, unit, auraType)
+    for i = 1, #icons do
+        local icon = icons[i]
+        if icon.spellID == spellID and icon.unit == unit and icon.auraType == auraType then return true end
+    end
+    return false
+end
+
 local CLASS_KNOWN = {}
 for _, class in ipairs(Model.CLASS_ORDER) do CLASS_KNOWN[class] = true end
 

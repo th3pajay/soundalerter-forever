@@ -6,7 +6,7 @@ local BUTTON_SIZE = 24
 local INITIAL_X = 5
 local INITIAL_Y = -5
 local ICON_TINT = { 0.5, 1.0, 1.0 }
-local LOCKABLE = { "ResourceBar", "CastingBars", "SpellTracker", "CastFeed", "CombatTimer" }
+local LOCKABLE = { "ResourceBar", "CastingBars", "SpellTracker", "CastFeed" }
 
 local button
 

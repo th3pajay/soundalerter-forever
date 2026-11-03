@@ -114,7 +114,6 @@ Model.MODULES = {
     { "Notices", { { "notices", "enabled" } } },
     { "Casting bars", { { "castingBars", "player", "enabled" }, { "castingBars", "target", "enabled" }, { "castingBars", "focus", "enabled" } } },
     { "Resource bars", { { "resourceBar", "energyEnabled" }, { "resourceBar", "rageEnabled" }, { "resourceBar", "healthEnabled" }, { "resourceBar", "manaEnabled" }, { "resourceBar", "comboEnabled" } } },
-    { "Combat timer", { { "combatTimer", "enabled" } } },
     { "Cast feed", { { "castFeed", "enabled" } } },
     { "Statistics", { { "statistics", "enabled" } } },
 }
@@ -285,13 +284,14 @@ end
 do
 SA_ProfileCleanup = {}
 
-SA_ProfileCleanup.PASS = 4
+SA_ProfileCleanup.PASS = 5
 
 SA_ProfileCleanup.DEAD_KEYS = {
     "objectiveAlertsEnabled", "ArenaPartner", "prowlhenemy", "vanishalert", "enemyinterrupts",
     "PresenceofMind", "lavaburst", "sayspell", "saptextself", "blindtext", "blindtextfriend",
     "flagRainbowBorder", "persistentTeamCache", "cspell", "showAdvancedFlag", "showAdvancedProximity",
     "learnedClasses", "learnedClassesEnabled", "learnedClassesMaxSize", "negativeCacheEnabled", "negativeCacheTTL",
+    "combatTimer",
 }
 
 SA_ProfileCleanup.DEAD_RESOURCE_KEYS = {
@@ -473,12 +473,33 @@ function Transfer.Duplicate(saved, source, target, defaults)
     return true
 end
 
-function Transfer.Encode(name, profile, defaults)
+function Transfer.Pack(prefix, payload)
     local out = {}
-    local payload = { n = name, p = slim(Transfer.Copy(profile), defaults or {}) }
     if not put(out, payload, 1) then return nil end
     local body = table.concat(out)
-    return Transfer.PREFIX .. body .. "|" .. checksum(body)
+    return prefix .. body .. "|" .. checksum(body)
+end
+
+function Transfer.Unpack(prefix, text, foreign)
+    if type(text) ~= "string" then return nil, "Paste an export text first." end
+    text = text:gsub("^%s+", ""):gsub("%s+$", "")
+    if text == "" then return nil, "Paste an export text first." end
+    if #text > Transfer.MAX_LENGTH then return nil, "That text is too long to be an export." end
+    local body, sum = text:match("^" .. prefix .. "(.*)|(%x+)$")
+    if not body then return nil, foreign end
+    if checksum(body) ~= sum then return nil, "The text is damaged or incomplete. Copy the whole export again." end
+    local state = { nodes = 0 }
+    local ok, payload = pcall(function()
+        local value, stop = take(body, 1, state, 1)
+        if stop ~= #body + 1 then error("trailing") end
+        return value
+    end)
+    if not ok or type(payload) ~= "table" then return nil, "The export could not be read. No changes were made." end
+    return payload
+end
+
+function Transfer.Encode(name, profile, defaults)
+    return Transfer.Pack(Transfer.PREFIX, { n = name, p = slim(Transfer.Copy(profile), defaults or {}) })
 end
 
 function Transfer.Sanitize(profile, defaults)
@@ -492,25 +513,400 @@ function Transfer.Sanitize(profile, defaults)
     return clean
 end
 
+Transfer.BLOCK_PREFIX = "SAT1:"
+
 function Transfer.Decode(text, defaults)
-    if type(text) ~= "string" then return nil, "Paste an export text first." end
-    text = text:gsub("^%s+", ""):gsub("%s+$", "")
-    if text == "" then return nil, "Paste an export text first." end
-    if #text > Transfer.MAX_LENGTH then return nil, "That text is too long to be a profile export." end
-    local body, sum = text:match("^" .. Transfer.PREFIX .. "(.*)|(%x+)$")
-    if not body then return nil, "That is not a SoundAlerter profile export." end
-    if checksum(body) ~= sum then return nil, "The text is damaged or incomplete. Copy the whole export again." end
-    local state = { nodes = 0 }
-    local ok, payload = pcall(function()
-        local value, stop = take(body, 1, state, 1)
-        if stop ~= #body + 1 then error("trailing") end
-        return value
-    end)
-    if not ok or type(payload) ~= "table" or type(payload.p) ~= "table" then
+    if type(text) == "string" and text:find("^%s*" .. Transfer.BLOCK_PREFIX) then
+        return nil, "This is a Spell Tracker blocks text. Import it under Spell Tracker blocks below."
+    end
+    local payload, message = Transfer.Unpack(Transfer.PREFIX, text, "That is not a SoundAlerter profile export.")
+    if not payload then return nil, message end
+    if type(payload.p) ~= "table" then
         return nil, "The export could not be read. No changes were made."
     end
     local name = type(payload.n) == "string" and trim(payload.n) or ""
     if name == "" then name = "Imported" end
     return name:sub(1, SA_ProfileModel.NAME_LIMIT), Transfer.Sanitize(payload.p, defaults or {})
+end
+end
+do
+SA_TrackerBlocks = {}
+
+local Blocks = SA_TrackerBlocks
+local Transfer = SA_ProfileTransfer
+
+Blocks.PREFIX = Transfer.BLOCK_PREFIX
+Blocks.POOL = 20
+Blocks.MAX_ICONS = 60
+Blocks.POSITION_LIMIT = 4096
+Blocks.CLASSES = { "Druid", "Hunter", "Mage", "Paladin", "Priest", "Rogue", "Shaman", "Warlock", "Warrior", "Other" }
+Blocks.DISPLAY_KEYS = { "showTimerText", "showBorderTimer", "showCooldownText", "showReadyText", "animQuality" }
+Blocks.DISPLAY_LABELS = {
+    showTimerText = "Timer text", showBorderTimer = "Border timer", showCooldownText = "Cooldown text",
+    showReadyText = "Ready text", animQuality = "Animation quality",
+}
+
+local KNOWN_CLASS = {}
+for _, class in ipairs(Blocks.CLASSES) do KNOWN_CLASS[class] = true end
+local UNITS = { player = true, target = true }
+local AURAS = { HELPFUL = true, HARMFUL = true }
+local QUALITIES = { off = true, low = true, normal = true, high = true }
+local FLAGS = { enabled = true, trackCooldown = false, showWhenInactive = false }
+
+local function whole(value, low, high)
+    return type(value) == "number" and value == value and value % 1 == 0 and value >= low and value <= high
+end
+
+local function within(value, low, high)
+    return type(value) == "number" and value == value and value >= low and value <= high
+end
+
+local function classOfIcon(classOf, icon)
+    local class = classOf(icon.spellID)
+    return KNOWN_CLASS[class] and class or "Other"
+end
+
+function Blocks.Key(icon)
+    return icon.spellID .. ":" .. (icon.unit or "player") .. ":" .. (icon.auraType or "HELPFUL")
+end
+
+local function hasLayout(icon)
+    return within(icon.size, 16, 96) and within(icon.posX, -Blocks.POSITION_LIMIT, Blocks.POSITION_LIMIT)
+        and within(icon.posY, -Blocks.POSITION_LIMIT, Blocks.POSITION_LIMIT)
+end
+
+function Blocks.CleanIcon(raw, withLayout)
+    if type(raw) ~= "table" then return nil end
+    local unit, aura = raw.unit or "player", raw.auraType or "HELPFUL"
+    if not whole(raw.spellID, 1, 9999999) or not UNITS[unit] or not AURAS[aura] then return nil end
+    local icon = { spellID = raw.spellID, unit = unit, auraType = aura }
+    for key, default in pairs(FLAGS) do
+        if type(raw[key]) == "boolean" then icon[key] = raw[key] else icon[key] = default end
+    end
+    if whole(raw.cooldownTextSize, 6, 32) then icon.cooldownTextSize = raw.cooldownTextSize end
+    if withLayout and hasLayout(raw) then
+        icon.size, icon.posX, icon.posY = raw.size, raw.posX, raw.posY
+    end
+    return icon
+end
+
+local function cleanDisplay(raw)
+    if type(raw) ~= "table" then return nil end
+    local display, any = {}, false
+    for _, key in ipairs(Blocks.DISPLAY_KEYS) do
+        local value = raw[key]
+        if key == "animQuality" then
+            if QUALITIES[value] then display[key], any = value, true end
+        elseif type(value) == "boolean" then
+            display[key], any = value, true
+        end
+    end
+    return any and display or nil
+end
+
+local function displayOf(tracker, defaults)
+    local display = {}
+    for _, key in ipairs(Blocks.DISPLAY_KEYS) do
+        local value = tracker[key]
+        if value == nil then value = defaults[key] end
+        display[key] = value
+    end
+    return display
+end
+
+function Blocks.Build(tracker, classOf)
+    local groups = {}
+    for index, icon in ipairs(tracker.icons or {}) do
+        local class = classOfIcon(classOf, icon)
+        local group = groups[class]
+        if not group then
+            group = {}
+            groups[class] = group
+        end
+        group[#group + 1] = index
+    end
+    local list = {}
+    for _, class in ipairs(Blocks.CLASSES) do
+        local group = groups[class]
+        if group then list[#list + 1] = { key = "class:" .. class, class = class, indices = group, weight = #group } end
+    end
+    list[#list + 1] = { key = "display", weight = 2 }
+    if #(tracker.icons or {}) > 0 then list[#list + 1] = { key = "layout", weight = 2 } end
+    return list
+end
+
+function Blocks.Incoming(clean)
+    local list = {}
+    for _, class in ipairs(clean.order) do
+        list[#list + 1] = { key = "class:" .. class, class = class, weight = #clean.classes[class] }
+    end
+    if clean.display then list[#list + 1] = { key = "display", weight = 2 } end
+    if clean.withLayout then list[#list + 1] = { key = "layout", weight = 2 } end
+    return list
+end
+
+function Blocks.Export(tracker, defaults, classOf, picked)
+    local withLayout = picked.layout == true
+    local payload = { v = 1, classes = {} }
+    local any = false
+    for _, icon in ipairs(tracker.icons or {}) do
+        local class = classOfIcon(classOf, icon)
+        if picked["class:" .. class] then
+            local clean = Blocks.CleanIcon(icon, withLayout)
+            if clean then
+                local list = payload.classes[class]
+                if not list then
+                    list = {}
+                    payload.classes[class] = list
+                end
+                list[#list + 1] = clean
+                any = true
+            end
+        end
+    end
+    if picked.display then payload.display = displayOf(tracker, defaults or {}) end
+    if withLayout and not any then
+        local layout = {}
+        for _, icon in ipairs(tracker.icons or {}) do
+            local clean = Blocks.CleanIcon(icon, true)
+            if clean and clean.size then
+                layout[#layout + 1] = { spellID = clean.spellID, unit = clean.unit, auraType = clean.auraType, size = clean.size, posX = clean.posX, posY = clean.posY }
+            end
+        end
+        if #layout > 0 then payload.layout = layout end
+    end
+    if withLayout then payload.withLayout = true end
+    if not any and not payload.display and not payload.layout then return nil end
+    return Transfer.Pack(Blocks.PREFIX, payload)
+end
+
+function Blocks.Decode(text)
+    if type(text) == "string" and text:find("^%s*" .. Transfer.PREFIX) then
+        return nil, "This is a full profile export. Import it with Import text under New profile."
+    end
+    local payload, message = Transfer.Unpack(Blocks.PREFIX, text, "That is not a Spell Tracker blocks text.")
+    if not payload then return nil, message end
+    local withLayout = payload.withLayout == true
+    local clean = { classes = {}, order = {}, count = 0, dropped = 0, withLayout = withLayout }
+    if type(payload.classes) == "table" then
+        for _, class in ipairs(Blocks.CLASSES) do
+            local list = payload.classes[class]
+            if type(list) == "table" then
+                local out = {}
+                for index = 1, #list do
+                    local icon = clean.count < Blocks.MAX_ICONS and Blocks.CleanIcon(list[index], withLayout)
+                    if icon then
+                        out[#out + 1] = icon
+                        clean.count = clean.count + 1
+                    else
+                        clean.dropped = clean.dropped + 1
+                    end
+                end
+                if #out > 0 then
+                    clean.classes[class] = out
+                    clean.order[#clean.order + 1] = class
+                end
+            end
+        end
+    end
+    clean.display = cleanDisplay(payload.display)
+    if withLayout and type(payload.layout) == "table" then
+        local layout = {}
+        for index = 1, math.min(#payload.layout, Blocks.MAX_ICONS) do
+            local entry = Blocks.CleanIcon(payload.layout[index], true)
+            if entry and entry.size then
+                layout[#layout + 1] = entry
+            else
+                clean.dropped = clean.dropped + 1
+            end
+        end
+        if #layout > 0 then clean.layout = layout end
+    end
+    if clean.withLayout and not clean.layout then
+        local positioned = false
+        for _, class in ipairs(clean.order) do
+            for _, icon in ipairs(clean.classes[class]) do
+                if icon.size then positioned = true end
+            end
+        end
+        clean.withLayout = positioned
+    end
+    if #clean.order == 0 and not clean.display and not clean.layout then
+        return nil, "The text holds nothing the Spell Tracker can use."
+    end
+    return clean
+end
+
+local function where(icon)
+    return string.format("%dpx at %d, %d", icon.size or 0, math.floor((icon.posX or 0) + 0.5), math.floor((icon.posY or 0) + 0.5))
+end
+
+function Blocks.Describe(icon, withLayout)
+    local parts = {
+        icon.unit == "target" and "target" or "you",
+        icon.auraType == "HARMFUL" and "debuff" or "buff",
+    }
+    if icon.trackCooldown then parts[#parts + 1] = "cooldown" end
+    if icon.enabled == false then parts[#parts + 1] = "off" end
+    if icon.showWhenInactive then parts[#parts + 1] = "always shown" end
+    if withLayout and icon.size then parts[#parts + 1] = where(icon) end
+    return table.concat(parts, " \194\183 ")
+end
+
+local function indexOf(icons)
+    local index = {}
+    for _, icon in ipairs(icons) do
+        if icon.spellID then index[Blocks.Key(icon)] = icon end
+    end
+    return index
+end
+
+local function layoutPicked(clean, picked)
+    return picked.layout == true and clean.withLayout == true
+end
+
+function Blocks.Diff(tracker, clean, picked, defaults)
+    local rows = {}
+    local index = indexOf(tracker.icons or {})
+    local withLayout = layoutPicked(clean, picked)
+    for _, class in ipairs(clean.order) do
+        if picked["class:" .. class] then
+            for _, icon in ipairs(clean.classes[class]) do
+                local key = Blocks.Key(icon)
+                local have = index[key]
+                local incoming = Blocks.Describe(icon, withLayout and icon.size ~= nil)
+                if not have then
+                    rows[#rows + 1] = { id = "i:" .. key, kind = "new", class = class, spellID = icon.spellID, incoming = incoming }
+                else
+                    local mine = Blocks.Describe(have, withLayout and icon.size ~= nil)
+                    if mine ~= incoming then
+                        rows[#rows + 1] = { id = "i:" .. key, kind = "changed", class = class, spellID = icon.spellID, mine = mine, incoming = incoming }
+                    end
+                end
+            end
+        end
+    end
+    if picked.display and clean.display then
+        for _, key in ipairs(Blocks.DISPLAY_KEYS) do
+            local value = clean.display[key]
+            if value ~= nil then
+                local current = tracker[key]
+                if current == nil then current = (defaults or {})[key] end
+                if current ~= value then
+                    rows[#rows + 1] = { id = "d:" .. key, kind = "changed", setting = key, mine = tostring(current), incoming = tostring(value) }
+                end
+            end
+        end
+    end
+    if withLayout and clean.layout then
+        for _, entry in ipairs(clean.layout) do
+            local key = Blocks.Key(entry)
+            local have = index[key]
+            if not have then
+                rows[#rows + 1] = { id = "l:" .. key, kind = "skip", spellID = entry.spellID, incoming = where(entry) }
+            elseif not hasLayout(have) or where(have) ~= where(entry) then
+                rows[#rows + 1] = { id = "l:" .. key, kind = "changed", spellID = entry.spellID, mine = hasLayout(have) and where(have) or "default spot", incoming = where(entry) }
+            end
+        end
+    end
+    return rows
+end
+
+local function copyIcon(icon)
+    local copy = {}
+    for key, value in pairs(icon) do copy[key] = value end
+    return copy
+end
+
+local function settle(target, icon, withLayout)
+    target.enabled, target.trackCooldown, target.showWhenInactive = icon.enabled, icon.trackCooldown, icon.showWhenInactive
+    if icon.cooldownTextSize then target.cooldownTextSize = icon.cooldownTextSize end
+    if withLayout and icon.size then
+        target.size, target.posX, target.posY = icon.size, icon.posX, icon.posY
+    end
+end
+
+local function fresh(icon, withLayout)
+    local new = { spellID = icon.spellID, unit = icon.unit, auraType = icon.auraType }
+    settle(new, icon, withLayout)
+    return new
+end
+
+function Blocks.Apply(tracker, clean, picked, choices, replace, classOf, defaults)
+    local icons = {}
+    for index, icon in ipairs(tracker.icons or {}) do icons[index] = copyIcon(icon) end
+    local display = {}
+    local result = { added = 0, changed = 0, removed = 0, full = 0 }
+    local withLayout = layoutPicked(clean, picked)
+    choices = choices or {}
+    local function take(id) return replace or choices[id] ~= "keep" end
+    if replace then
+        local drop = {}
+        for _, class in ipairs(clean.order) do
+            if picked["class:" .. class] then drop[class] = true end
+        end
+        local kept = {}
+        for _, icon in ipairs(icons) do
+            if drop[classOfIcon(classOf, icon)] then result.removed = result.removed + 1 else kept[#kept + 1] = icon end
+        end
+        icons = kept
+    end
+    local index = indexOf(icons)
+    for _, class in ipairs(clean.order) do
+        if picked["class:" .. class] then
+            for _, icon in ipairs(clean.classes[class]) do
+                local key = Blocks.Key(icon)
+                if take("i:" .. key) then
+                    local have = index[key]
+                    if have then
+                        local placed = withLayout and icon.size ~= nil
+                        if Blocks.Describe(have, placed) ~= Blocks.Describe(icon, placed) then
+                            settle(have, icon, withLayout)
+                            result.changed = result.changed + 1
+                        end
+                    elseif #icons >= Blocks.POOL then
+                        result.full = result.full + 1
+                    else
+                        local new = fresh(icon, withLayout)
+                        icons[#icons + 1] = new
+                        index[key] = new
+                        result.added = result.added + 1
+                    end
+                end
+            end
+        end
+    end
+    if picked.display and clean.display then
+        for _, key in ipairs(Blocks.DISPLAY_KEYS) do
+            local value = clean.display[key]
+            local current = tracker[key]
+            if current == nil then current = (defaults or {})[key] end
+            if value ~= nil and current ~= value and take("d:" .. key) then
+                display[key] = value
+                result.changed = result.changed + 1
+            end
+        end
+    end
+    if withLayout and clean.layout then
+        for _, entry in ipairs(clean.layout) do
+            local key = Blocks.Key(entry)
+            local have = index[key]
+            if have and take("l:" .. key) and (not hasLayout(have) or where(have) ~= where(entry)) then
+                have.size, have.posX, have.posY = entry.size, entry.posX, entry.posY
+                result.changed = result.changed + 1
+            end
+        end
+    end
+    return icons, display, result
+end
+
+function Blocks.ResultText(result, replace)
+    local parts = {}
+    if replace and result.removed > 0 then parts[#parts + 1] = result.removed .. " removed" end
+    if result.added > 0 then parts[#parts + 1] = result.added .. " added" end
+    if result.changed > 0 then parts[#parts + 1] = result.changed .. " changed" end
+    if result.full > 0 then parts[#parts + 1] = result.full .. " not added (tracker full at " .. Blocks.POOL .. ")" end
+    if #parts == 0 then return "Nothing changed" end
+    return table.concat(parts, ", ")
 end
 end

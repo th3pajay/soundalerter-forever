@@ -59,6 +59,10 @@ self.SA_TYPE = {
     [FILTER_TYPE_MINE] = L["My non-unit object (totem)"],
     [FILTER_TYPE_MY_PET] = L["My pet"],
 }
+self.SA_TYPE_ORDER = {
+    FILTER_TYPE_ANY, FILTER_TYPE_FRIENDLY, FILTER_TYPE_HOSTILE_PLAYER, FILTER_TYPE_HOSTILE_UNIT,
+    FILTER_TYPE_NEUTRAL, FILTER_TYPE_ME, FILTER_TYPE_MINE, FILTER_TYPE_MY_PET,
+}
 
 function SoundAlerter:Debug(module, fmt, ...)
     if not (sadb and sadb.debugmode) then return end
@@ -105,10 +109,6 @@ function SoundAlerter:ChangeProfile()
 
 	if self.AuraDisplay then
 		self.AuraDisplay:Refresh(true)
-	end
-
-	if self.CombatTimer then
-		self.CombatTimer:OnProfileChanged()
 	end
 
 	if self.SpeedMeter then
@@ -276,7 +276,6 @@ function SoundAlerter:OnEnable()
     self:InitializeModule("SpellTracker")
     self:InitializeModule("CastFeed")
     self:InitializeModule("AuraDisplay")
-    self:InitializeModule("CombatTimer")
     self:InitializeModule("SpeedMeter")
     self:InitializeModule("TrinketMenu")
     self:InitializeModule("MinimapTracking")
@@ -586,7 +585,7 @@ function SoundAlerter:BlizzardAudioAlertsEnabled()
 end
 
 function SoundAlerter:PLAYER_ENTERING_WORLD(_, isInitialLogin, isReloadingUi)
-    CombatLogClearEntries()
+    if CombatLogClearEntries then CombatLogClearEntries() end
     self:ClearAuraTracking()
     if self.MinimapTracking then
         self.MinimapTracking:OnEnterWorld()
@@ -652,6 +651,7 @@ function SoundAlerter:HandleCommand(input)
         self:Print("  |cffFFFFFF/sa speed|r - Print the raw speed values and what the Speed Meter would show (stand in the water, then run it)")
         self:Print("  |cffFFFFFF/sa fxstats [reset]|r - Show how often the casting bars and spell tracker icons update at the current animation quality")
         self:Print("  |cffFFFFFF/sa probe|r - Print what the client lets the addon read (turn on Debug Mode first to record events)")
+        self:Print("  |cffFFFFFF/sa nextprobe|r - Check whether Blizzard's assisted combat pick is readable; |cffFFFFFF/sa nextprobe watch|r follows it for 20 s in a fight")
         self:Print("  |cffFFFFFF/sa global|r - Global sightings status: channel, messages, tracked enemies, ignored senders; |cffFFFFFF/sa global mute <name>|r or |cffFFFFFFunmute <name>|r (saved for all your characters)")
         self:Print("  |cffFFFFFF/sa snooze [minutes]|r / |cffFFFFFF/sa unsnooze|r - Silence proximity and enemy awareness alerts for a while")
         self:Print("  |cffFFFFFF/sa watch [guild] <name>|r / |cffFFFFFF/sa unwatch [guild] <name>|r / |cffFFFFFF/sa watchlist|r - Manage the watchlist")
@@ -663,9 +663,6 @@ function SoundAlerter:HandleCommand(input)
         end
         if self.FlagAlerts then
             self.FlagAlerts:PrintHelp()
-        end
-        if self.CombatTimer then
-            self.CombatTimer:PrintHelp()
         end
         if self.Footsteps then
             self.Footsteps:PrintHelp()
@@ -687,12 +684,6 @@ function SoundAlerter:HandleCommand(input)
             self.FlagAlerts:HandleCommand(rest)
         else
             self:Print("|cffFF0000FlagAlerts module not loaded.|r")
-        end
-    elseif command == "ctprobe" then
-        if self.CombatTimer then
-            self.CombatTimer:HandleCommand(rest)
-        else
-            self:Print("|cffFF0000CombatTimer module not loaded.|r")
         end
     elseif command == "footsteps" then
         if self.Footsteps then
@@ -720,6 +711,8 @@ function SoundAlerter:HandleCommand(input)
         self:PrintZoneLog()
     elseif command == "probe" then
         self:PrintProbeReport()
+    elseif command == "nextprobe" then
+        self:NextActionProbe(rest)
     elseif command == "watch" or command == "unwatch" or command == "watchlist" then
         self:HandleWatchCommand(command, rest)
     elseif command == "aurasound" then
@@ -760,6 +753,14 @@ local SPELL_FINDER_CANDIDATES = {
     "GetSpellPowerCost", "GetSpellCharges", "IsPassiveSpell", "IsSpellKnown",
 }
 
+local PVP_RANK_CANDIDATES = {
+    "GetPVPLifetimeStats", "GetPVPRankProgress", "GetHonorCurrency",
+    "UnitPVPRank", "GetPVPRankInfo", "GetPVPSessionStats", "GetPVPThisWeekStats", "GetPVPLastWeekStats",
+    "GetPVPYesterdayStats", "UnitHonor", "UnitHonorMax", "UnitHonorLevel",
+    "C_PvP.GetHonorRewardInfo", "C_CurrencyInfo", "C_CurrencyInfo.GetCurrencyInfo",
+    "GetFactionInfoByID", "C_Reputation", "C_Reputation.GetFactionDataByID",
+}
+
 local function lookupPath(path)
     local value = _G
     for segment in path:gmatch("[^%.]+") do
@@ -795,6 +796,9 @@ function SoundAlerter:RunApiCheck()
 
     self:Print("|cffFFD700=== Spell Finder candidates (informational) ===|r")
     report(SPELL_FINDER_CANDIDATES, "|cff00FF00[present]|r", "|cff888888[absent]|r")
+
+    self:Print("|cffFFD700=== PvP rank candidates (informational) ===|r")
+    report(PVP_RANK_CANDIDATES, "|cff00FF00[present]|r", "|cff888888[absent]|r")
 
     self:Print("|cffFFD700=== Combat log ===|r")
 
@@ -1177,11 +1181,13 @@ end
 
 local lossOfControlState = { lastSpoken = {} }
 
-function SoundAlerter:LOSS_OF_CONTROL_ADDED(event, index)
+function SoundAlerter:LOSS_OF_CONTROL_ADDED(event, first, second)
     if not sadb.lossOfControlVoice then return end
     if not (C_LossOfControl and C_LossOfControl.GetActiveLossOfControlData) then return end
+    local index = SA_LossOfControl.PlayerIndex(Plain(first), Plain(second))
+    if not index then return end
     if not self:IsAlertZoneAllowed() then return end
-    local ok, data = pcall(C_LossOfControl.GetActiveLossOfControlData, Plain(index) or 1)
+    local ok, data = pcall(C_LossOfControl.GetActiveLossOfControlData, index)
     if not ok or type(data) ~= "table" then return end
     local category = SA_LossOfControl.Category(Plain(data.locType))
     if not category then return end
@@ -1399,6 +1405,8 @@ function SoundAlerter:StealthWatchTick()
     SA_StealthWatch.Sweep(stealthState, now)
 end
 
+local TRAP_KEYS = { freezingtrap = true, frosttrap = true }
+
 function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFocus, isTracked, sourceUnit, isAlly, firstSight)
     self.alertUnit = unit
     self:CheckCustomAlerts("SPELL_AURA_APPLIED", sourceUnit, unit, spellID)
@@ -1417,6 +1425,10 @@ function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFoc
             elseif self:PlaySpell(self.spellList.selfDebuff, spellID) then
                 lossOfControlState.lastSelfDebuffAt = GetTime()
             end
+        end
+        if sourceUnit and TRAP_KEYS[self.spellList.selfDebuff[spellID]] and self.ProximityToasts then
+            local trapper = Plain(UnitGUID(sourceUnit))
+            if trapper then self.ProximityToasts:OnTrapLanded(trapper, spellID) end
         end
         if not sadb.chatalerts then
             if ((spellID == 450600 and sadb.hexselffriend) or

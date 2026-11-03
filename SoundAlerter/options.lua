@@ -74,8 +74,6 @@ function SoundAlerter:OnOptionsCreate()
 
 	self:AddOption('CastFeed', self:BuildCastFeedOptions())
 
-	self:AddOption('CombatTimer', self:BuildCombatTimerOptions())
-
 	self:AddOption('SpeedMeter', self:BuildSpeedMeterOptions())
 
 	self:AddOption('Footsteps', self:BuildFootstepsOptions())

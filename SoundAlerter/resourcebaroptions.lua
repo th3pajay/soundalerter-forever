@@ -22,6 +22,11 @@ local function bars()
     return SoundAlerter.ResourceBar
 end
 
+local function poisedClass()
+    local active = bars()
+    return active ~= nil and active.poisedInfo ~= nil
+end
+
 local function write(active, key, value)
     active:SetSetting(key, value)
     if key == "locked" then
@@ -40,6 +45,8 @@ local function write(active, key, value)
         active[COLOR_UPDATES[key]](active)
     elseif key == "comboCelebration" or key == "comboAnimQuality" then
         active:ApplyCelebration()
+    elseif key == "poisedGlow" then
+        active:UpdatePoisedTracking()
     elseif key == "comboStyle" then
         active:ApplyCPStyle()
     elseif COMBO_COLORS[key] then
@@ -151,6 +158,7 @@ function SoundAlerter:BuildResourceBarOptions()
             Page.When("comboEnabled", Page.Action("Preview loss", "Run 0 to 5 combo points on the live bar, then lose them as if the target died.", function() if bars() then bars():PreviewCelebration("lost") end end, false, "Bars")),
             Page.When("energyEnabled", Page.Color("energyColor", "Energy color", "Color of the energy bar.", true, "Energy bar")),
             Page.When("energyEnabled", Page.Range("energyScale", "Energy bar scale", "Adjust the size of the energy bar.", 0.5, 2, 0.05, true, "Energy bar", "x")),
+            Page.Visible(function() return poisedClass() end, Page.When("energyEnabled", Page.Toggle("poisedGlow", "Poised marker", "Gold edge and a Poised tag on the energy bar while Poised is up, so you know your next energy ability costs less. Rogues from level 18, druids from level 32.", true, "Energy bar"))),
             Page.When("rageEnabled", Page.Color("rageColor", "Rage color", "Color of the rage bar.", true, "Rage bar")),
             Page.When("rageEnabled", Page.Range("rageScale", "Rage bar scale", "Adjust the size of the rage bar.", 0.5, 2, 0.05, true, "Rage bar", "x")),
             Page.When("healthEnabled", Page.Color("healthColor", "Health color", "Color of the health bar.", true, "Health bar")),

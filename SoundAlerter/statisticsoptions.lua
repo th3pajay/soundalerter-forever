@@ -14,12 +14,13 @@ local function view()
     local active = statistics()
     if not active then return nil end
     local on = active:GetSettings().enabled and true or false
-    local data = { enabled = on, sort = {}, text = { kpi = "", overview = "", topSpells = "", enemies = "", classes = "", export = "" } }
+    local data = { enabled = on, sort = {}, text = { kpi = "", overview = "", matches = "", topSpells = "", enemies = "", classes = "", export = "" } }
     if not on then return data end
     local sorts = active:GetSortState()
     for key in pairs(SORT_OPTIONS) do data.sort[key] = sorts[key] and sorts[key].sortType end
     data.text.kpi = active:GetKpiText()
     data.text.overview = active:GetOverviewText()
+    data.text.matches = active:GetMatchText()
     data.text.topSpells = active:GetListText("topSpells")
     data.text.enemies = active:GetListText("enemies")
     data.text.classes = active:GetListText("classes")
@@ -37,6 +38,7 @@ local function write(key, value)
             active:InitializeStatistics()
             SoundAlerter:Print("Statistics tracking enabled")
         else
+            active:UpdateMatch()
             SoundAlerter:Print("Statistics tracking disabled (existing data preserved)")
         end
         return
@@ -372,6 +374,7 @@ function SoundAlerter:BuildStatisticsOptions()
         rows = {
             Page.Visible(reportOn, Page.Action("Refresh", "Redraw the statistics with the latest numbers.", function() end, false, "Overview")),
             block("Overview", "Overview", function(settings) return settings.text.overview end),
+            block("Last 20 matches", "Matches", function(settings) return settings.text.matches end),
             sorter("topSpells", "Sort by", "Spells"),
             block("Spells", "Spells", function(settings) return settings.text.topSpells end),
             sorter("enemies", "Sort by", "Enemies"),

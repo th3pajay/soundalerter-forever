@@ -90,6 +90,7 @@ function Profile:Arm(key)
         self.armed = nil
         self:BindStage()
         self:BindActive()
+        self:BindBlocks()
         return true
     end
     self.armed = key
@@ -101,11 +102,13 @@ function Profile:Arm(key)
                 self.armed = nil
                 self:BindStage()
                 self:BindActive()
+                self:BindBlocks()
             end
         end)
     end
     self:BindStage()
     self:BindActive()
+    self:BindBlocks()
     return false
 end
 
@@ -281,13 +284,15 @@ function Profile:Select(name)
     self.sel = name
     self.armed = nil
     if self.renaming then self:EndRename() end
-    local hadTransfer = self.transfer
     self:CloseTransfer()
     self:BindPills()
     self:BindStage()
     self:BindActive()
+    self.blockPicked = {}
+    self.blockText = nil
+    self:BindBlocks()
     FX.Flash(self.stage.flash)
-    if hadTransfer then self:Layout() end
+    self:Layout()
 end
 
 function Profile:AcquirePill(index)
@@ -651,6 +656,464 @@ function Profile:BindActive()
     SetLabel(self.resetRow.button, self.armed == "reset" and "Click again to reset" or "Reset profile")
 end
 
+local BLOCK_CLASS_COLORS = {
+    Druid = { 1, 0.49, 0.04 }, Hunter = { 0.67, 0.83, 0.45 }, Mage = { 0.41, 0.8, 0.94 }, Paladin = { 0.96, 0.55, 0.73 },
+    Priest = { 1, 1, 1 }, Rogue = { 1, 0.96, 0.41 }, Shaman = { 0, 0.44, 0.87 }, Warlock = { 0.58, 0.51, 0.79 },
+    Warrior = { 0.78, 0.61, 0.43 }, Other = { 0.49, 0.52, 0.59 },
+}
+local WARN = { 1, 0.69, 0.13 }
+local SEG_HEIGHT, SEG_GAP, SEG_MIN = 40, 3, 64
+local DIFF_ROW = 22
+local BLOCK_EXPORT_HINT = "Copy the text with Ctrl+C. Anyone can paste it under Spell Tracker blocks, Import."
+local BLOCK_IMPORT_HINT = "Paste a Spell Tracker blocks text and press Enter or Read text."
+
+local function BlockLabel(block)
+    if block.class then
+        local count = block.weight
+        return block.class, count .. (count == 1 and " spell" or " spells"), BLOCK_CLASS_COLORS[block.class] or BLOCK_CLASS_COLORS.Other
+    end
+    if block.key == "display" then return "Display", "timer and text settings", COLOR.muted end
+    return "Layout", "positions and sizes", COLOR.on
+end
+
+function Profile:AcquireSegment(pool, index, parent, onToggle)
+    local seg = pool[index]
+    if seg then return seg end
+    local frame = CreateFrame("Button", nil, parent)
+    frame:SetHeight(SEG_HEIGHT)
+    local fill = Paint(frame, COLOR.line)
+    fill:SetAllPoints(frame)
+    local tint = Paint(frame, COLOR.track, 0.5)
+    tint:SetAllPoints(frame)
+    tint:Hide()
+    local stripe = Paint(frame, COLOR.muted, 1, "ARTWORK")
+    stripe:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+    stripe:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+    stripe:SetWidth(3)
+    local edge = Paint(frame, COLOR.accent, 1, "ARTWORK")
+    edge:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+    edge:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+    edge:SetHeight(2)
+    edge:Hide()
+    local name = Text(frame, 12, COLOR.text)
+    name:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -7)
+    name:SetPoint("RIGHT", frame, "RIGHT", -6, 0)
+    local count = Text(frame, 10.5, COLOR.muted)
+    count:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -23)
+    count:SetPoint("RIGHT", frame, "RIGHT", -6, 0)
+    seg = { frame = frame, fill = fill, stripe = stripe, edge = edge, name = name, count = count }
+    frame:SetScript("OnClick", function()
+        if seg.key then onToggle(seg.key) end
+    end)
+    frame:HookScript("OnEnter", function()
+        if seg.tip then Kit.ShowTip(frame, seg.tipTitle, seg.tip) end
+    end)
+    frame:HookScript("OnLeave", Kit.HideTip)
+    FX.Hover(frame, tint)
+    pool[index] = seg
+    return seg
+end
+
+function Profile:BindSegments(pool, parent, blocks, picked, onToggle, tips)
+    for index, block in ipairs(blocks) do
+        local seg = self:AcquireSegment(pool, index, parent, onToggle)
+        local title, count, color = BlockLabel(block)
+        seg.key = block.key
+        seg.weight = block.weight
+        seg.tipTitle = title
+        seg.tip = tips and tips[block.key] or nil
+        SetIf(seg.name, "cached", title)
+        SetIf(seg.count, "cached", count)
+        Tint(seg.stripe, color)
+        local on = picked[block.key] == true
+        seg.edge:SetShown(on)
+        Tint(seg.fill, on and COLOR.accent or COLOR.line, on and 0.22 or 1)
+        Tint(seg.name, on and COLOR.accent or COLOR.text)
+        seg.frame:Show()
+    end
+    for index = #blocks + 1, #pool do
+        pool[index].key = nil
+        pool[index].frame:Hide()
+    end
+end
+
+local function PlaceSegments(pool, count, card, x, y, width)
+    if count == 0 then return y end
+    local total = 0
+    for index = 1, count do total = total + pool[index].weight end
+    local room = width - SEG_GAP * (count - 1)
+    local extra = room - SEG_MIN * count
+    if extra >= 0 then
+        local cursor = x
+        for index = 1, count do
+            local seg = pool[index]
+            local size = math.floor(SEG_MIN + extra * seg.weight / total)
+            if index == count then size = x + width - cursor end
+            seg.frame:ClearAllPoints()
+            seg.frame:SetPoint("TOPLEFT", card.frame, "TOPLEFT", cursor, -y)
+            seg.frame:SetWidth(size)
+            cursor = cursor + size + SEG_GAP
+        end
+        return y + SEG_HEIGHT
+    end
+    local perRow = math.max(1, math.floor((width + SEG_GAP) / (SEG_MIN + SEG_GAP)))
+    local size = math.floor((width - SEG_GAP * (perRow - 1)) / perRow)
+    for index = 1, count do
+        local column = (index - 1) % perRow
+        local line = math.floor((index - 1) / perRow)
+        local frame = pool[index].frame
+        frame:ClearAllPoints()
+        frame:SetPoint("TOPLEFT", card.frame, "TOPLEFT", x + column * (size + SEG_GAP), -(y + line * (SEG_HEIGHT + SEG_GAP)))
+        frame:SetWidth(size)
+    end
+    return y + math.ceil(count / perRow) * (SEG_HEIGHT + SEG_GAP) - SEG_GAP
+end
+
+function Profile:BlockTips()
+    local tips, names = {}, self.spec.trackerNames(self.sel)
+    for _, block in ipairs(self.exportBlocks) do
+        if block.indices then
+            local list = {}
+            for _, index in ipairs(block.indices) do list[#list + 1] = names[index] end
+            tips[block.key] = table.concat(list, ", ")
+        end
+    end
+    tips.display = "Timer text, border timer, cooldown text, ready text and animation quality."
+    tips.layout = "Icon sizes and positions. On their own they only move spells the receiver already tracks."
+    return tips
+end
+
+function Profile:BlockSummary()
+    local parts, spells = {}, 0
+    for _, block in ipairs(self.exportBlocks) do
+        if self.blockPicked[block.key] then
+            if block.class then
+                spells = spells + block.weight
+                parts[#parts + 1] = block.class
+            elseif block.key == "display" then
+                parts[#parts + 1] = "display"
+            else
+                parts[#parts + 1] = "layout"
+            end
+        end
+    end
+    if #parts == 0 then return "Pick at least one block above.", false end
+    return table.concat(parts, ", ") .. (spells > 0 and (" \194\183 " .. spells .. (spells == 1 and " spell" or " spells")) or ""), true
+end
+
+function Profile:ToggleExportBlock(key)
+    self.blockPicked[key] = not self.blockPicked[key] or nil
+    self.blockText = nil
+    self:BindBlocks()
+    self:Layout()
+end
+
+function Profile:ToggleImportBlock(key)
+    self.inPicked[key] = not self.inPicked[key] or nil
+    self:BindBlocks()
+    self:Layout()
+end
+
+function Profile:SetBlockMode(mode)
+    if self.blockMode == mode then return end
+    self.blockMode = mode
+    self.armed = nil
+    self:BindBlocks()
+    self:Layout()
+end
+
+function Profile:RunBlockExport()
+    local text = self.spec.trackerExport(self.sel, self.blockPicked)
+    self.blockText = text
+    self:BindBlocks()
+    self:Layout()
+    if text then
+        self.blockOut:SetFocus()
+        self.blockOut:HighlightText()
+        self:Toast("Blocks ready to copy")
+    end
+end
+
+function Profile:SetBlockHint(text, bad)
+    SetIf(self.blockHint, "cached", text)
+    Tint(self.blockHint, bad and DANGER or COLOR.muted)
+end
+
+function Profile:ReadBlocks()
+    local clean, message = self.spec.trackerDecode(self.blockIn:GetText())
+    if not clean then
+        self.incoming = nil
+        self:SetBlockHint(message, true)
+        FX.Shake(self.blockIn)
+        self:BindBlocks()
+        self:Layout()
+        return
+    end
+    self.incoming = clean
+    self.inPicked, self.choices = {}, {}
+    for _, block in ipairs(SA_TrackerBlocks.Incoming(clean)) do self.inPicked[block.key] = true end
+    local note = clean.dropped > 0 and (" " .. clean.dropped .. " invalid entries were skipped.") or ""
+    self:SetBlockHint("Text read. Changes go into " .. self.current .. "." .. note, false)
+    self.blockIn:ClearFocus()
+    self:BindBlocks()
+    self:Layout()
+end
+
+function Profile:SetAllChoices(value)
+    for _, row in ipairs(self.blockRows or {}) do
+        if row.kind ~= "skip" then self.choices[row.id] = value end
+    end
+    self:BindBlocks()
+end
+
+function Profile:ApplyBlocks(replace)
+    if not self.incoming then return end
+    if replace and not self:Arm("replace") then return end
+    local result = self.spec.trackerApply(self.incoming, self.inPicked, self.choices, replace)
+    self.armed = nil
+    self.choices = {}
+    self:Toast(self.current .. ": " .. SA_TrackerBlocks.ResultText(result, replace))
+    self:Refresh(true)
+    self:BindBlocks()
+    self:Layout()
+end
+
+function Profile:AcquireDiffRow(index)
+    local row = self.diffRows[index]
+    if row then return row end
+    local parent = self.blocksCard.frame
+    local frame = CreateFrame("Frame", nil, parent)
+    frame:SetHeight(DIFF_ROW)
+    local line = Paint(frame, COLOR.line, 0.6)
+    line:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+    line:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+    line:SetHeight(1)
+    local dot = Paint(frame, COLOR.muted, 1, "ARTWORK")
+    dot:SetSize(8, 8)
+    dot:SetPoint("LEFT", frame, "LEFT", 2, 0)
+    local name = Text(frame, 11.5, COLOR.text)
+    local mine = Text(frame, 11, COLOR.muted)
+    local incoming = Text(frame, 11, WARN)
+    local choice = Kit.MakeButton(frame, "Take", function()
+        local current = row.id and self.choices[row.id] == "keep"
+        self.choices[row.id] = current and "take" or "keep"
+        self:BindBlocks()
+    end)
+    choice.frame:SetHeight(18)
+    row = { frame = frame, dot = dot, name = name, mine = mine, incoming = incoming, choice = choice }
+    self.diffRows[index] = row
+    return row
+end
+
+local function RowName(row)
+    if row.setting then return SA_TrackerBlocks.DISPLAY_LABELS[row.setting] or row.setting end
+    local name = SA_COMPAT.GetSpellInfo(row.spellID) or ("Spell " .. tostring(row.spellID))
+    if row.kind == "new" then return name .. "  (new)" end
+    if row.kind == "skip" then return name .. "  (not tracked)" end
+    return name
+end
+
+function Profile:BindDiff()
+    local rows = self.incoming and self.spec.trackerDiff(self.incoming, self.inPicked) or {}
+    self.blockRows = rows
+    local taking, offered = 0, 0
+    for index, data in ipairs(rows) do
+        local row = self:AcquireDiffRow(index)
+        row.id = data.id
+        row.kind = data.kind
+        Tint(row.dot, data.class and (BLOCK_CLASS_COLORS[data.class] or BLOCK_CLASS_COLORS.Other) or COLOR.muted)
+        SetIf(row.name, "cached", RowName(data))
+        SetIf(row.mine, "cached", data.mine or (data.kind == "new" and "not tracked" or ""))
+        SetIf(row.incoming, "cached", data.kind == "skip" and "skipped: only tracked spells move" or (data.incoming or ""))
+        Tint(row.incoming, data.kind == "new" and COLOR.on or data.kind == "skip" and COLOR.muted or WARN)
+        if data.kind == "skip" then
+            row.choice.frame:Hide()
+        else
+            offered = offered + 1
+            local keep = self.choices[data.id] == "keep"
+            if not keep then taking = taking + 1 end
+            SetLabel(row.choice, keep and (data.kind == "new" and "Skip" or "Keep mine") or (data.kind == "new" and "Add" or "Take"))
+            Tint(row.choice.label, keep and COLOR.muted or COLOR.accent)
+            row.choice.frame:Show()
+        end
+        row.frame:Show()
+    end
+    for index = #rows + 1, #self.diffRows do
+        self.diffRows[index].id = nil
+        self.diffRows[index].frame:Hide()
+    end
+    if #rows == 0 then
+        SetIf(self.diffCaption, "cached", "Nothing would change: " .. (self.current or "") .. " already matches the picked blocks.")
+    else
+        SetIf(self.diffCaption, "cached", #rows .. (#rows == 1 and " difference" or " differences") .. " \194\183 " .. taking .. " of " .. offered .. " will be applied by Merge")
+    end
+end
+
+function Profile:BindBlocks()
+    if not self.blocksCard then return end
+    local exporting = self.blockMode ~= "import"
+    SetIf(self.blockScope, "cached", "Export from " .. (self.sel or "") .. " (picked above) \194\183 import into " .. (self.current or "") .. " (active). Nothing else in either profile changes.")
+    Tint(self.exportTab.label, exporting and COLOR.accent or COLOR.muted)
+    Tint(self.importTab.label, exporting and COLOR.muted or COLOR.accent)
+    self.exportBlocks = self.spec.trackerBlocks(self.sel)
+    for key in pairs(self.blockPicked) do
+        local known = false
+        for _, block in ipairs(self.exportBlocks) do if block.key == key then known = true end end
+        if not known then self.blockPicked[key] = nil end
+    end
+    if exporting then
+        self:BindSegments(self.exportSegs, self.blocksCard.frame, self.exportBlocks, self.blockPicked, function(key) self:ToggleExportBlock(key) end, self:BlockTips())
+    else
+        self:BindSegments(self.exportSegs, self.blocksCard.frame, {}, {}, nil)
+    end
+    local summary, any = self:BlockSummary()
+    SetIf(self.blockSummary, "cached", summary)
+    Enable(self.blockGo, any)
+    self.blockOut:SetText(self.blockText or "")
+    local incomingBlocks = (not exporting and self.incoming) and SA_TrackerBlocks.Incoming(self.incoming) or {}
+    self:BindSegments(self.importSegs, self.blocksCard.frame, incomingBlocks, self.inPicked, function(key) self:ToggleImportBlock(key) end)
+    if not exporting and self.incoming then self:BindDiff() else
+        for _, row in ipairs(self.diffRows) do row.frame:Hide() end
+    end
+    SetLabel(self.mergeButton, "Merge into " .. (self.current or ""))
+    SetLabel(self.replaceButton, self.armed == "replace" and "Really replace?" or "Replace picked blocks")
+    local anyIn = next(self.inPicked) ~= nil
+    Enable(self.mergeButton, anyIn)
+    Enable(self.replaceButton, anyIn)
+end
+
+function Profile:BuildBlocksCard(parent)
+    local card = NewCard(parent, "Spell Tracker blocks")
+    local frame = card.frame
+    self.blocksCard = card
+    self.blockMode = "export"
+    self.blockPicked, self.inPicked, self.choices = {}, {}, {}
+    self.exportSegs, self.importSegs, self.diffRows = {}, {}, {}
+    self.blockScope = Text(frame, 11, COLOR.muted)
+    self.exportTab = Kit.MakeButton(frame, "Export", function() self:SetBlockMode("export") end)
+    self.importTab = Kit.MakeButton(frame, "Import", function() self:SetBlockMode("import") end)
+    self.blockSummary = Text(frame, 11, COLOR.muted)
+    self.blockGo = Kit.MakeButton(frame, "Export picked blocks", function() self:RunBlockExport() end)
+    local out = NewEditBox(frame, 24, 12)
+    out:SetMaxLetters(Transfer.MAX_LENGTH)
+    out:SetScript("OnEscapePressed", function(box) box:ClearFocus() end)
+    out:SetScript("OnTextChanged", function(box, user)
+        if user then box:SetText(self.blockText or "") box:HighlightText() end
+    end)
+    self.blockOut = out
+    self.blockOutHint = Text(frame, 11, COLOR.muted)
+    self.blockOutHint:SetText(BLOCK_EXPORT_HINT)
+    local input = NewEditBox(frame, 24, 12)
+    input:SetMaxLetters(Transfer.MAX_LENGTH)
+    input:SetScript("OnEscapePressed", function(box) box:ClearFocus() end)
+    input:SetScript("OnEnterPressed", function() self:ReadBlocks() end)
+    self.blockIn = input
+    self.blockRead = Kit.MakeButton(frame, "Read text", function() self:ReadBlocks() end)
+    self.blockHint = Text(frame, 11, COLOR.muted)
+    self.blockHint:SetText(BLOCK_IMPORT_HINT)
+    self.diffCaption = Text(frame, 11, COLOR.muted)
+    self.takeAll = Kit.MakeButton(frame, "Take all", function() self:SetAllChoices("take") end)
+    self.keepAll = Kit.MakeButton(frame, "Keep all mine", function() self:SetAllChoices("keep") end)
+    self.mergeButton = Kit.MakeButton(frame, "Merge", function() self:ApplyBlocks(false) end)
+    self.replaceButton = Kit.MakeButton(frame, "Replace picked blocks", function() self:ApplyBlocks(true) end)
+    self.replaceButton.frame:HookScript("OnEnter", function()
+        Kit.ShowTip(self.replaceButton.frame, "Replace picked blocks", "Removes your spells of the picked classes and puts the imported ones in their place. Picked display settings are replaced too. Click twice.")
+    end)
+    self.replaceButton.frame:HookScript("OnLeave", Kit.HideTip)
+    local exportOnly = { self.blockSummary, self.blockGo.frame, out, self.blockOutHint }
+    local importOnly = { input, self.blockRead.frame, self.blockHint, self.diffCaption, self.takeAll.frame, self.keepAll.frame, self.mergeButton.frame, self.replaceButton.frame }
+    card.content = function(_, width, y)
+        local inner = width - 24
+        local exporting = self.blockMode ~= "import"
+        for _, region in ipairs(exportOnly) do region:SetShown(exporting) end
+        for _, region in ipairs(importOnly) do region:SetShown(not exporting) end
+        self.blockScope:ClearAllPoints()
+        self.blockScope:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -y)
+        self.blockScope:SetWidth(inner)
+        y = y + 20
+        self.exportTab.frame:ClearAllPoints()
+        self.exportTab.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -y)
+        self.importTab.frame:ClearAllPoints()
+        self.importTab.frame:SetPoint("TOPLEFT", self.exportTab.frame, "TOPRIGHT", 6, 0)
+        y = y + 32
+        if exporting then
+            y = PlaceSegments(self.exportSegs, #self.exportBlocks, card, 12, y, inner) + 10
+            self.blockGo.frame:ClearAllPoints()
+            self.blockGo.frame:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -y)
+            self.blockSummary:ClearAllPoints()
+            self.blockSummary:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -(y + 4))
+            self.blockSummary:SetPoint("RIGHT", self.blockGo.frame, "LEFT", -10, 0)
+            y = y + 30
+            local hasText = self.blockText ~= nil
+            out:SetShown(hasText)
+            self.blockOutHint:SetShown(hasText)
+            if hasText then
+                out:ClearAllPoints()
+                out:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -y)
+                out:SetPoint("RIGHT", frame, "RIGHT", -12, 0)
+                self.blockOutHint:ClearAllPoints()
+                self.blockOutHint:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -(y + 30))
+                self.blockOutHint:SetPoint("RIGHT", frame, "RIGHT", -12, 0)
+                y = y + 50
+            end
+            return y
+        end
+        self.blockRead.frame:ClearAllPoints()
+        self.blockRead.frame:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -(y + 1))
+        input:ClearAllPoints()
+        input:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -y)
+        input:SetPoint("RIGHT", self.blockRead.frame, "LEFT", -8, 0)
+        self.blockHint:ClearAllPoints()
+        self.blockHint:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -(y + 30))
+        self.blockHint:SetPoint("RIGHT", frame, "RIGHT", -12, 0)
+        y = y + 52
+        local reading = self.incoming ~= nil
+        for _, region in ipairs({ self.diffCaption, self.takeAll.frame, self.keepAll.frame, self.mergeButton.frame, self.replaceButton.frame }) do
+            region:SetShown(reading)
+        end
+        if not reading then return y end
+        local count = 0
+        for _, seg in ipairs(self.importSegs) do if seg.key then count = count + 1 end end
+        y = PlaceSegments(self.importSegs, count, card, 12, y, inner) + 10
+        self.keepAll.frame:ClearAllPoints()
+        self.keepAll.frame:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -y)
+        self.takeAll.frame:ClearAllPoints()
+        self.takeAll.frame:SetPoint("TOPRIGHT", self.keepAll.frame, "TOPLEFT", -6, 0)
+        self.diffCaption:ClearAllPoints()
+        self.diffCaption:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -(y + 4))
+        self.diffCaption:SetPoint("RIGHT", self.takeAll.frame, "LEFT", -10, 0)
+        y = y + 28
+        local nameWidth = math.floor(inner * 0.28)
+        local sideWidth = math.floor((inner - nameWidth - 110) / 2)
+        for _, row in ipairs(self.diffRows) do
+            if row.id then
+                row.frame:ClearAllPoints()
+                row.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -y)
+                row.frame:SetWidth(inner)
+                row.name:ClearAllPoints()
+                row.name:SetPoint("LEFT", row.frame, "LEFT", 16, 0)
+                row.name:SetWidth(nameWidth - 18)
+                row.mine:ClearAllPoints()
+                row.mine:SetPoint("LEFT", row.frame, "LEFT", nameWidth + 4, 0)
+                row.mine:SetWidth(sideWidth - 8)
+                row.incoming:ClearAllPoints()
+                row.incoming:SetPoint("LEFT", row.frame, "LEFT", nameWidth + sideWidth + 4, 0)
+                row.incoming:SetWidth(sideWidth - 8)
+                row.choice.frame:ClearAllPoints()
+                row.choice.frame:SetPoint("RIGHT", row.frame, "RIGHT", 0, 0)
+                y = y + DIFF_ROW
+            end
+        end
+        y = y + 10
+        self.mergeButton.frame:ClearAllPoints()
+        self.mergeButton.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -y)
+        self.replaceButton.frame:ClearAllPoints()
+        self.replaceButton.frame:SetPoint("TOPLEFT", self.mergeButton.frame, "TOPRIGHT", 6, 0)
+        return y + 30
+    end
+    return card
+end
+
 function Profile:BuildView()
     local view = NewView(self.body)
     self.view = view
@@ -660,6 +1123,8 @@ function Profile:BuildView()
     self.transferCard = self:BuildTransferCard(child)
     self.newHeading = NewHeading(child, "NEW PROFILE")
     self.newCard = self:BuildNewCard(child)
+    self.blocksHeading = NewHeading(child, "SPELL TRACKER BLOCKS")
+    self:BuildBlocksCard(child)
     self.moreDivider = NewDivider(child, "MORE OPTIONS")
     self.activeCard = self:BuildActiveCard(child)
     view.onWidth = function(width)
@@ -684,6 +1149,10 @@ function Profile:Layout()
     self.newHeading:SetPoint("TOPLEFT", child, "TOPLEFT", 4, -y)
     y = y + 22
     y = y + PlaceCard(self.newCard, child, 0, y, width) + 12
+    self.blocksHeading:ClearAllPoints()
+    self.blocksHeading:SetPoint("TOPLEFT", child, "TOPLEFT", 4, -y)
+    y = y + 22
+    y = y + PlaceCard(self.blocksCard, child, 0, y, width) + 12
     y = PlaceDivider(self.moreDivider, child, width, y)
     y = y + PlaceCard(self.activeCard, child, 0, y, width)
     self.view:SetContentHeight(y + 20)
@@ -727,6 +1196,7 @@ function Profile:Refresh(recompute)
     self:BindPills()
     self:BindStage()
     self:BindActive()
+    self:BindBlocks()
     self:ValidateName()
     if #self.names ~= previous or not self.laidOut then
         self.laidOut = true
@@ -737,6 +1207,14 @@ end
 function Profile:Reset()
     self.sel = nil
     self.armed = nil
+    if self.blocksCard then
+        self.blockMode = "export"
+        self.blockPicked, self.inPicked, self.choices = {}, {}, {}
+        self.blockText, self.incoming = nil, nil
+        self.blockIn:SetText("")
+        self:SetBlockHint(BLOCK_IMPORT_HINT, false)
+        self.laidOut = false
+    end
     if self.renaming then self:EndRename() end
     if self.transfer then
         self:CloseTransfer()
@@ -829,6 +1307,20 @@ function SoundAlerter:BuildProfileOptions()
             local db = database()
             return name == db:GetCurrentProfile() and db.profile or db.sv.profiles[name]
         end
+        local classLookup
+        local function classOf(spellID)
+            if not classLookup then
+                classLookup = SA_TrackerModel.BuildLookup(SoundAlerter.spellList or SoundAlerterSpells, SoundAlerterSpellMeta)
+            end
+            local _, token = UnitClass("player")
+            return SA_TrackerModel.ClassOf(spellID, classLookup, token)
+        end
+        local trackerDefaults = dbDefaults.profile.spellTracker or {}
+        local function trackerOf(name)
+            local profile = profileOf(name)
+            local tracker = type(profile) == "table" and profile.spellTracker
+            return type(tracker) == "table" and tracker or { icons = {} }
+        end
         spec = {
             db = function() return SoundAlerter.db1 and SoundAlerter.db1.profile end,
             names = function() return (database():GetProfiles()) end,
@@ -869,6 +1361,33 @@ function SoundAlerter:BuildProfileOptions()
                 local unique = Model.UniqueName(name, Model.Set((db:GetProfiles())))
                 db.sv.profiles[unique] = profile
                 return unique
+            end,
+            trackerBlocks = function(name) return SA_TrackerBlocks.Build(trackerOf(name), classOf) end,
+            trackerNames = function(name)
+                local names = {}
+                for index, icon in ipairs(trackerOf(name).icons or {}) do
+                    names[index] = icon.spellID and (SA_COMPAT.GetSpellInfo(icon.spellID) or ("Spell " .. icon.spellID)) or "?"
+                end
+                return names
+            end,
+            trackerExport = function(name, picked)
+                return SA_TrackerBlocks.Export(trackerOf(name), trackerDefaults, classOf, picked)
+            end,
+            trackerDecode = function(text) return SA_TrackerBlocks.Decode(text) end,
+            trackerDiff = function(clean, picked)
+                return SA_TrackerBlocks.Diff(trackerOf(database():GetCurrentProfile()), clean, picked, trackerDefaults)
+            end,
+            trackerApply = function(clean, picked, choices, replace)
+                local profile = database().profile
+                profile.spellTracker = profile.spellTracker or { icons = {} }
+                local tracker = profile.spellTracker
+                local icons, display, result = SA_TrackerBlocks.Apply(tracker, clean, picked, choices, replace, classOf, trackerDefaults)
+                tracker.icons = icons
+                for key, value in pairs(display) do tracker[key] = value end
+                if SoundAlerter.SpellTracker and SoundAlerter.SpellTracker.ReloadIcons then
+                    SoundAlerter.SpellTracker:ReloadIcons()
+                end
+                return result
             end,
         }
         self.profileSpec = spec

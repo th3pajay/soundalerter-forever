@@ -41,6 +41,14 @@ local CP_SHAPE_TEXTURES = {
 }
 local CP_SPACING = 8
 
+local POISED = {
+	ROGUE = { spellID = 1328825, level = 18 },
+	DRUID = { spellID = 1328829, level = 32 },
+}
+local POISED_COLOR = { r = 1, g = 0.82, b = 0.2 }
+local POISED_EDGE = 2
+local FLAT_TEXTURE = "Interface\\Buttons\\WHITE8X8"
+
 local VALUE_UPDATE_THROTTLE = 0.016
 local ENERGY_UPDATE_THROTTLE = 0.01
 local TWO_PI = math_pi * 2
@@ -122,6 +130,7 @@ local RESOURCE_BAR_KEYS = {
 	healthScale = true,
 	manaEnabled = true,
 	manaScale = true,
+	poisedGlow = true,
 }
 
 function ResourceBar:GetSettings()
@@ -472,6 +481,70 @@ function ResourceBar:RegisterEvents()
 			ResourceBar[event](ResourceBar, event, ...)
 		end
 	end)
+
+	local _, class = UnitClass("player")
+	self.poisedInfo = POISED[class]
+	if self.poisedInfo then
+		self.poisedEvents = CreateFrame("Frame")
+		self.poisedEvents:RegisterEvent("PLAYER_LEVEL_UP")
+		self.poisedEvents:SetScript("OnEvent", function(_, event, arg1, info)
+			if event == "UNIT_AURA" then
+				if info and not info.isFullUpdate and info.addedAuras == nil and info.removedAuraInstanceIDs == nil then return end
+				self:RefreshPoised()
+			else
+				self:UpdatePoisedTracking(arg1)
+			end
+		end)
+	end
+end
+
+function ResourceBar:CreatePoisedMarker()
+	local bar = self.energyBar
+	local marker = CreateFrame("Frame", nil, bar)
+	marker:SetPoint("TOPLEFT", bar, "TOPLEFT", -POISED_EDGE, POISED_EDGE)
+	marker:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", POISED_EDGE, -POISED_EDGE)
+	marker:SetFrameLevel(bar:GetFrameLevel() + 2)
+	local sides = {
+		{ "TOPLEFT", "TOPRIGHT", false },
+		{ "BOTTOMLEFT", "BOTTOMRIGHT", false },
+		{ "TOPLEFT", "BOTTOMLEFT", true },
+		{ "TOPRIGHT", "BOTTOMRIGHT", true },
+	}
+	for _, side in ipairs(sides) do
+		local edge = marker:CreateTexture(nil, "OVERLAY")
+		edge:SetTexture(FLAT_TEXTURE)
+		edge:SetVertexColor(POISED_COLOR.r, POISED_COLOR.g, POISED_COLOR.b, 1)
+		edge:SetPoint(side[1], marker, side[1])
+		edge:SetPoint(side[2], marker, side[2])
+		if side[3] then edge:SetWidth(POISED_EDGE) else edge:SetHeight(POISED_EDGE) end
+	end
+	local label = marker:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	label:SetPoint("RIGHT", bar, "RIGHT", -4, 0)
+	label:SetTextColor(POISED_COLOR.r, POISED_COLOR.g, POISED_COLOR.b, 1)
+	label:SetText("Poised")
+	marker:Hide()
+	self.poisedMarker = marker
+end
+
+function ResourceBar:RefreshPoised()
+	local marker = self.poisedMarker
+	if not marker then return end
+	local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, self.poisedInfo.spellID)
+	marker:SetShown(ok and aura ~= nil)
+end
+
+function ResourceBar:UpdatePoisedTracking(level)
+	local info = self.poisedInfo
+	if not info or not self.db then return end
+	level = tonumber(level) or Plain(UnitLevel("player")) or 0
+	if self.db.poisedGlow and level >= info.level then
+		if not self.poisedMarker then self:CreatePoisedMarker() end
+		self.poisedEvents:RegisterUnitEvent("UNIT_AURA", "player")
+		self:RefreshPoised()
+	else
+		self.poisedEvents:UnregisterEvent("UNIT_AURA")
+		if self.poisedMarker then self.poisedMarker:Hide() end
+	end
 end
 
 function ResourceBar:UNIT_POWER_FREQUENT(event, unitId, powerType)
@@ -675,6 +748,8 @@ function ResourceBar:LoadSettings()
 	if self.comboTextFrame then
 		BarUtils:LoadPosition(self.comboTextFrame, self.db, "comboText", 0, -50)
 	end
+
+	self:UpdatePoisedTracking()
 end
 
 function ResourceBar:ApplyComboLayout()

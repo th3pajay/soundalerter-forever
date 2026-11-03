@@ -18,6 +18,13 @@ local MAX_AURA_ICONS = 3
 local AURA_ICON_SIZE = 18
 local AURA_ICON_SPACING = 4
 local AURA_SCAN_MAX = 6
+local TRAP_NOTE = "Traps down 30s"
+local TRAP_CASTS = {
+    [1499] = true, [14310] = true, [14311] = true, [13809] = true,
+    [13795] = true, [14302] = true, [14303] = true, [14304] = true, [14305] = true,
+    [13813] = true, [14316] = true, [14317] = true,
+}
+local issecretvalue = _G.issecretvalue or function() return false end
 
 local RAID_CLASS_COLORS = RAID_CLASS_COLORS
 local CLASS_ICONS = {
@@ -379,7 +386,7 @@ local engine = SA_Toast.New({
     mirrorSecureAlpha = false,
     secureAttributes = {"macrotext1", "shift-macrotext1"},
     userFields = {"unitName", "guid", "className", "unitToken"},
-    backdropFile = function() return "Interface\Tooltips\UI-Tooltip-Background" end,
+    backdropFile = function() return "Interface\\Tooltips\\UI-Tooltip-Background" end,
     segmentWidth = function(toast, duration) return (TOAST_WIDTH - 8) / duration end,
     position = CurrentPosition,
     canDismissOnClick = CanDismissOnClick,
@@ -440,7 +447,28 @@ function ProximityToasts:Initialize()
 
 end
 
+function ProximityToasts:NoteTraps(guid, spellID)
+    for _, toast in ipairs(engine.active) do
+        local view = toast.view
+        if view and toast.userData and toast.userData.guid == guid then
+            view.spellName, view.spellIcon = TRAP_NOTE, SA_Secret.Icon(spellID) or view.spellIcon
+            DrawSpell(toast, view)
+            return
+        end
+    end
+end
+
+function ProximityToasts:OnTrapLanded(guid, spellID)
+    if #engine.active == 0 then return end
+    local settings = self:GetSettings()
+    if settings.enabled and settings.showLatestSpell then self:NoteTraps(guid, spellID) end
+end
+
 function ProximityToasts:ShowSpell(guid, spellID)
+    if not issecretvalue(spellID) and TRAP_CASTS[spellID] then
+        self:NoteTraps(guid, spellID)
+        return
+    end
     for _, toast in ipairs(engine.active) do
         local view = toast.view
         if view and toast.userData and toast.userData.guid == guid then

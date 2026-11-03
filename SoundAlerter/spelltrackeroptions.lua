@@ -167,6 +167,15 @@ local function tryAddSpell()
     end
 end
 
+local function addSuggested(suggestion)
+    if not tracker() or Model.IsTracked(icons(), suggestion.spellID, suggestion.unit, suggestion.auraType) then return end
+    if tracker():AddTrackedSpell(suggestion.spellID, suggestion.unit, suggestion.auraType) then
+        SoundAlerter:Print("|cff00ff00Added " .. spellName(suggestion.spellID) .. " to tracker.|r")
+        selectedIndex = #icons()
+        clearUndo()
+    end
+end
+
 local function applyPreset(preset)
     undoSnapshot = Model.Snapshot(icons())
     lastPreset = preset.name
@@ -262,6 +271,10 @@ function SoundAlerter:BuildSpellTrackerOptions()
     rows[#rows + 1] = Page.Select("add.unit", "Track on", "Which unit to read this aura from.", UNIT_OPTIONS, false, "Add a spell")
     rows[#rows + 1] = Page.Select("add.auraType", "Aura type", "Whether to track a buff or a debuff.", AURA_OPTIONS, false, "Add a spell")
     rows[#rows + 1] = Page.Action("Add spell", "Add this spell to the tracker. It is listed under its class.", tryAddSpell, false, "Add a spell")
+    for _, suggestion in ipairs(Model.SUGGESTED) do
+        local row = Page.Action(suggestion.name, suggestion.note .. ".", function() addSuggested(suggestion) end, false, "Add a spell")
+        rows[#rows + 1] = Page.Visible(function() return not Model.IsTracked(icons(), suggestion.spellID, suggestion.unit, suggestion.auraType) end, row)
+    end
 
     local function editor(row)
         return Page.Visible(function(settings) return settings.sel.valid end, row)

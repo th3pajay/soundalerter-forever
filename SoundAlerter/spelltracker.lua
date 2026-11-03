@@ -457,6 +457,13 @@ function SpellTracker:ScanAuras(unit)
 
     for spellID, config in pairs(trackedSpells) do
         local ok, observation, auraInstanceID = Game.LookupAura(unit, spellID, config.auraType)
+        local aliases = config.aliases
+        if ok and not observation and aliases then
+            for a = 1, #aliases do
+                ok, observation, auraInstanceID = Game.LookupAura(unit, aliases[a], config.auraType)
+                if not ok or observation then break end
+            end
+        end
 
         if not ok then
             if not self.lookupFailed[unit] then
@@ -945,6 +952,7 @@ function SpellTracker:RebuildTrackingLookups()
             trackedSpellsByUnit[config.unit][config.spellID] = {
                 trackerIndex = i,
                 auraType = config.auraType,
+                aliases = SA_TrackerModel.RANK_ALIASES[config.spellID],
             }
             if config.trackCooldown then
                 cooldownEnabledTrackers[#cooldownEnabledTrackers + 1] = i
@@ -1032,6 +1040,19 @@ end
 
 function SpellTracker:OnProfileChanged()
     self.db = self.addon.db1.profile.spellTracker
+    self:LoadSettings()
+end
+
+function SpellTracker:ReloadIcons()
+    self.db = self.addon.db1.profile.spellTracker
+    if not self.db then return end
+    self.state = SA_TrackerState.New()
+    for i = 1, ICON_POOL_SIZE do
+        self:ResetFrameDisplay(iconFrames[i])
+    end
+    for _, icon in ipairs(self.db.icons) do
+        Settings.Backfill(icon)
+    end
     self:LoadSettings()
 end
 

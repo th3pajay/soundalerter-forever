@@ -2,7 +2,20 @@
 local Statistics = SoundAlerter:NewModule("Statistics", "AceEvent-3.0")
 SoundAlerter.Statistics = Statistics
 local GetSpellInfo = SA_COMPAT.GetSpellInfo
+local Plain = SA_COMPAT.Plain
 local Format = SA_StatsFormat
+local Debrief = SA_DebriefModel
+local activeMatch, activeStore
+local matchVersion = 0
+local buildNumber
+
+local function clientBuild()
+	if buildNumber == nil then
+		local _, build = GetBuildInfo()
+		buildNumber = Plain(build) or false
+	end
+	return buildNumber or nil
+end
 
 local function GetDB()
 	return SoundAlerter.db1 and SoundAlerter.db1.profile
@@ -515,7 +528,121 @@ end
 function Statistics:GetExportText()
 	local stats = trackedStatistics()
 	if not stats then return "" end
-	return cachedText("export", stats, dataVersion, 0, buildExport)
+	return cachedText("export", stats, dataVersion, matchVersion, buildExport)
+end
+
+local function buildMatches()
+	local matches = GetDB().statistics.matches or {}
+	return Debrief.Rows(matches.list, matches.open, time(), GetTime(), Format.Ago)
+end
+
+function Statistics:GetMatchText()
+	local stats = trackedStatistics()
+	if not stats then return "" end
+	return cachedText("matches", stats, dataVersion + matchVersion, math.floor(time() / 60), buildMatches)
+end
+
+local function spellNameOf(spellID)
+	local allTime = GetDB().statistics.allTime
+	local spell = allTime and allTime.topSpells and allTime.topSpells[spellID]
+	return spell and spell.name or GetCachedSpellName(spellID)
+end
+
+function Statistics:WatchControl(on)
+	if on == (self.watchingControl or false) then return end
+	self.watchingControl = on
+	if on then
+		pcall(self.RegisterEvent, self, "LOSS_OF_CONTROL_ADDED", "OnControlAdded")
+		pcall(self.RegisterEvent, self, "LOSS_OF_CONTROL_UPDATE", "OnControlUpdate")
+	else
+		pcall(self.UnregisterEvent, self, "LOSS_OF_CONTROL_ADDED")
+		pcall(self.UnregisterEvent, self, "LOSS_OF_CONTROL_UPDATE")
+	end
+end
+
+local function closeMatch(matches, now, clock)
+	local record = Debrief.Close(matches.open, now, clock, spellNameOf)
+	if record then Debrief.Push(matches.list, record) end
+	matches.open = nil
+end
+
+function Statistics:UpdateMatch()
+	local stats = GetDB() and GetDB().statistics
+	local now, clock = time(), GetTime()
+	local previous = activeMatch
+	if activeStore and activeStore.open and activeStore ~= (stats and stats.matches) then
+		closeMatch(activeStore, now, clock)
+	end
+	activeMatch, activeStore = nil, nil
+	if not trackedStatistics() then
+		if stats and stats.matches then stats.matches.open = nil end
+		self:WatchControl(false)
+		if previous then matchVersion = matchVersion + 1 end
+		return
+	end
+	local matches = stats.matches
+	if not matches then
+		matches = { list = {} }
+		stats.matches = matches
+	end
+	local _, instanceType = IsInInstance()
+	local kind = Debrief.KindOf(instanceType)
+	local zone = kind and (GetInstanceInfo and Plain((GetInstanceInfo())) or Plain(GetRealZoneText())) or nil
+	if matches.open and not Debrief.Continues(matches.open, kind, zone, now) then
+		closeMatch(matches, now, clock)
+	elseif matches.open then
+		Debrief.Sync(matches.open, clock)
+		if Debrief.ControlEnded(matches.open, clock) then matchVersion = matchVersion + 1 end
+	end
+	if kind and not matches.open then matches.open = Debrief.Open(kind, zone, now, clientBuild()) end
+	activeMatch, activeStore = matches.open, matches
+	self:WatchControl(activeMatch ~= nil)
+	if activeMatch ~= previous then matchVersion = matchVersion + 1 end
+end
+
+function Statistics:ChangeProfile()
+	self:UpdateMatch()
+end
+
+local function hardControlEntry(slot)
+	local ok, data = pcall(C_LossOfControl.GetActiveLossOfControlData, slot)
+	if not ok or type(data) ~= "table" then return nil end
+	local locType = Plain(data.locType)
+	if locType == nil then return nil, true end
+	if not Debrief.HARD_CONTROL[SA_LossOfControl.Category(locType)] then return nil end
+	return data
+end
+
+function Statistics:OnControlAdded(_, first, second)
+	local match = activeMatch
+	if not match or not C_LossOfControl then return end
+	local slot = SA_LossOfControl.PlayerIndex(Plain(first), Plain(second))
+	if not slot then return end
+	local data = hardControlEntry(slot)
+	if not data then return end
+	Debrief.Control(match, GetTime(), Plain(data.timeRemaining), Plain(data.duration))
+	matchVersion = matchVersion + 1
+end
+
+function Statistics:OnControlUpdate(_, unit)
+	local match = activeMatch
+	if not match or not C_LossOfControl or not SA_LossOfControl.ForPlayer(Plain(unit)) then return end
+	local clock = GetTime()
+	if match.cc.untilAt <= clock then return end
+	local ok, count = pcall(C_LossOfControl.GetActiveLossOfControlDataCount)
+	count = ok and Plain(count) or nil
+	if type(count) ~= "number" then return end
+	local latest = clock
+	for slot = 1, count do
+		local data, unknown = hardControlEntry(slot)
+		if unknown then return end
+		if data then
+			local remaining = Plain(data.timeRemaining)
+			if type(remaining) ~= "number" then return end
+			if clock + remaining > latest then latest = clock + remaining end
+		end
+	end
+	if Debrief.Trim(match, clock, latest) then matchVersion = matchVersion + 1 end
 end
 
 local function newSession(number)
@@ -587,7 +714,9 @@ function Statistics:ResetAllTime()
 	sadb.statistics.allTime = newAllTime()
 	sadb.statistics.session = newSession(1)
 	sadb.statistics.trackingStartTime = time()
+	sadb.statistics.matches = nil
 	dataVersion = dataVersion + 1
+	self:UpdateMatch()
 end
 
 function Statistics:RecordAlert(category, spellID, sourceGUID, sourceName, spellSchool, sourceClass)
@@ -597,6 +726,7 @@ function Statistics:RecordAlert(category, spellID, sourceGUID, sourceName, spell
 	dataVersion = dataVersion + 1
 	sadb.statistics.session.totalAlerts = (sadb.statistics.session.totalAlerts or 0) + 1
 	sadb.statistics.session.byCategory[category] = (sadb.statistics.session.byCategory[category] or 0) + 1
+	if activeMatch then Debrief.Record(activeMatch, category, category == "spellAlerts" and spellID or nil, sourceName, time()) end
 
 	sadb.statistics.allTime.totalAlerts = (sadb.statistics.allTime.totalAlerts or 0) + 1
 	sadb.statistics.allTime.byCategory[category] = (sadb.statistics.allTime.byCategory[category] or 0) + 1
@@ -949,6 +1079,7 @@ function Statistics:InitializeStatistics()
 			sadb.statistics.trackingStartTime = time()
 		end
 	end
+	self:UpdateMatch()
 end
 
 function Statistics:GetCurrentZoneType()
@@ -1048,6 +1179,7 @@ function Statistics:OnEnable()
 		sadb.showAdvancedStatistics = nil
 	end
 	self:InitializeStatistics()
+	self:RegisterEvent("PLAYER_ENTERING_WORLD", "UpdateMatch")
 end
 
 function Statistics:GetSortState()
@@ -1105,6 +1237,9 @@ function Statistics:BuildExportString()
 	else
 		lines[#lines + 1] = "(none tracked yet)"
 	end
+	lines[#lines + 1] = ""
+
+	Debrief.ExportLines(lines, (sadb.statistics.matches or {}).list, Format.CATEGORIES)
 
 	return table.concat(lines, "\n")
 end

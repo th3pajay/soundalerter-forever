@@ -11,5 +11,6 @@ ignore:
   - Media
   - README.md
   - AGENTS.md
+  - CODING_STANDARDS.md
   - .idea
   - .gitignore
