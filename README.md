@@ -8,10 +8,12 @@
 **Personal combat assistant.**
 Voiced PvP alerts, bars and trackers for WoW Forever.
 
-<img alt="Version" src="https://img.shields.io/badge/version-0.2.93-blue.svg"/>
-<img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"/>
-<img alt="WoW" src="https://img.shields.io/badge/WoW-Retail%20%7C%20Forever%20%7C%20Anniversary-orange.svg"/>
-<img alt="Status" src="https://img.shields.io/badge/status-beta-yellow.svg"/>
+<a href="https://www.curseforge.com/wow/addons/soundalerter-forever"><img alt="CurseForge version" src="https://img.shields.io/curseforge/v/1754014?label=CurseForge&color=F16436&logo=curseforge&logoColor=white&style=flat-square"/></a>
+<a href="https://github.com/th3pajay/soundalerter-forever/tree/develop"><img alt="Develop" src="https://img.shields.io/badge/develop-0.2.93-blue?logo=github&style=flat-square"/></a>
+<a href="https://www.curseforge.com/wow/addons/soundalerter-forever"><img alt="Downloads" src="https://img.shields.io/curseforge/dt/1754014?label=downloads&color=F16436&logo=curseforge&logoColor=white&style=flat-square"/></a>
+<a href="https://github.com/th3pajay/soundalerter-forever/commits/develop"><img alt="Last commit" src="https://img.shields.io/github/last-commit/th3pajay/soundalerter-forever/develop?label=updated&style=flat-square"/></a>
+<img alt="WoW Forever" src="https://img.shields.io/badge/WoW-Forever%201.60-E6B422?style=flat-square"/>
+<img alt="License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square"/>
 
 **Get it:** extract `SoundAlerter` to `World of Warcraft/Interface/AddOns/`, a setup wizard opens on first login (or type `/sa setup`): pick your style, check the sound, choose your helpers and warnings.
 
