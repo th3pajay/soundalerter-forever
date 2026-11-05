@@ -119,19 +119,19 @@ function SpeedMeter:Render()
         percent, _, tint = SpeedMeter.Evaluate(run, flight, swim, flag(IsMounted()), flag(IsFlying()), InWater(), current)
     end
 
-    local label, color
+    local last = self.last
+    local color = tint == "boost" and db.boostColor or tint == "slow" and db.slowColor or db.baseColor
+    local label
     if not percent then
-        label, color = "--", db.baseColor
-    elseif tint == "boost" then
-        label, color = string_format("%d%%", percent), db.boostColor
-    elseif tint == "slow" then
-        label, color = string_format("%d%%", percent), db.slowColor
+        label = "--"
+    elseif last.percent == percent then
+        label = last.label
     else
-        label, color = string_format("%d%%", percent), db.baseColor
+        label = string_format("%d%%", percent)
     end
+    last.percent = percent
 
     local visible = not (db.hideAtBaseline and db.locked and tint == "base")
-    local last = self.last
     if last.visible ~= visible then
         last.visible = visible
         text:SetShown(visible)
@@ -269,16 +269,16 @@ function SoundAlerter:BuildSpeedMeterOptions()
         preview = SpeedPreview,
         rows = {
             Page.Toggle("locked", "Lock position", "Unlock to drag the meter. A shaded outline and a 100% preview mark it while unlocked.", false, "General"),
+            Page.Action("Reset position", "Put the meter back where it started.", function()
+                local active = meter()
+                if active then active:ResetPosition() end
+            end, false, "General"),
             Page.Toggle("hideAtBaseline", "Hide at base speed", "Hide the number while you run or swim at exactly 100%, so it only shows when something changes your speed.", false, "General"),
             Page.Range("fontSize", "Font size", "Size of the number.", 8, 40, 1, false, "Look", " px"),
             Page.Color("boostColor", "Boosted color", "Above 100% on foot or swimming.", false, "Look"),
             Page.Color("slowColor", "Slowed color", "Below 100% on foot or swimming.", false, "Look"),
             Page.Range("scale", "Scale", "Overall size.", 0.5, 3, 0.05, true, "Look", "x"),
             Page.Color("baseColor", "Normal color", "Exactly 100%, mounted, flying, or no reading.", true, "Look"),
-            Page.Action("Reset position", "Put the meter back where it started.", function()
-                local active = meter()
-                if active then active:ResetPosition() end
-            end, true, "General"),
         },
     })
 end

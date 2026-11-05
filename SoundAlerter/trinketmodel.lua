@@ -7,6 +7,7 @@ Model.SLOTS = { 13, 14 }
 Model.SET_COUNT = 3
 Model.FLYOUT_MAX = 12
 Model.FADE_TIME = 0.4
+Model.READY_MIN = 30
 Model.ORIENTATIONS = { { "vertical", "Vertical" }, { "horizontal", "Horizontal" } }
 
 local ipairs, table_sort = ipairs, table.sort
@@ -148,6 +149,12 @@ function Model.IdleAlpha(enabled, idleFor, delay, target)
     local progress = (idleFor - delay) / Model.FADE_TIME
     if progress >= 1 then return target end
     return 1 - (1 - target) * progress
+end
+
+function Model.ReadyTarget(enabled, duration, faded, shown, collapsed, waiting)
+    if enabled ~= true or waiting or type(duration) ~= "number" or duration <= Model.READY_MIN then return nil end
+    if shown then return not faded and "bar" or nil end
+    return collapsed and "diamond" or nil
 end
 
 function Model.Cooldown(start, duration, enable)

@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.2.94
+
+## Looks and glances
+
+Trinket menu
+- Ready glow: when a trinket comes off a cooldown longer than 30 seconds, a soft spark runs twice round its border. The 30 second lock after equipping a trinket never triggers it, and it stays off while the bar is faded or collapsed. On by default, switch under Look. The animation runs in the game client, with no addon code running per frame.
+- Icons sit behind a thin black inset and dim while their trinket is on cooldown.
+- Cooldown numbers turn gold under 10 seconds and red under 3.
+- A dark backplate sits behind the bar.
+- Button edges brighten on hover.
+- The set button shows a split line between its two trinkets, and the set and gear labels sit on a dark pill. Keybind text is a softer grey.
+- An empty trinket slot gets a grey edge and a dimmed icon.
+- The bag flyout points at the trinket it belongs to.
+- Collapsed to a diamond: opening the bar unfolds the buttons out of the diamond one after another, and the diamond spins back in when the bar closes. Both take 0.15 seconds and also work in combat.
+- When a trinket comes ready while the bar is collapsed, one soft ring ripples out of the diamond instead.
+
+Spell tracker
+- Target nameplate: spells tracked on your target can sit in a row above its nameplate, with the same countdown, sweep, borders and effects as on screen. The one ending soonest is drawn larger in front. When the game shows its own aura icons on the plate, the row sits on top of them instead of over them. Off by default; turn it on under Target nameplate, and choose per spell under Selected spell (target spells go to the plate by default, your own spells always stay on screen).
+- Options: icon size, spacing, distance from the plate, follow the plate's scale, show idle icons, most icons at once, and what to do when there is no plate (use the screen spot or hide).
+- Works in combat. Only the addon's own icons are moved; the nameplate itself is never changed, and icons on a plate cannot be dragged.
+- The nameplate settings travel in the Display block of a tracker export, and each spell's choice travels with the spell.
+
+Diminishing returns (new, experimental)
+- One row of icons for the target and one for the focus, one icon per crowd control category: stun, opener stun, incapacitate, fear and disorient, silence, root, horror, cyclone and banish. Each category can be switched off.
+- Each icon shows the last spell that landed, with the category letters in the corner. The border shows how long the next one in that category lasts: green half, yellow a quarter, red immune.
+- While the crowd control is up the icon counts it down; when it ends the icon dims and counts down the 18 second reset, then goes away.
+- Crowd control from anyone counts, but only what lands on your target or focus can be seen. Effects in a duel are hidden by the game and skipped.
+- Each row can be dragged anywhere: untick Lock position, drag, lock again. There is a button to put both rows back.
+- Options: track target, track focus, icon size, spacing, countdown numbers, category tag, lock position, and a test button.
+- Off by default; turn it on under Displays, Diminishing Returns. Only the addon's own icons are drawn.
+
+Fixes
+- Options: every page that has a lock now calls it "Lock position" and puts it first in General, with "Reset position" right under it. Casting Bars, Resource Bars and Spell Tracker used "Lock bars" or "Lock icons", and Resource Bars and Spell Tracker had no reset. New profiles start locked on those three pages too; your saved choice is kept. Casting Bars keeps "Apply pyramid layout" as its reset.
+- Diminishing Returns: fixed a Lua error on some units. When the game hides what changed on a unit's auras, the tracker now re-reads that unit's auras instead of reading the hidden fields.
+- Speed: when the game hides what changed on a unit's auras, the alert engine and the Diminishing Returns tracker now re-read that unit once per frame instead of once per event. Bursts of aura changes cost one pass. The speed meter also stops rebuilding its text when the number has not changed.
+- Find Spell: inserting a spell into chat now finds the chat box you opened with Enter. Before, it could miss it and print the text in your own chat instead.
+- Spell tracker: locking the icons now hides idle icons that have "Show when inactive" turned off. Before, they stayed faded on screen until another setting was changed.
+- Spell tracker: the live preview lines no longer overlap when a line is long.
+
 ## 0.2.93
 
 Voice alerts
@@ -45,10 +84,6 @@ Voice Alerts
 
 Custom alerts
 - The "Source of the spell" and "Spell destination" pickers on the custom alert page list their choices again (Any, Friendly, Hostile player and so on). Since 0.2.81 both lists were empty.
-
-Diagnostics
-- New `/sa nextprobe` checks whether Blizzard's assisted combat (the game's own next-spell pick and its action bar highlight) is available for your character and readable by addons, as groundwork for an experimental next-action helper. `/sa nextprobe watch` follows the pick for 20 seconds while you fight and says whether it changes. Both only read, never change anything, and save their result so it survives a `/reload`.
-- `/sa apicheck` now lists which PvP honor, honor level, currency, reputation and rank functions this client has, as groundwork for a possible rank and honor projection.
 
 ## 0.2.91
 

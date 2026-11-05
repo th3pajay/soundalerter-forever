@@ -82,6 +82,8 @@ function SoundAlerter:OnOptionsCreate()
 
 	self:AddOption('TrinketMenu', self:BuildTrinketMenuOptions())
 
+	self:AddOption('DRTracker', self:BuildDRTrackerOptions())
+
 	self:AddOption('Statistics', self:BuildStatisticsOptions())
 
 	self:AddOption('Spells', self:BuildVoiceAlertOptions())

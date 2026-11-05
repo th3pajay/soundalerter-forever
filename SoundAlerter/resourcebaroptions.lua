@@ -143,7 +143,11 @@ function SoundAlerter:BuildResourceBarOptions()
         summary = summary,
         preview = ResourcePreview,
         rows = {
-            Page.Toggle("locked", "Lock bars", "Lock all resource bars in place. Unlock to drag and reposition.", false, "General"),
+            Page.Toggle("locked", "Lock position", "Unlock to drag each bar. A shaded outline marks it while unlocked.", false, "General"),
+            Page.Action("Reset position", "Put every bar and the combo points back where they started.", function()
+                local active = bars()
+                if active then active:ResetPositions() end
+            end, false, "General"),
             Page.Select("barTexture", "Bar texture", "Choose the visual texture for all resource bars (Health, Mana, Energy, Rage). This provides a unified look across all bars.", textureOptions(), false, "General"),
             Page.Select("barTextureQuality", "Texture quality", "Low animates 15 times a second and drops the farthest layer. Normal is the full animation. High adds a moving glint along the bar border. Only animated textures are affected.", TEXTURE_QUALITIES, true, "General"),
             Page.Toggle("energyEnabled", "Show energy bar", "Display energy bar (for Rogues, Druids in Cat Form).", false, "Bars"),

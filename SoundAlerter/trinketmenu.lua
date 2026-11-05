@@ -34,7 +34,35 @@ local TRINKET_COLOR = { 0.66, 0.77, 0.9 }
 local SET_COLOR = { 0.24, 0.84, 0.78 }
 local GEAR_COLOR = { 0.74, 0.58, 0.96 }
 local WAIT_COLOR = { 1, 0.49, 0.04 }
+local EMPTY_COLOR = { 0.29, 0.32, 0.38 }
 local MUTED = { 0.588, 0.627, 0.698 }
+local WHITE = { 1, 1, 1 }
+local WARN_COLOR = { 1, 0.82, 0 }
+local HOT_COLOR = { 1, 0.35, 0.3 }
+local COUNTDOWN_STEPS = { { 10, WARN_COLOR }, { 3, HOT_COLOR } }
+local HOTKEY_COLOR = { 0.6, 0.64, 0.7 }
+local SPARK_TEXTURE = "Interface\\AddOns\\SoundAlerter\\Textures\\cp_glow"
+local SPARKS = { { 1, 1 }, { 0.75, 0.6 }, { 0.55, 0.35 } }
+local SPARK_RATIO = 0.6
+local SPARK_LAG = 0.05
+local COMET_LAP = 1.6
+local COMET_LAPS = 2
+local COMET_ALPHA = 0.55
+local COMET_FADE_IN = 0.25
+local COMET_FADE_OUT = 0.35
+local READY_SLACK = 0.25
+local DIM_SHADE = 0.8
+local HOVER_LIFT = 0.35
+local PLATE_PAD = 4
+local OPEN_TIME = 0.15
+local INSTANT = 0.001
+local UNFOLD_STAGGER = 0.03
+local UNFOLD_SCALE = 0.4
+local SPIN_DEGREES = 90
+local SPIN_SCALE = 0.5
+local RIPPLE_TIME = 0.7
+local RING_TEXTURE = "Interface\\AddOns\\SoundAlerter\\Textures\\cp_ring"
+local NOTCH_SIZE = 8
 local NUMBER_SIZE = 11
 local HOTKEY_SIZE = 9
 local LABEL_SIZE = 10
@@ -60,14 +88,27 @@ local SETTING_KEYS = {
     orientation = true, swapOrder = true, iconSize = true, spacing = true,
     showSet = true, flyout = true, tooltips = true, cooldownNumbers = true,
     fade = true, fadeAlpha = true, fadeDelay = true, collapse = true, activeSet = true,
-    showGear = true, gearMain = true, gearAlt = true,
+    showGear = true, gearMain = true, gearAlt = true, readyGlow = true,
 }
 
 local LIVE_KEYS = {
     tooltips = true, cooldownNumbers = true, flyout = true,
     fade = true, fadeAlpha = true, fadeDelay = true, activeSet = true,
-    gearMain = true, gearAlt = true,
+    gearMain = true, gearAlt = true, readyGlow = true,
 }
+
+local function Lighten(color, amount)
+    return { color[1] + (1 - color[1]) * amount, color[2] + (1 - color[2]) * amount, color[3] + (1 - color[3]) * amount }
+end
+
+local LIFT = {
+    [TRINKET_COLOR] = Lighten(TRINKET_COLOR, HOVER_LIFT),
+    [SET_COLOR] = Lighten(SET_COLOR, HOVER_LIFT),
+    [GEAR_COLOR] = Lighten(GEAR_COLOR, HOVER_LIFT),
+    [EMPTY_COLOR] = Lighten(EMPTY_COLOR, HOVER_LIFT),
+}
+local SPARK_COLOR = Lighten(TRINKET_COLOR, 0.55)
+local RIPPLE_COLOR = Lighten(SET_COLOR, 0.55)
 
 BINDING_HEADER_SOUNDALERTER = "SoundAlerter"
 _G["BINDING_NAME_" .. BINDINGS[13]] = "Use top trinket"
@@ -351,17 +392,62 @@ function TrinketMenu:CycleSet(delta)
     if GameTooltip:IsOwned(self.buttons.set) then self:SetTip(self.buttons.set) end
 end
 
+local function Shade(face)
+    local dim = face.empty or face.cdStart ~= false
+    if face.dim == dim then return end
+    face.dim = dim
+    face.texture:SetDesaturated(dim)
+    local shade = dim and DIM_SHADE or 1
+    face.texture:SetVertexColor(shade, shade, shade)
+end
+
+local function Countdown(face, start, duration)
+    local text = face.numbers and face.numbers.text
+    if not text then return end
+    if not start then
+        text:SetTextColor(WHITE[1], WHITE[2], WHITE[3], 1)
+        return
+    end
+    local token, left = face.cdToken, start + duration - GetTime()
+    local color = WHITE
+    for _, step in ipairs(COUNTDOWN_STEPS) do
+        local at, tint = step[1], step[2]
+        if left <= at then
+            color = tint
+        else
+            C_Timer.After(left - at, function()
+                if face.cdToken == token then text:SetTextColor(tint[1], tint[2], tint[3], 1) end
+            end)
+        end
+    end
+    text:SetTextColor(color[1], color[2], color[3], 1)
+end
+
+local function StopComet(face)
+    local comet = face.comet
+    if not comet or not comet:IsShown() then return end
+    comet.fade:Stop()
+    for _, spark in ipairs(comet.sparks) do spark.path:Stop() end
+    comet:Hide()
+end
+
 local function ApplyCooldown(face, start, duration)
     start, duration = start or false, duration or false
-    if face.cdStart == start and face.cdDuration == duration then return end
+    local lastStart, lastDuration = face.cdStart, face.cdDuration
+    if lastStart == start and lastDuration == duration then return end
     face.cdStart, face.cdDuration = start, duration
+    face.cdToken = face.cdToken + 1
     if start then
         face.cooldown:SetCooldown(start, duration)
         if face.numbers then face.numbers:SetCooldown(start, duration) end
+        StopComet(face)
     else
         face.cooldown:Clear()
         if face.numbers then face.numbers:Clear() end
+        if face.slot and lastStart then TrinketMenu:Ready(face, lastStart, lastDuration) end
     end
+    Countdown(face, start, duration)
+    if face.slot then Shade(face) end
 end
 
 local function Pulse(texture, from)
@@ -382,20 +468,49 @@ local function TogglePulse(pulse, on)
     end
 end
 
-local function SetWaiting(face, waiting, color)
-    if face.waiting == waiting then return end
-    face.waiting = waiting
-    local tint = waiting and WAIT_COLOR or color
+local function Tint(face)
+    local tint = face.waiting and WAIT_COLOR or face.hovered and LIFT[face.base] or face.base
+    if face.tint == tint then return end
+    face.tint = tint
     face:SetBackdropBorderColor(tint[1], tint[2], tint[3], 1)
     face.glow:SetVertexColor(tint[1], tint[2], tint[3], 1)
+end
+
+local function SetWaiting(face, waiting)
+    if face.waiting == waiting then return end
+    face.waiting = waiting
+    Tint(face)
     TogglePulse(face.pulse, waiting)
+end
+
+local function SetBase(face, color)
+    face.base = color
+    Tint(face)
+end
+
+local function Hover(owner, on)
+    local face = owner.face
+    face.hovered = on
+    Tint(face)
+end
+
+local function SetLabel(face, text)
+    if face.labelText == text then return end
+    face.labelText = text
+    face.label:SetText(text)
+    face.pill:SetShown(text ~= "")
+end
+
+local function OnCooldownDone(cooldown)
+    local face = cooldown.face
+    TrinketMenu:Ready(face, face.cdStart, face.cdDuration)
 end
 
 function TrinketMenu:Dress(button, color, split)
     local face = CreateFrame("Frame", nil, button, "BackdropTemplate")
     face:SetAllPoints(button)
     button.face = face
-    face.color = color
+    face.color, face.base, face.tint = color, color, color
     BarUtils:CreateBackdrop(face, color[1], color[2], color[3], 1, nil, nil, nil, nil, nil, 8, 1)
 
     face.glow = face:CreateTexture(nil, "BACKGROUND")
@@ -405,23 +520,35 @@ function TrinketMenu:Dress(button, color, split)
     face.glow:SetAlpha(GLOW_ALPHA)
     face.glow:SetVertexColor(color[1], color[2], color[3], 1)
     face.pulse = Pulse(face.glow, GLOW_ALPHA)
-    face.waiting, face.cdStart, face.cdDuration = false, 0, 0
+    face.waiting, face.cdStart, face.cdDuration, face.cdToken = false, 0, 0, 0
+    face.hovered, face.empty, face.dim, face.slot, face.size, face.comet, face.readyFor, face.unfold = false, false, false, false, false, false, false, false
+
+    local inset = face:CreateTexture(nil, "BORDER")
+    inset:SetColorTexture(0, 0, 0, 1)
+    inset:SetPoint("TOPLEFT", 2, -2)
+    inset:SetPoint("BOTTOMRIGHT", -2, 2)
 
     face.texture = face:CreateTexture(nil, "ARTWORK")
-    face.texture:SetPoint("TOPLEFT", 2, -2)
+    face.texture:SetPoint("TOPLEFT", 3, -3)
     if split then
-        face.texture:SetPoint("BOTTOMRIGHT", face, "BOTTOM", 0, 2)
+        face.texture:SetPoint("BOTTOMRIGHT", face, "BOTTOM", 0, 3)
         face.texture:SetTexCoord(0.07, 0.5, 0.07, 0.93)
         face.half = face:CreateTexture(nil, "ARTWORK")
-        face.half:SetPoint("TOPLEFT", face, "TOP", 0, -2)
-        face.half:SetPoint("BOTTOMRIGHT", -2, 2)
+        face.half:SetPoint("TOPLEFT", face, "TOP", 0, -3)
+        face.half:SetPoint("BOTTOMRIGHT", -3, 3)
         face.half:SetTexCoord(0.5, 0.93, 0.07, 0.93)
+        local divider = face:CreateTexture(nil, "OVERLAY")
+        divider:SetColorTexture(0, 0, 0, 1)
+        divider:SetWidth(1)
+        divider:SetPoint("TOP", face, "TOP", 0, -3)
+        divider:SetPoint("BOTTOM", face, "BOTTOM", 0, 3)
     else
-        face.texture:SetPoint("BOTTOMRIGHT", -2, 2)
+        face.texture:SetPoint("BOTTOMRIGHT", -3, 3)
         face.texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     end
 
     face.cooldown = CreateFrame("Cooldown", nil, face, "CooldownFrameTemplate")
+    face.cooldown.face = face
     face.cooldown:SetAllPoints(face.texture)
     face.cooldown:SetFrameLevel(face:GetFrameLevel() + 1)
     face.cooldown:SetDrawEdge(false)
@@ -451,7 +578,7 @@ function TrinketMenu:Dress(button, color, split)
     face.hotkey = over:CreateFontString(nil, "OVERLAY")
     face.hotkey:SetFont(STANDARD_TEXT_FONT, HOTKEY_SIZE, "OUTLINE")
     face.hotkey:SetPoint("TOPLEFT", 3, -2)
-    face.hotkey:SetTextColor(0.85, 0.87, 0.91, 1)
+    face.hotkey:SetTextColor(HOTKEY_COLOR[1], HOTKEY_COLOR[2], HOTKEY_COLOR[3], 1)
 
     face.badge = CreateFrame("Frame", nil, over, "BackdropTemplate")
     face.badge:SetPoint("CENTER", face, "TOPRIGHT", -2, -2)
@@ -464,23 +591,233 @@ function TrinketMenu:Dress(button, color, split)
 
     face.label = over:CreateFontString(nil, "OVERLAY")
     face.label:SetFont(STANDARD_TEXT_FONT, LABEL_SIZE, "OUTLINE")
-    face.label:SetPoint("BOTTOM", 0, 2)
+    face.label:SetPoint("BOTTOM", 0, 3)
+    face.pill = over:CreateTexture(nil, "ARTWORK")
+    face.pill:SetColorTexture(0, 0, 0, 0.62)
+    face.pill:SetPoint("TOPLEFT", face.label, "TOPLEFT", -2, 1)
+    face.pill:SetPoint("BOTTOMRIGHT", face.label, "BOTTOMRIGHT", 2, -1)
+    face.pill:Hide()
+    face.labelText = ""
     return face
+end
+
+local function SizeComet(face)
+    local comet, size = face.comet, face.size
+    if not comet or not size then return end
+    local side = size - 2
+    local moves = { { side, 0 }, { 0, -side }, { -side, 0 }, { 0, side } }
+    for _, spark in ipairs(comet.sparks) do
+        local spot = size * SPARK_RATIO * spark.scale
+        spark:SetSize(spot, spot)
+        for step, move in ipairs(spark.moves) do
+            local offset = moves[(step - 1) % 4 + 1]
+            move:SetOffset(offset[1], offset[2])
+        end
+    end
+end
+
+local function Comet(face)
+    if face.comet then return face.comet end
+    local comet = CreateFrame("Frame", nil, face.over)
+    comet:SetAllPoints(face)
+    comet:Hide()
+    local lap = COMET_LAP * COMET_LAPS
+    local fade = comet:CreateAnimationGroup()
+    local fadeIn = fade:CreateAnimation("Alpha")
+    fadeIn:SetFromAlpha(0)
+    fadeIn:SetToAlpha(1)
+    fadeIn:SetDuration(COMET_FADE_IN)
+    fadeIn:SetOrder(1)
+    local fadeOut = fade:CreateAnimation("Alpha")
+    fadeOut:SetFromAlpha(1)
+    fadeOut:SetToAlpha(0)
+    fadeOut:SetStartDelay(lap - COMET_FADE_IN - COMET_FADE_OUT + SPARK_LAG * #SPARKS)
+    fadeOut:SetDuration(COMET_FADE_OUT)
+    fadeOut:SetOrder(2)
+    fade:SetScript("OnFinished", function() StopComet(face) end)
+    comet.fade = fade
+    comet.sparks = {}
+    for index, spec in ipairs(SPARKS) do
+        local spark = comet:CreateTexture(nil, "OVERLAY")
+        spark:SetTexture(SPARK_TEXTURE)
+        spark:SetBlendMode("ADD")
+        spark:SetVertexColor(SPARK_COLOR[1], SPARK_COLOR[2], SPARK_COLOR[3], COMET_ALPHA * spec[2])
+        spark:SetPoint("CENTER", comet, "TOPLEFT", 1, -1)
+        spark.scale = spec[1]
+        local path = spark:CreateAnimationGroup()
+        spark.path, spark.moves = path, {}
+        for step = 1, COMET_LAPS * 4 do
+            local move = path:CreateAnimation("Translation")
+            move:SetDuration(COMET_LAP / 4)
+            move:SetOrder(step)
+            if step == 1 then move:SetStartDelay((index - 1) * SPARK_LAG) end
+            spark.moves[step] = move
+        end
+        comet.sparks[index] = spark
+    end
+    face.comet = comet
+    SizeComet(face)
+    return comet
+end
+
+local function PlayComet(face)
+    StopComet(face)
+    local comet = Comet(face)
+    comet:Show()
+    for _, spark in ipairs(comet.sparks) do spark.path:Play() end
+    comet.fade:Play()
 end
 
 local function SizeFace(face, size)
     face.glow:SetSize(size * GLOW_SCALE, size * GLOW_SCALE)
     local badge = math.floor(size * BADGE_RATIO + 0.5)
     face.badge:SetSize(badge, badge)
+    if face.size ~= size then
+        face.size = size
+        SizeComet(face)
+    end
+end
+
+local function Step(group, kind, order, duration)
+    local step = group:CreateAnimation(kind)
+    step:SetOrder(order)
+    step:SetDuration(duration)
+    if duration > INSTANT then step:SetSmoothing("OUT") end
+    return step
+end
+
+local function Spin(texture)
+    local group = texture:CreateAnimationGroup()
+    Step(group, "Rotation", 1, INSTANT):SetDegrees(-SPIN_DEGREES)
+    Step(group, "Rotation", 2, OPEN_TIME):SetDegrees(SPIN_DEGREES)
+    local grow = Step(group, "Scale", 2, OPEN_TIME)
+    grow:SetScaleFrom(SPIN_SCALE, SPIN_SCALE)
+    grow:SetScaleTo(1, 1)
+    return group
+end
+
+local function OnDiamondShow(diamond)
+    for _, spin in ipairs(diamond.spins) do
+        spin:Stop()
+        spin:Play()
+    end
+end
+
+local function Unfold(face)
+    local group = face:CreateAnimationGroup()
+    group.from = Step(group, "Translation", 1, INSTANT)
+    local hide = Step(group, "Alpha", 1, INSTANT)
+    hide:SetFromAlpha(0)
+    hide:SetToAlpha(0)
+    group.move = Step(group, "Translation", 2, OPEN_TIME)
+    local show = Step(group, "Alpha", 2, OPEN_TIME)
+    show:SetFromAlpha(0)
+    show:SetToAlpha(1)
+    local grow = Step(group, "Scale", 2, OPEN_TIME)
+    grow:SetScaleFrom(UNFOLD_SCALE, UNFOLD_SCALE)
+    grow:SetScaleTo(1, 1)
+    group.delayed = { group.move, show, grow }
+    face.unfold = group
+    return group
+end
+
+local function Stretch(plate)
+    local group = plate:CreateAnimationGroup()
+    group.scale = Step(group, "Scale", 1, OPEN_TIME)
+    group.scale:SetScaleTo(1, 1)
+    group.fade = Step(group, "Alpha", 1, OPEN_TIME)
+    group.fade:SetFromAlpha(0)
+    group.fade:SetToAlpha(1)
+    plate.stretch = group
+    return group
+end
+
+function TrinketMenu:PlayUnfold()
+    local layout = self.layout
+    if not layout then return end
+    local size, step, count = layout.size, layout.size + layout.spacing, 0
+    for key, button in pairs(self.buttons) do
+        local offset = layout.offsets[key]
+        if offset then
+            count = count + 1
+            local group = button.face.unfold or Unfold(button.face)
+            if group.layout ~= layout then
+                group.layout = layout
+                local x, y = offset[1], offset[2]
+                local delay = (math.abs(x) + math.abs(y)) / step * UNFOLD_STAGGER
+                group.from:SetOffset(-x, -y)
+                group.move:SetOffset(x, y)
+                for _, part in ipairs(group.delayed) do part:SetStartDelay(delay) end
+            end
+            group:Stop()
+            group:Play()
+        end
+    end
+    local plate = self.plate
+    local stretch = plate.stretch or Stretch(plate)
+    if stretch.layout ~= layout then
+        stretch.layout = layout
+        local corner = PLATE_PAD + size / 2
+        local seed = size + PLATE_PAD * 2
+        stretch.scale:SetOrigin("TOPLEFT", corner, -corner)
+        stretch.scale:SetScaleFrom(seed / (layout.width + PLATE_PAD * 2), seed / (layout.height + PLATE_PAD * 2))
+        local span = OPEN_TIME + (count - 1) * UNFOLD_STAGGER
+        stretch.scale:SetDuration(span)
+        stretch.fade:SetDuration(span)
+    end
+    stretch:Stop()
+    stretch:Play()
+end
+
+local function OnBarShow(bar)
+    if bar:GetAttribute("collapse") then TrinketMenu:PlayUnfold() end
+end
+
+function TrinketMenu:Ripple()
+    local diamond = self.diamond
+    local ripple = diamond.ripple
+    if not ripple then
+        local ring = diamond.skin:CreateTexture(nil, "OVERLAY")
+        ring:SetTexture(RING_TEXTURE)
+        ring:SetBlendMode("ADD")
+        ring:SetSize(DIAMOND_SIZE * 1.5, DIAMOND_SIZE * 1.5)
+        ring:SetPoint("CENTER")
+        ring:SetVertexColor(RIPPLE_COLOR[1], RIPPLE_COLOR[2], RIPPLE_COLOR[3], 1)
+        ring:SetAlpha(0)
+        ripple = ring:CreateAnimationGroup()
+        local grow = Step(ripple, "Scale", 1, RIPPLE_TIME)
+        grow:SetScaleFrom(0.6, 0.6)
+        grow:SetScaleTo(2.2, 2.2)
+        local fade = Step(ripple, "Alpha", 1, RIPPLE_TIME)
+        fade:SetFromAlpha(0.8)
+        fade:SetToAlpha(0)
+        diamond.ripple = ripple
+    end
+    ripple:Stop()
+    ripple:Play()
+end
+
+function TrinketMenu:Ready(face, start, duration)
+    if not start or face.readyFor == start or start + duration > GetTime() + READY_SLACK then return end
+    face.readyFor = start
+    local diamond = self.diamond
+    local target = Model.ReadyTarget(self.db.readyGlow, duration, (self.alpha or 1) < 1, self.bar:IsShown(), diamond and diamond:IsShown(), face.waiting)
+    if target == "bar" then
+        PlayComet(face)
+    elseif target == "diamond" then
+        self:Ripple()
+    end
 end
 
 local function OnTrinketEnter(button)
+    Hover(button, true)
     TrinketMenu:Wake()
     TrinketMenu:TrinketTip(button)
     TrinketMenu:OpenFlyout(button)
 end
 
 local function HideTip(owner)
+    Hover(owner, false)
     if GameTooltip:IsOwned(owner) then GameTooltip:Hide() end
     TrinketMenu:Rest()
 end
@@ -516,7 +853,9 @@ function TrinketMenu:CreateTrinketButton(slot)
     button:SetAttribute("item", tostring(slot))
     button:RegisterForClicks("AnyUp", "AnyDown")
     button.slot = slot
-    self:Dress(button, TRINKET_COLOR)
+    local face = self:Dress(button, TRINKET_COLOR)
+    face.slot = slot
+    face.cooldown:SetScript("OnCooldownDone", OnCooldownDone)
     button:SetScript("PostClick", OnTrinketPostClick)
     button:HookScript("OnEnter", OnTrinketEnter)
     button:HookScript("OnLeave", HideTip)
@@ -531,6 +870,7 @@ function TrinketMenu:CreateSetButton()
     button:SetScript("OnClick", OnSetClick)
     button:SetScript("OnMouseWheel", function(_, delta) TrinketMenu:CycleSet(delta > 0 and -1 or 1) end)
     button:SetScript("OnEnter", function(owner)
+        Hover(owner, true)
         TrinketMenu:Wake()
         TrinketMenu.flyout:Hide()
         TrinketMenu:SetTip(owner)
@@ -545,6 +885,7 @@ function TrinketMenu:CreateGearButton()
     self:Dress(button, GEAR_COLOR)
     button:SetScript("OnClick", OnGearClick)
     button:SetScript("OnEnter", function(owner)
+        Hover(owner, true)
         TrinketMenu:Wake()
         if TrinketMenu.flyout.owner ~= owner then TrinketMenu.flyout:Hide() end
         TrinketMenu:GearTip(owner)
@@ -584,6 +925,10 @@ function TrinketMenu:CreateFlyout()
     flyout:SetFrameStrata("DIALOG")
     flyout:SetClampedToScreen(true)
     BarUtils:CreateBackdrop(flyout, 0.227, 0.263, 0.322, 1, BarUtils.BACKDROP_TEXTURES.Solid, 0.059, 0.071, 0.094, 0.92, 8, 2)
+    flyout.notch = flyout:CreateTexture(nil, "BACKGROUND", nil, -8)
+    flyout.notch:SetColorTexture(0.227, 0.263, 0.322, 1)
+    flyout.notch:SetSize(NOTCH_SIZE, NOTCH_SIZE)
+    flyout.notch:SetRotation(math.rad(45))
     flyout.buttons = {}
     flyout.idle = 0
     flyout:SetScript("OnUpdate", function(frame, elapsed)
@@ -616,6 +961,7 @@ function TrinketMenu:FlyoutButton(index)
         end
     end)
     button:SetScript("OnEnter", function(item)
+        Hover(item, true)
         TrinketMenu:Wake()
         if not TrinketMenu.db.tooltips then return end
         GameTooltip:SetOwner(item, "ANCHOR_RIGHT")
@@ -632,18 +978,13 @@ function TrinketMenu:FlyoutButton(index)
     return button
 end
 
-local function Edge(face, color)
-    face:SetBackdropBorderColor(color[1], color[2], color[3], 1)
-    face.glow:SetVertexColor(color[1], color[2], color[3], 1)
-end
-
 function TrinketMenu:FillTrinket(button, item)
     local face = button.face
     button.itemID, button.bag, button.bagSlot, button.gearName = item.id, item.bag, item.slot, nil
     face.texture:SetTexture(item.icon or UNKNOWN_ICON)
     face.texture:SetDesaturated(false)
-    face.label:SetText("")
-    Edge(face, TRINKET_COLOR)
+    SetLabel(face, "")
+    SetBase(face, TRINKET_COLOR)
     local start, duration = Model.Cooldown(COMPAT.ItemCooldown(item.id))
     ApplyCooldown(face, start, duration)
 end
@@ -653,8 +994,8 @@ function TrinketMenu:FillGear(button, set)
     button.itemID, button.gearName = nil, set.name
     face.texture:SetTexture(set.icon or UNKNOWN_ICON)
     face.texture:SetDesaturated(set.missing > 0)
-    face.label:SetText(Model.GearLabel(set.name))
-    Edge(face, set.equipped and GEAR_COLOR or TRINKET_COLOR)
+    SetLabel(face, Model.GearLabel(set.name))
+    SetBase(face, set.equipped and GEAR_COLOR or TRINKET_COLOR)
     ApplyCooldown(face, nil)
 end
 
@@ -722,6 +1063,8 @@ function TrinketMenu:ShowFlyout(owner, mode, entries)
     local scale = owner:GetEffectiveScale() / UIParent:GetEffectiveScale()
     local left, bottom, width, height = owner:GetRect()
     flyout:ClearAllPoints()
+    flyout.notch:ClearAllPoints()
+    flyout.notch:SetPoint("CENTER", flyout, vertical and "LEFT" or "BOTTOM")
     if vertical then
         flyout:SetSize(span, thick)
         flyout:SetPoint("LEFT", UIParent, "BOTTOMLEFT", (left + width) * scale + FLYOUT_GAP, (bottom + height / 2) * scale)
@@ -815,8 +1158,11 @@ function TrinketMenu:CreateDiamond()
     diamond:SetFrameStrata("MEDIUM")
     diamond:EnableMouse(true)
 
+    local skin = CreateFrame("Frame", nil, diamond)
+    skin:SetAllPoints(diamond)
+    diamond.skin = skin
     local function layer(level, texture, size, color, rotate)
-        local region = diamond:CreateTexture(nil, level)
+        local region = skin:CreateTexture(nil, level)
         region:SetTexture(texture)
         region:SetSize(size, size)
         region:SetPoint("CENTER")
@@ -824,12 +1170,16 @@ function TrinketMenu:CreateDiamond()
         if rotate then region:SetRotation(math.rad(45)) end
         return region
     end
-    layer("BORDER", FLAT_TEXTURE, DIAMOND_SIZE + 2, { 0, 0, 0 }, true)
-    layer("ARTWORK", FLAT_TEXTURE, DIAMOND_SIZE, SET_COLOR, true)
+    diamond.spins = {
+        Spin(layer("BORDER", FLAT_TEXTURE, DIAMOND_SIZE + 2, { 0, 0, 0 }, true)),
+        Spin(layer("ARTWORK", FLAT_TEXTURE, DIAMOND_SIZE, SET_COLOR, true)),
+    }
     local glow = layer("BACKGROUND", GLOW_TEXTURE, DIAMOND_SIZE * 3, WAIT_COLOR)
     glow:SetBlendMode("ADD")
     glow:SetAlpha(0)
     diamond.pulse = Pulse(glow, 0)
+    diamond.ripple = false
+    diamond:HookScript("OnShow", OnDiamondShow)
 
     diamond:SetFrameRef("bar", bar)
     diamond:SetAttribute("_onenter", ([[
@@ -855,8 +1205,18 @@ function TrinketMenu:Build()
     bar:SetFrameStrata("MEDIUM")
     bar:SetMovable(true)
     bar:SetClampedToScreen(true)
+    bar:SetClampRectInsets(-PLATE_PAD, PLATE_PAD, PLATE_PAD, -PLATE_PAD)
     bar:Hide()
     self.bar = bar
+
+    local plate = CreateFrame("Frame", nil, bar, "BackdropTemplate")
+    plate:SetPoint("TOPLEFT", -PLATE_PAD, PLATE_PAD)
+    plate:SetPoint("BOTTOMRIGHT", PLATE_PAD, -PLATE_PAD)
+    plate:SetFrameLevel(bar:GetFrameLevel())
+    BarUtils:CreateBackdrop(plate, 1, 1, 1, 0.06, BarUtils.BACKDROP_TEXTURES.Solid, 0.04, 0.05, 0.07, 0.72, 8, 2)
+    plate.stretch = false
+    self.plate = plate
+    bar:HookScript("OnShow", OnBarShow)
 
     self.buttons = {
         [13] = self:CreateTrinketButton(13),
@@ -875,6 +1235,7 @@ function TrinketMenu:ApplyLayout()
     local db, bar, diamond = self.db, self.bar, self.diamond
     local size = db.iconSize
     local offsets, width, height = Model.Layout(db.orientation, db.swapOrder, db.showSet, self:GearShown(), size, db.spacing)
+    self.layout = { offsets = offsets, width = width, height = height, size = size, spacing = db.spacing }
     bar:SetSize(width, height)
     for key, button in pairs(self.buttons) do
         local offset = offsets[key]
@@ -961,11 +1322,17 @@ function TrinketMenu:Paint()
         local face = self.buttons[slot].face
         local _, icon = COMPAT.InventoryItem(slot)
         face.texture:SetTexture(icon or EMPTY_ICON)
+        local empty = icon == nil
+        if face.empty ~= empty then
+            face.empty = empty
+            SetBase(face, empty and EMPTY_COLOR or TRINKET_COLOR)
+            Shade(face)
+        end
         local incoming = queued and queued[slot] or nil
         local waiting = incoming ~= nil and incoming ~= equipped[slot]
         face.badge:SetShown(waiting)
         if waiting then face.badge.icon:SetTexture(ItemIcon(incoming) or UNKNOWN_ICON) end
-        SetWaiting(face, waiting, face.color)
+        SetWaiting(face, waiting)
     end
 
     local db = self.db
@@ -976,8 +1343,8 @@ function TrinketMenu:Paint()
     face.half:SetTexture(filled and (ItemIcon(set[14]) or EMPTY_ICON) or UNKNOWN_ICON)
     face.texture:SetDesaturated(not filled)
     face.half:SetDesaturated(not filled)
-    face.label:SetText(Model.SetLabel(db.activeSet))
-    SetWaiting(face, self:SetQueued(), face.color)
+    SetLabel(face, Model.SetLabel(db.activeSet))
+    SetWaiting(face, self:SetQueued())
 
     if self:GearShown() then self:PaintGear() end
 
@@ -993,8 +1360,8 @@ function TrinketMenu:PaintGear()
     local set = shown and byName[shown]
     face.texture:SetTexture(set and set.icon or UNKNOWN_ICON)
     face.texture:SetDesaturated(set == nil)
-    face.label:SetText(Model.GearLabel(shown))
-    SetWaiting(face, self:GearQueued(), face.color)
+    SetLabel(face, Model.GearLabel(shown))
+    SetWaiting(face, self:GearQueued())
 end
 
 function TrinketMenu:PaintCooldowns()
@@ -1124,6 +1491,9 @@ function TrinketMenu:LoadSettings(live)
         return
     end
     if not (db.enabled and db.flyout) then self.flyout:Hide() end
+    if not db.readyGlow then
+        for _, slot in ipairs(Model.SLOTS) do StopComet(self.buttons[slot].face) end
+    end
     if not live then self:Run("layout", ApplyLayoutNow) end
     self:ApplyFade()
     self:PaintNumbers()
@@ -1149,9 +1519,9 @@ function TrinketMenu:RunTest()
     for index, slot in ipairs(Model.SLOTS) do
         ApplyCooldown(self.buttons[slot].face, now, 6 + index * 4)
     end
-    local face = self.buttons.set.face
-    SetWaiting(face, true, face.color)
-    SetWaiting(self.buttons.gear.face, true, GEAR_COLOR)
+    SetWaiting(self.buttons.set.face, true)
+    SetWaiting(self.buttons.gear.face, true)
+    if self.db.readyGlow then PlayComet(self.buttons[13].face) end
     C_Timer.After(TEST_TIME, PaintLater)
     self:Wake()
     self:Rest()

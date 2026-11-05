@@ -185,7 +185,7 @@ dbDefaults = {
 		},
 
 		resourceBar = {
-			locked = false,
+			locked = true,
 
 			energyEnabled = false,
 			energyPositionX = 0,
@@ -235,7 +235,7 @@ dbDefaults = {
 		},
 
 		castingBars = {
-			locked = false,
+			locked = true,
 			barTexture = "default",
 			barTextureQuality = "normal",
 			timeFormat = "milliseconds",
@@ -290,6 +290,19 @@ dbDefaults = {
 			baseColor = { r = 1, g = 1, b = 1 },
 		},
 
+		drTracker = {
+			enabled = false,
+			target = true,
+			focus = true,
+			size = 38,
+			spacing = 3,
+			numbers = true,
+			tags = true,
+			locked = true,
+			categories = { stun = true, opener = true, incap = true, fear = true, silence = true, root = true, horror = true, cyclone = true },
+			spots = {},
+		},
+
 		trinketMenu = {
 			enabled = false,
 			locked = true,
@@ -312,6 +325,7 @@ dbDefaults = {
 			showGear = false,
 			gearMain = "",
 			gearAlt = "",
+			readyGlow = true,
 		},
 
 		notices = {
@@ -368,13 +382,21 @@ dbDefaults = {
 		},
 
 		spellTracker = {
-			locked = false,
+			locked = true,
 			showTimerText = true,
 			showBorderTimer = false,
 			showCooldownText = true,
 			showReadyText = false,
 			deleteWithoutConfirm = false,
 			animQuality = "normal",
+			plateEnabled = false,
+			plateSize = 24,
+			plateSpacing = 3,
+			plateOffset = 4,
+			plateFollowScale = true,
+			plateShowIdle = false,
+			plateMax = 4,
+			plateFallback = "screen",
 			icons = {},
 		},
 

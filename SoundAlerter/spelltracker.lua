@@ -3,6 +3,7 @@ local GetSpellInfo = SA_COMPAT.GetSpellInfo
 local Game = SA_TrackerGame
 local Border = SA_TrackerBorder
 local FX = SA_TrackerFX
+local Plate = SA_TrackerPlate
 
 local Settings = SA_TrackerSettings
 local ICON_SIZE = Settings.DEFAULT_ICON_SIZE
@@ -85,6 +86,7 @@ function SpellTracker:Initialize()
 
     self:CreateIconFrames()
     self:RegisterEvents()
+    Plate:Setup(self)
     self:LoadSettings()
 
     self.initialized = true
@@ -98,6 +100,7 @@ function SpellTracker:CreateIconFrames()
     container:EnableMouse(false)
 
     self.container = container
+    self.frames = iconFrames
 
     for i = 1, ICON_POOL_SIZE do
         local icon = self:CreateIcon(i)
@@ -399,6 +402,7 @@ function SpellTracker:OnEvent(event, ...)
         for _, config in pairs(trackedSpellsByUnit.target) do
             self.state:ClearPredicted(config.trackerIndex)
         end
+        Plate:TargetChanged()
         self:ScanAuras("target")
     elseif event == "PLAYER_ENTERING_WORLD" or event == "UPDATE_SHAPESHIFT_FORM" then
         self:RefreshAllTrackers()
@@ -455,6 +459,7 @@ function SpellTracker:ScanAuras(unit)
     local trackedSpells = trackedSpellsByUnit[unit]
     if not trackedSpells or not next(trackedSpells) then return end
 
+    Plate:Begin()
     for spellID, config in pairs(trackedSpells) do
         local ok, observation, auraInstanceID = Game.LookupAura(unit, spellID, config.auraType)
         local aliases = config.aliases
@@ -479,6 +484,7 @@ function SpellTracker:ScanAuras(unit)
             end
         end
     end
+    Plate:Finish()
 end
 
 function SpellTracker:UpdateTracker(trackerIndex, spellID, decision, unit, auraInstanceID)
@@ -497,6 +503,7 @@ function SpellTracker:UpdateTracker(trackerIndex, spellID, decision, unit, auraI
     if not frame then return end
 
     FX:CancelExit(frame)
+    frame.exiting = nil
     frame.trackerIndex = trackerIndex
     frame.spellID = spellID
 
@@ -532,14 +539,15 @@ function SpellTracker:UpdateTracker(trackerIndex, spellID, decision, unit, auraI
     end
 
     self:UpdateBorderTimer(frame, config, decision, auraDuration)
-    self:SetFramePosition(frame, trackerIndex)
-
-    local shouldShow, alpha = self:DetermineVisibility(trackerIndex, true)
-    if shouldShow then
-        frame:SetAlpha(alpha)
-        frame:Show()
-    else
-        frame:Hide()
+    if not Plate:Holds(config) then
+        self:SetFramePosition(frame, trackerIndex)
+        local shouldShow, alpha = self:DetermineVisibility(trackerIndex, true)
+        if shouldShow then
+            frame:SetAlpha(alpha)
+            frame:Show()
+        else
+            frame:Hide()
+        end
     end
 
     if decision.expiration then
@@ -552,6 +560,7 @@ function SpellTracker:UpdateTracker(trackerIndex, spellID, decision, unit, auraI
         FX:Appear(frame)
     end
     self:RefreshBorder(trackerIndex)
+    Plate:Touch(trackerIndex)
 
     if decision.isNew then
         self.addon:Debug("SpellTracker", "tracker %d activated: spell %d, %s", trackerIndex, spellID, decision.secret and "secret timing (duration object)" or "readable timing")
@@ -562,6 +571,14 @@ function SpellTracker:DetermineVisibility(trackerIndex, isActive)
     local config = self.db.icons[trackerIndex]
     if not config then
         return false, CONSTANTS.INACTIVE_ALPHA
+    end
+
+    if Plate:Owns(config) then
+        if Plate.plate then
+            if isActive then return true, CONSTANTS.ACTIVE_ALPHA end
+            return self.db.plateShowIdle == true, CONSTANTS.INACTIVE_ALPHA
+        end
+        if self.db.plateFallback == "hide" then return false, CONSTANTS.INACTIVE_ALPHA end
     end
 
     if isActive then
@@ -597,20 +614,27 @@ function SpellTracker:HideTracker(trackerIndex)
     local shouldShow, alpha = self:DetermineVisibility(trackerIndex, false)
     frame.hideShow = shouldShow
     frame.hideAlpha = alpha
+    frame.plateAlpha = nil
 
     if wasShown and FX:Exit(frame, shouldShow and alpha or 0, frame.finishHide) then
+        frame.exiting = true
         return
     end
     self:FinishHide(frame)
 end
 
 function SpellTracker:FinishHide(frame)
-    if frame.hideShow then
-        frame:SetAlpha(frame.hideAlpha)
-        frame:Show()
-    else
-        frame:Hide()
+    frame.exiting = nil
+    local index = frame.trackerIndex
+    if not Plate:Holds(index and self.db.icons[index]) then
+        if frame.hideShow then
+            frame:SetAlpha(frame.hideAlpha)
+            frame:Show()
+        else
+            frame:Hide()
+        end
     end
+    Plate:Touch(index)
 end
 
 function SpellTracker:OnUpdate(elapsed)
@@ -839,7 +863,7 @@ function SpellTracker:SetFramePosition(frame, trackerIndex)
     if not frame or not trackerIndex then return end
 
     local config = self.db.icons[trackerIndex]
-    if not config then return end
+    if not config or Plate:Holds(config) then return end
 
     local relativeX = config.posX or ((trackerIndex - 1) * (ICON_SIZE + ICON_SPACING) + CONSTANTS.DEFAULT_POS_X_OFFSET)
     local relativeY = config.posY or CONSTANTS.DEFAULT_POS_Y
@@ -857,15 +881,7 @@ function SpellTracker:SetFramePosition(frame, trackerIndex)
 
     frame:ClearAllPoints()
     frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
-    frame:SetSize(size, size)
-    frame.glow:SetSize(size * 1.75, size * 1.75)
-
-    frame.cooldownFontSize = cooldownTextSize
-    frame.iconSize = size
-    if frame.cooldownText then
-        applyCooldownFont(frame, frame.lastCooldownText == READY_TEXT)
-    end
-    self:StyleCooldownNumbers(frame, cooldownTextSize)
+    self:SizeIcon(frame, size, cooldownTextSize)
 
     frame.lastPosition = {
         x = relativeX,
@@ -873,6 +889,18 @@ function SpellTracker:SetFramePosition(frame, trackerIndex)
         size = size,
         textSize = cooldownTextSize
     }
+end
+
+function SpellTracker:SizeIcon(frame, size, cooldownTextSize)
+    if frame.iconSize == size and frame.cooldownFontSize == cooldownTextSize then return end
+    frame:SetSize(size, size)
+    frame.glow:SetSize(size * 1.75, size * 1.75)
+    frame.cooldownFontSize = cooldownTextSize
+    frame.iconSize = size
+    if frame.cooldownText then
+        applyCooldownFont(frame, frame.lastCooldownText == READY_TEXT)
+    end
+    self:StyleCooldownNumbers(frame, cooldownTextSize)
 end
 
 function SpellTracker:MigrateIconSettings()
@@ -899,39 +927,42 @@ function SpellTracker:UpdateContainerVisibility()
     end
 end
 
+function SpellTracker:RestoreIcon(i)
+    local config = self.db.icons[i]
+    local frame = iconFrames[i]
+    if not frame or not config then return end
+    if not config.enabled then
+        frame:Hide()
+        return
+    end
+
+    frame:EnableMouse(not self.db.locked and not frame.onPlate)
+    frame.trackerIndex = i
+    frame.spellID = config.spellID
+
+    local texture = self:GetSpellTexture(config.spellID)
+    if texture and texture ~= "" then
+        frame.texture:SetTexture(texture)
+    else
+        frame.texture:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+    end
+
+    self:RefreshBorder(i)
+    if Plate:Holds(config) then return end
+
+    self:SetFramePosition(frame, i)
+    local shouldShow, alpha = self:DetermineVisibility(i, self.state:IsActive(i))
+    if shouldShow then
+        frame:SetAlpha(alpha)
+        frame:Show()
+    else
+        frame:Hide()
+    end
+end
+
 function SpellTracker:RestoreIconStates()
     for i = 1, #self.db.icons do
-        local config = self.db.icons[i]
-        local frame = iconFrames[i]
-
-        if frame then
-            if config.enabled then
-                frame:EnableMouse(not self.db.locked)
-                frame.trackerIndex = i
-                frame.spellID = config.spellID
-
-                local texture = self:GetSpellTexture(config.spellID)
-                if texture and texture ~= "" then
-                    frame.texture:SetTexture(texture)
-                else
-                    frame.texture:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-                end
-
-                self:SetFramePosition(frame, i)
-                self:RefreshBorder(i)
-
-                local shouldShow, alpha = self:DetermineVisibility(i, self.state:IsActive(i))
-
-                if shouldShow then
-                    frame:SetAlpha(alpha)
-                    frame:Show()
-                else
-                    frame:Hide()
-                end
-            else
-                frame:Hide()
-            end
-        end
+        self:RestoreIcon(i)
     end
 end
 
@@ -981,6 +1012,7 @@ function SpellTracker:LoadSettings()
     self:RebuildTrackingLookups()
     self:RebuildTimed()
     self:RefreshAllTrackers()
+    Plate:Refresh()
 end
 
 function SpellTracker:RebuildTimed()
@@ -1015,6 +1047,9 @@ function SpellTracker:SetSetting(key, value)
         if key == "showBorderTimer" then
             self:RefreshAllTrackers()
         end
+        if Settings.IsPlateKey(key) then
+            self:LoadSettings()
+        end
     end
 end
 
@@ -1026,16 +1061,28 @@ function SpellTracker:SetIconSetting(index, key, value)
     end
 end
 
+function SpellTracker:ResetPositions()
+    if not self.db then return end
+    for i = 1, #self.db.icons do
+        local config = self.db.icons[i]
+        config.posX, config.posY = nil, nil
+        local frame = iconFrames[i]
+        if frame then frame.lastPosition = nil end
+    end
+    self:RestoreIconStates()
+end
+
 function SpellTracker:SetLocked(locked)
     if not self.db then return end
     self.db.locked = locked
 
     for i = 1, ICON_POOL_SIZE do
         local frame = iconFrames[i]
-        if frame then
+        if frame and not frame.onPlate then
             frame:EnableMouse(not locked)
         end
     end
+    self:RestoreIconStates()
 end
 
 function SpellTracker:OnProfileChanged()
@@ -1111,6 +1158,7 @@ function SpellTracker:ResetFrameDisplay(frame)
     frame.lastCooldownText = ""
     applyGlow(frame, nil)
     frame.lastPosition = nil
+    frame.plateShown, frame.plateAlpha, frame.plateKey = nil, nil, nil
     frame.trackerIndex = nil
     frame.spellID = nil
     frame:Hide()

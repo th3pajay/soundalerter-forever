@@ -838,6 +838,19 @@ function ResourceBar:UpdateVisibility()
 	end
 end
 
+function ResourceBar:ResetPositions()
+	if not self.db then return end
+	for barKey in pairs(BAR_CONFIGS) do
+		self.db[barKey .. "PositionX"] = nil
+		self.db[barKey .. "PositionY"] = nil
+	end
+	for _, prefix in ipairs({ "combo", "comboText" }) do
+		self.db[prefix .. "PositionX"] = nil
+		self.db[prefix .. "PositionY"] = nil
+	end
+	self:LoadSettings()
+end
+
 function ResourceBar:SetLocked(locked)
 	if not self.db then return end
 

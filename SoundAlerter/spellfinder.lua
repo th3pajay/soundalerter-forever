@@ -1328,11 +1328,28 @@ local function RowDescription(spellID)
     return nil
 end
 
-function SoundAlerter:InsertSpellText(spell, description, window)
-    local editBox = ChatEdit_GetActiveWindow()
-    if not editBox and ChatFrame1EditBox and ChatFrame1EditBox:IsShown() then
-        editBox = ChatFrame1EditBox
+local function FindChatEditBox()
+    local util = rawget(_G, "ChatFrameUtil")
+    local getters = {
+        util and util.GetActiveWindow,
+        rawget(_G, "ChatEdit_GetActiveWindow"),
+        util and util.GetLastActiveWindow,
+        rawget(_G, "ChatEdit_GetLastActiveWindow"),
+    }
+    for index = 1, 4 do
+        local getter = getters[index]
+        local box = getter and getter()
+        if box and (index <= 2 or box:IsShown()) then return box end
     end
+    for index = 1, rawget(_G, "NUM_CHAT_WINDOWS") or 10 do
+        local box = rawget(_G, "ChatFrame" .. index .. "EditBox")
+        if box and box:IsShown() then return box end
+    end
+    return nil
+end
+
+function SoundAlerter:InsertSpellText(spell, description, window)
+    local editBox = FindChatEditBox()
 
     if not editBox then
         self:Print((FinderFormat.ChatText(spell, description)))

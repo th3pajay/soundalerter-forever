@@ -137,7 +137,7 @@ end
 function SoundAlerter:BuildCastingBarOptions()
     local Page = SoundAlerter.Page
     local rows = {
-        Page.Toggle("locked", "Lock bars", "Lock all casting bars in place. Unlock to drag and reposition.", false, "General"),
+        Page.Toggle("locked", "Lock position", "Unlock to drag each bar. A shaded outline marks it while unlocked.", false, "General"),
         Page.Action("Apply pyramid layout", "Positions Player, Target, and Focus casting bars into a pyramid: Player centered on top, Target and Focus symmetrically below to the left and right.", function()
             local active = bars()
             if active then

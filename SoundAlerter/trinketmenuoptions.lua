@@ -126,9 +126,13 @@ function SoundAlerter:BuildTrinketMenuOptions()
     local Page = SoundAlerter.Page
     local rows = {
         Page.Experimental(Page.Block("Experimental", function()
-            return "Click a trinket to use it, right-click to swap top and bottom, hover for the trinkets in your bags. The gear button switches between your main and alternate equipment set, right-click it for all sets. Swaps made in combat wait until combat ends. Keys: Options > Key Bindings > AddOns > SoundAlerter."
+            return "Click to use, right-click to swap, hover for bag trinkets. Swaps wait until combat ends."
         end, false, "General")),
         Page.Toggle("locked", "Lock position", "Unlock to drag the bar. A shaded outline marks it while unlocked. Moving waits until combat ends.", false, "General"),
+        Page.Action("Reset position", "Put the bar back where it started.", function()
+            local active = menu()
+            if active then active:ResetPosition() end
+        end, false, "General"),
         Page.Toggle("flyout", "Bag trinkets on hover", "Hovering a trinket opens the trinkets in your bags. Click one to equip it into that slot.", false, "General"),
         Page.Toggle("tooltips", "Tooltips", "Show the item tooltip and the click hints on hover.", false, "General"),
         Page.Action("Test", "Show a sample cooldown and the waiting glow.", function()
@@ -138,6 +142,7 @@ function SoundAlerter:BuildTrinketMenuOptions()
         Page.Select("orientation", "Orientation", "Stack the buttons top to bottom or left to right.", SA_TrinketModel.ORIENTATIONS, false, "Look"),
         Page.Toggle("swapOrder", "Bottom trinket first", "Put the bottom trinket slot first on the bar.", false, "Look"),
         Page.Toggle("showSet", "Set button", "A third button in its own colour that equips one of your three saved sets.", false, "Look"),
+        Page.Toggle("readyGlow", "Ready glow", "A soft spark runs twice round a trinket when a cooldown longer than 30 seconds ends. Stays off while the bar is faded or collapsed.", false, "Look"),
         Page.Toggle("cooldownNumbers", "Cooldown numbers", "Seconds left in the corner of each trinket.", false, "Look"),
         Page.Range("iconSize", "Icon size", "Size of each button.", 20, 64, 1, false, "Look", " px"),
         Page.Range("spacing", "Spacing", "Gap between the buttons.", 0, 16, 1, true, "Look", " px"),
@@ -153,10 +158,6 @@ function SoundAlerter:BuildTrinketMenuOptions()
         Page.When("showGear", Page.Stepper(Page.Select("gearMain", "Main set", "The set you wear most. A click goes back to it.", gearOptions, false, "Gear"))),
         Page.When("showGear", Page.Stepper(Page.Select("gearAlt", "Alternate set", "The set a click switches to from the main set.", gearOptions, false, "Gear"))),
         Page.Block("Equipment sets", gearText, false, "Gear"),
-        Page.Action("Reset position", "Put the bar back where it started.", function()
-            local active = menu()
-            if active then active:ResetPosition() end
-        end, true, "General"),
     }
 
     return Page.Module({

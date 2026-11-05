@@ -177,4 +177,44 @@ SA_TargetToken = setmetatable({}, {
         return token
     end,
 })
+
+SA_Coalesce = {}
+
+function SA_Coalesce.New(schedule, run)
+    local pending, spare = {}, {}
+    local queued = false
+    local self = {}
+
+    local function flush()
+        queued = false
+        local batch = pending
+        pending, spare = spare, batch
+        for key, payload in pairs(batch) do
+            run(key, payload)
+        end
+        for key in pairs(batch) do
+            batch[key] = nil
+        end
+    end
+
+    function self.Request(key, payload)
+        if pending[key] == nil then
+            pending[key] = payload == nil and true or payload
+        end
+        if not queued then
+            queued = true
+            schedule(flush)
+        end
+    end
+
+    function self.Cancel(key)
+        pending[key] = nil
+    end
+
+    function self.Pending(key)
+        return pending[key] ~= nil
+    end
+
+    return self
+end
 end

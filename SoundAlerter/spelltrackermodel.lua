@@ -19,6 +19,30 @@ Model.SUGGESTED = {
     { spellID = 1316709, unit = "player", auraType = "HARMFUL", name = "Add Death Mark on you", note = "Rogue curse that bursts 6 seconds after it lands. Shows a red debuff icon with the time left, every rank included" },
 }
 
+Model.PLATE_LEAD = 1.4
+
+local function plateBefore(a, b)
+    if a.active ~= b.active then return a.active end
+    local left, other = a.left, b.left
+    if (left ~= nil) ~= (other ~= nil) then return left ~= nil end
+    if left and left ~= other then return left < other end
+    return a.index < b.index
+end
+
+function Model.PlateRow(entries, max, size, spacing, lead)
+    if #entries > 1 then table.sort(entries, plateBefore) end
+    local shown = math.min(#entries, max)
+    local x, height = 0, 0
+    for i = 1, shown do
+        local entry = entries[i]
+        local span = i == 1 and math.floor(size * lead + 0.5) or size
+        entry.size, entry.x = span, x
+        x = x + span + spacing
+        if span > height then height = span end
+    end
+    return shown, shown > 0 and x - spacing or 0, height
+end
+
 function Model.IsTracked(icons, spellID, unit, auraType)
     for i = 1, #icons do
         local icon = icons[i]

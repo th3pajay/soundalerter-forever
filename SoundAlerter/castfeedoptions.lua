@@ -94,6 +94,10 @@ function SoundAlerter:BuildCastFeedOptions()
     local Page = SoundAlerter.Page
     local rows = {
         Page.Toggle("locked", "Lock position", "Unlock to drag the rows. A shaded outline marks each row while unlocked.", false, "General"),
+        Page.Action("Reset position", "Put every row back where it started.", function()
+            local active = feed()
+            if active then active:ResetPositions() end
+        end, false, "General"),
         Page.Toggle("showInstants", "Show instant casts", "Include casts that have no cast time. The client sends no cast event for most enemy instants, so only readable ones appear here (yours and your group's). The enemy buff and duel debuff option below is the way to see enemy instants.", false, "General"),
         Page.Visible(SA_Secret.Supported, Page.Toggle("auraDisplay", "Enemy buffs, duel debuffs", "Experimental. Flashes new buffs on your target and focus, and in duels new debuffs on you, beside their rows. Needs Show hidden enemy spells on (General).", false, "Experimental")),
         Page.Toggle("showGaps", "Show time between casts", "Show the time between two casts (such as 1.4s) between their icons. Icons spread out to make room.", false, "General"),
@@ -117,10 +121,6 @@ function SoundAlerter:BuildCastFeedOptions()
     rows[#rows + 1] = Page.Toggle("showClass", "Class marker", "A small class-coloured dot on casts by your target, focus, party and nearby enemies.", true, "Look")
     rows[#rows + 1] = Page.Select("animQuality", "Animation quality", "Low turns every icon animation off. Normal adds the fade-in, the cast sweep and the fade at the row's end. High adds a settle on arrival, a pulse on success and a shake on interrupt.", SA_CastFeedModel.QUALITIES, true, "Look")
     rows[#rows + 1] = Page.Range("gapFontSize","Time text size", "Font size of the time between casts.", 8, 20, 1, true, "Look", " px")
-    rows[#rows + 1] = Page.Action("Reset positions", "Put every row back where it started.", function()
-        local active = feed()
-        if active then active:ResetPositions() end
-    end, true, "General")
     for _, unit in ipairs(UNITS) do
         local group = LABELS[unit] .. " row"
         local enabledKey = "rows." .. unit .. ".enabled"

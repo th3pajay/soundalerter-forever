@@ -13,6 +13,7 @@ local CLASS_COLORS = {
 }
 local UNIT_OPTIONS = { { "player", "Player (self)" }, { "target", "Target" } }
 local AURA_OPTIONS = { { "HELPFUL", "Buff" }, { "HARMFUL", "Debuff" } }
+local PLATE_FALLBACKS = { { "screen", "Use the screen spot" }, { "hide", "Hide" } }
 local ANIM_QUALITIES = { { "off", "Off" }, { "low", "Low" }, { "normal", "Normal" }, { "high", "High" } }
 
 local addForm = { spellID = "", unit = "player", auraType = "HELPFUL" }
@@ -107,7 +108,7 @@ local function view()
     local config = selectedIndex and list[selectedIndex]
     local selected = { valid = config ~= nil }
     if config then
-        for _, key in ipairs({ "unit", "auraType", "size", "cooldownTextSize", "auraDuration", "trackCooldown", "showWhenInactive" }) do
+        for _, key in ipairs({ "unit", "auraType", "size", "cooldownTextSize", "auraDuration", "trackCooldown", "showWhenInactive", "onPlate" }) do
             selected[key] = config[key]
         end
         selected.spellID = config.spellID
@@ -190,7 +191,7 @@ local function undoPreset()
     SoundAlerter:Print("Preset undone")
 end
 
-local TrackerPreview = { height = 170 }
+local TrackerPreview = { height = 230 }
 
 function TrackerPreview.build(stage)
     local state = { stage = stage, lines = {} }
@@ -204,8 +205,13 @@ function TrackerPreview.build(stage)
     for index = 1, PREVIEW_LINES do
         local line = stage:CreateFontString(nil, "OVERLAY")
         line:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 11, "")
-        line:SetPoint("TOPLEFT", stage, "TOPLEFT", 0, -(PREVIEW_MAX_SIZE + 8 + (index - 1) * 16))
+        if index == 1 then
+            line:SetPoint("TOPLEFT", stage, "TOPLEFT", 0, -(PREVIEW_MAX_SIZE + 8))
+        else
+            line:SetPoint("TOPLEFT", state.lines[index - 1], "BOTTOMLEFT", 0, -5)
+        end
         line:SetWidth(240)
+        line:SetJustifyH("LEFT")
         state.lines[index] = line
     end
     return state
@@ -255,8 +261,12 @@ function SoundAlerter:BuildSpellTrackerOptions()
         rows[#rows + 1] = row
     end
 
+    rows[#rows + 1] = Page.Toggle("g.locked", "Lock position", "Unlock to drag each icon. Icons on the target's nameplate cannot be dragged.", false, "Display")
+    rows[#rows + 1] = Page.Action("Reset position", "Put every icon back at its starting spot.", function()
+        if tracker() then tracker():ResetPositions() end
+    end, false, "Display")
+
     for _, setting in ipairs({
-        { "g.locked", "Lock icons", "Lock all spell tracker icons in place. Unlock to drag and reposition individual icons.", false },
         { "g.showTimerText", "Show aura duration numbers", "Display the aura duration countdown at the bottom of spell tracker icons.", false },
         { "g.showBorderTimer", "Depleting border timer", "Draw a colored border around the icon that shrinks as the buff or debuff runs out. On your buffs it also shifts from green through amber to red as time runs low.", false },
         { "g.showCooldownText", "Show spell cooldown numbers", "Display the spell cooldown countdown (gold) at the top center of icons. Only affects spells with Cooldown on. This tracks YOUR spell cooldowns, not enemy cooldowns.", false },
@@ -266,6 +276,16 @@ function SoundAlerter:BuildSpellTrackerOptions()
         rows[#rows + 1] = Page.Toggle(setting[1], setting[2], setting[3], setting[4], "Display")
     end
     rows[#rows + 1] = Page.Select("g.animQuality", "Animation quality", "Off turns every icon animation off. Low keeps the icon effects minimal and updates timers 10 times a second. Normal adds the full pop-in, colour shift, red tint and shine. High adds extra rings and shines and updates every frame.", ANIM_QUALITIES, true, "Display")
+
+    rows[#rows + 1] = Page.Toggle("g.plateEnabled", "Show icons on the target's nameplate", "Spells tracked on your target sit in a row above its nameplate, the one ending soonest drawn larger in front. Choose per spell under Selected spell. Your own spells stay on screen.", false, "Target nameplate")
+    local function plate(row) return Page.When("g.plateEnabled", row) end
+    rows[#rows + 1] = plate(Page.Range("g.plateSize", "Icon size", "Size of the icons on the nameplate. The first icon is drawn 1.4 times larger.", 14, 40, 1, false, "Target nameplate", " px"))
+    rows[#rows + 1] = plate(Page.Range("g.plateSpacing", "Spacing", "Gap between the icons on the nameplate.", 0, 10, 1, false, "Target nameplate", " px"))
+    rows[#rows + 1] = plate(Page.Range("g.plateOffset", "Distance from the plate", "How far above the nameplate the row sits.", 0, 20, 1, false, "Target nameplate", " px"))
+    rows[#rows + 1] = plate(Page.Toggle("g.plateFollowScale", "Follow the plate's scale", "Icons shrink and grow with the nameplate. Off keeps the same pixel size at any distance.", false, "Target nameplate"))
+    rows[#rows + 1] = plate(Page.Toggle("g.plateShowIdle", "Show idle icons", "Keep faded icons on the nameplate for spells that are not up right now.", false, "Target nameplate"))
+    rows[#rows + 1] = plate(Page.Range("g.plateMax", "Most icons at once", "Icons beyond this number are left out, the ones ending last first.", 1, 8, 1, false, "Target nameplate"))
+    rows[#rows + 1] = plate(Page.Select("g.plateFallback", "When there is no plate", "The target's nameplate can be missing: too far, behind the camera, or a friendly plate inside an instance.", PLATE_FALLBACKS, false, "Target nameplate"))
 
     rows[#rows + 1] = Page.Text("add.spellID", "Spell ID", "Enter the numeric spell ID, then press Add spell. Use Find Spell in Developer Tools to look IDs up.", false, "Add a spell")
     rows[#rows + 1] = Page.Select("add.unit", "Track on", "Which unit to read this aura from.", UNIT_OPTIONS, false, "Add a spell")
@@ -283,6 +303,8 @@ function SoundAlerter:BuildSpellTrackerOptions()
     rows[#rows + 1] = editor(Page.Select("sel.auraType", "Aura type", "Whether this tracks a buff or a debuff.", AURA_OPTIONS, false, "Selected spell"))
     rows[#rows + 1] = editor(Page.Toggle("sel.trackCooldown", "Track cooldown", "Show when this spell is ready to cast again. This is your own cooldown, not an enemy's.", false, "Selected spell"))
     rows[#rows + 1] = editor(Page.Toggle("sel.showWhenInactive", "Show when inactive", "Keep the icon on screen, faded, while the aura is not active.", false, "Selected spell"))
+    rows[#rows + 1] = Page.Visible(function(settings) return settings.sel.valid and settings.sel.unit == "target" end,
+        Page.Toggle("sel.onPlate", "Show on the target's nameplate", "Put this icon above your target's nameplate while Target nameplate is on. Off keeps it at its screen spot.", false, "Selected spell"))
     rows[#rows + 1] = editor(Page.Range("sel.size", "Icon size", "Size of the spell tracker icon in pixels.", 24, 80, 4, false, "Selected spell", " px"))
     rows[#rows + 1] = editor(Page.Range("sel.cooldownTextSize", "Cooldown text size", "Font size for the cooldown countdown text. Only visible when Cooldown is on.", 8, 32, 1, false, "Selected spell", " pt"))
     rows[#rows + 1] = editor(Page.Range("sel.auraDuration", "Aura duration in combat", "Used for the in-combat aura spiral and number when the game hides the aura. 0 means automatic: the duration is learned the last time the aura was visible out of combat. Set a value for spells that can only be used in combat.", 0, 180, 0.5, false, "Selected spell", " s"))
@@ -300,7 +322,7 @@ function SoundAlerter:BuildSpellTrackerOptions()
     end
     rows[#rows + 1] = Page.When("undo.available", Page.Action(function() return lastPreset and ("Undo " .. lastPreset) or "Undo" end, "Restore Enabled and Cooldown from before the last preset.", undoPreset, true, "Presets"))
 
-    local groupOrder = { "Tracked spells", "Selected spell", "Display", "Add a spell", "Presets" }
+    local groupOrder = { "Tracked spells", "Selected spell", "Display", "Target nameplate", "Add a spell", "Presets" }
     local sorted = {}
     for _, group in ipairs(groupOrder) do
         for _, row in ipairs(rows) do

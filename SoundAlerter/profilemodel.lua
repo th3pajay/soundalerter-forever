@@ -540,10 +540,16 @@ Blocks.POOL = 20
 Blocks.MAX_ICONS = 60
 Blocks.POSITION_LIMIT = 4096
 Blocks.CLASSES = { "Druid", "Hunter", "Mage", "Paladin", "Priest", "Rogue", "Shaman", "Warlock", "Warrior", "Other" }
-Blocks.DISPLAY_KEYS = { "showTimerText", "showBorderTimer", "showCooldownText", "showReadyText", "animQuality" }
+Blocks.DISPLAY_KEYS = {
+    "showTimerText", "showBorderTimer", "showCooldownText", "showReadyText", "animQuality",
+    "plateEnabled", "plateSize", "plateSpacing", "plateOffset", "plateFollowScale", "plateShowIdle", "plateMax", "plateFallback",
+}
 Blocks.DISPLAY_LABELS = {
     showTimerText = "Timer text", showBorderTimer = "Border timer", showCooldownText = "Cooldown text",
     showReadyText = "Ready text", animQuality = "Animation quality",
+    plateEnabled = "Nameplate icons", plateSize = "Nameplate icon size", plateSpacing = "Nameplate spacing",
+    plateOffset = "Nameplate distance", plateFollowScale = "Follow plate scale", plateShowIdle = "Nameplate idle icons",
+    plateMax = "Nameplate icon count", plateFallback = "No plate",
 }
 
 local KNOWN_CLASS = {}
@@ -551,7 +557,9 @@ for _, class in ipairs(Blocks.CLASSES) do KNOWN_CLASS[class] = true end
 local UNITS = { player = true, target = true }
 local AURAS = { HELPFUL = true, HARMFUL = true }
 local QUALITIES = { off = true, low = true, normal = true, high = true }
-local FLAGS = { enabled = true, trackCooldown = false, showWhenInactive = false }
+local FLAGS = { enabled = true, trackCooldown = false, showWhenInactive = false, onPlate = true }
+local DISPLAY_RANGES = { plateSize = { 14, 40 }, plateSpacing = { 0, 10 }, plateOffset = { 0, 20 }, plateMax = { 1, 8 } }
+local FALLBACKS = { screen = true, hide = true }
 
 local function whole(value, low, high)
     return type(value) == "number" and value == value and value % 1 == 0 and value >= low and value <= high
@@ -595,8 +603,13 @@ local function cleanDisplay(raw)
     local display, any = {}, false
     for _, key in ipairs(Blocks.DISPLAY_KEYS) do
         local value = raw[key]
+        local range = DISPLAY_RANGES[key]
         if key == "animQuality" then
             if QUALITIES[value] then display[key], any = value, true end
+        elseif key == "plateFallback" then
+            if FALLBACKS[value] then display[key], any = value, true end
+        elseif range then
+            if whole(value, range[1], range[2]) then display[key], any = value, true end
         elseif type(value) == "boolean" then
             display[key], any = value, true
         end
@@ -820,6 +833,7 @@ end
 
 local function settle(target, icon, withLayout)
     target.enabled, target.trackCooldown, target.showWhenInactive = icon.enabled, icon.trackCooldown, icon.showWhenInactive
+    target.onPlate = icon.onPlate
     if icon.cooldownTextSize then target.cooldownTextSize = icon.cooldownTextSize end
     if withLayout and icon.size then
         target.size, target.posX, target.posY = icon.size, icon.posX, icon.posY

@@ -12,6 +12,7 @@ local ICON_KEYS = {
     trackCooldown = { default = false, reload = true },
     cooldownTextSize = { default = 14, reload = true },
     auraDuration = { default = 0, reload = false },
+    onPlate = { default = true, reload = true },
 }
 
 local GLOBAL_KEYS = {
@@ -24,8 +25,17 @@ local GLOBAL_KEYS = {
     animQuality = true,
 }
 
+local PLATE_KEYS = {
+    plateEnabled = true, plateSize = true, plateSpacing = true, plateOffset = true,
+    plateFollowScale = true, plateShowIdle = true, plateMax = true, plateFallback = true,
+}
+
 function Settings.IsGlobalKey(key)
-    return GLOBAL_KEYS[key] == true
+    return GLOBAL_KEYS[key] == true or PLATE_KEYS[key] == true
+end
+
+function Settings.IsPlateKey(key)
+    return PLATE_KEYS[key] == true
 end
 
 function Settings.IconDefault(key)
@@ -180,6 +190,11 @@ function TrackerState:Remaining(index, now)
         return record.expiration - now
     end
     return nil
+end
+
+function TrackerState:Expiration(index)
+    local record = self.records[index]
+    return record and record.active and record.expiration or nil
 end
 
 function TrackerState:CooldownReadout(index)

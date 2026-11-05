@@ -119,6 +119,10 @@ function SoundAlerter:ChangeProfile()
 		self.TrinketMenu:OnProfileChanged()
 	end
 
+	if self.DRTracker then
+		self.DRTracker:OnProfileChanged()
+	end
+
 	if self.FlagAlerts then
 		self.FlagAlerts:OnProfileChanged()
 	end
@@ -278,6 +282,7 @@ function SoundAlerter:OnEnable()
     self:InitializeModule("AuraDisplay")
     self:InitializeModule("SpeedMeter")
     self:InitializeModule("TrinketMenu")
+    self:InitializeModule("DRTracker")
     self:InitializeModule("MinimapTracking")
     self:InitializeModule("Footsteps")
     self:InitializeModule("SpellTest")
@@ -1621,6 +1626,31 @@ end
 
 local auraContext = {}
 
+local resyncContexts = setmetatable({}, {
+    __index = function(cache, unit)
+        local context = {}
+        cache[unit] = context
+        return context
+    end,
+})
+
+local resyncQueue = SA_Coalesce.New(function(flush) C_Timer.After(0, flush) end, function(unit, context)
+    local secretAdded = context.secretAdded
+    context.secretAdded = nil
+    if not UnitExists(unit) then return end
+    SoundAlerter:ResyncUnitAuras(unit, GetTrackedAuraSpellIDs(), context, secretAdded)
+end)
+
+local function QueueResync(unit, isPlayer, isTargetOrFocus, isTracked, isAlly, secretAdded)
+    local context = resyncContexts[unit]
+    context.isPlayer = isPlayer
+    context.isTargetOrFocus = isTargetOrFocus
+    context.isTracked = isTracked
+    context.isAlly = isAlly
+    if secretAdded then context.secretAdded = true end
+    resyncQueue.Request(unit, context)
+end
+
 local function FillAuraContext(isPlayer, isTargetOrFocus, isTracked, isAlly)
     auraContext.isPlayer = isPlayer
     auraContext.isTargetOrFocus = isTargetOrFocus
@@ -1655,7 +1685,7 @@ function SoundAlerter:UNIT_AURA(event, unit, updateInfo)
         end
     end
 
-    local isTracked = isNameplate and self:IsTrackedNameplate(unit)
+    local isTracked = isNameplate
     if not (isPlayer or isTargetOrFocus or isTracked or isAlly) then return end
     if not isPlayer and not isAlly and (not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit)) then return end
     if isAlly and (not UnitIsPlayer(unit) or UnitIsEnemy("player", unit)) then return end
@@ -1672,8 +1702,12 @@ function SoundAlerter:UNIT_AURA(event, unit, updateInfo)
         self:ProbeAuraUpdate(unit, probeKind, updateInfo, path)
     end
 
-    if not unitAuraMap[unit] or not usable then
+    if not unitAuraMap[unit] then
         self:ResyncUnitAuras(unit, tracked, FillAuraContext(isPlayer, isTargetOrFocus, isTracked, isAlly))
+        return
+    end
+    if not usable then
+        QueueResync(unit, isPlayer, isTargetOrFocus, isTracked, isAlly)
         return
     end
 
@@ -1708,7 +1742,7 @@ function SoundAlerter:UNIT_AURA(event, unit, updateInfo)
     end
 
     if needsResync then
-        self:ResyncUnitAuras(unit, tracked, FillAuraContext(isPlayer, isTargetOrFocus, isTracked, isAlly), true)
+        QueueResync(unit, isPlayer, isTargetOrFocus, isTracked, isAlly, true)
     end
 end
 
