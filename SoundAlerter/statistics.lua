@@ -4,7 +4,9 @@ SoundAlerter.Statistics = Statistics
 local GetSpellInfo = SA_COMPAT.GetSpellInfo
 local Plain = SA_COMPAT.Plain
 local Format = SA_StatsFormat
+local Venn = SA_StatsVenn
 local Debrief = SA_DebriefModel
+local METER_DELAY = 0.5
 local activeMatch, activeStore
 local matchVersion = 0
 local buildNumber
@@ -525,6 +527,38 @@ function Statistics:GetPanelModel()
 	return cachedText("panel", stats, dataVersion, minutes, buildPanel)
 end
 
+local vennPool = {}
+local vennGeneration = 0
+
+local function buildVenn()
+	local allTime = GetDB().statistics.allTime or {}
+	local entries = {}
+	vennGeneration = vennGeneration + 1
+	for spellID, spell in pairs(allTime.topSpells or {}) do
+		local category = spell.spellCategory or "Other"
+		local entry = vennPool[spellID]
+		if not entry then
+			entry = { id = spellID }
+			vennPool[spellID] = entry
+		end
+		entry.generation = vennGeneration
+		entry.name, entry.total, entry.category = spell.name or "Unknown Spell", spell.count or 0, category
+		entry.mask, entry.group = Venn.MaskOf(spell.byZone), Venn.GroupOf(category)
+		entry.byZone, entry.byClass = spell.byZone, spell.byClass
+		entries[#entries + 1] = entry
+	end
+	for spellID, entry in pairs(vennPool) do
+		if entry.generation ~= vennGeneration then vennPool[spellID] = nil end
+	end
+	return entries
+end
+
+function Statistics:GetVennData()
+	local stats = trackedStatistics()
+	if not stats then return nil end
+	return cachedText("venn", stats, dataVersion, 0, buildVenn)
+end
+
 function Statistics:GetExportText()
 	local stats = trackedStatistics()
 	if not stats then return "" end
@@ -548,19 +582,108 @@ local function spellNameOf(spellID)
 	return spell and spell.name or GetCachedSpellName(spellID)
 end
 
+local function meterSource(meterType)
+	local guid = Plain(UnitGUID("player"))
+	if not guid then return nil end
+	local ok, source = pcall(C_DamageMeter.GetCombatSessionSourceFromType, Enum.DamageMeterSessionType.Overall, meterType, guid)
+	if not ok then return nil end
+	source = Plain(source)
+	return type(source) == "table" and source or nil
+end
+
+local function meterAvailable()
+	if not (C_DamageMeter and C_DamageMeter.IsDamageMeterAvailable and C_DamageMeter.GetCombatSessionSourceFromType) then
+		return false, "this client has no damage meter"
+	end
+	if not (Enum and Enum.DamageMeterSessionType and Enum.DamageMeterType) then
+		return false, "this client has no damage meter"
+	end
+	local ok, available, reason = pcall(C_DamageMeter.IsDamageMeterAvailable)
+	if not ok then return false, "the check failed" end
+	return Plain(available) == true, Plain(reason)
+end
+
+local function readMeter()
+	if InCombatLockdown() or not meterAvailable() then return nil end
+	local damageSource = meterSource(Enum.DamageMeterType.DamageDone)
+	local damage = damageSource and Plain(damageSource.totalAmount)
+	if type(damage) ~= "number" then return nil end
+	local healingSource = meterSource(Enum.DamageMeterType.HealingDone)
+	local healing = healingSource and Plain(healingSource.totalAmount)
+	local reading = { damage = damage, healing = type(healing) == "number" and healing or 0, spells = {} }
+	local list = Plain(damageSource.combatSpells)
+	if type(list) == "table" then
+		for _, entry in ipairs(list) do
+			entry = Plain(entry)
+			local spellID = type(entry) == "table" and Plain(entry.spellID)
+			local amount = spellID and Plain(entry.totalAmount)
+			if type(spellID) == "number" and type(amount) == "number" then
+				reading.spells[spellID] = (reading.spells[spellID] or 0) + amount
+			end
+		end
+	end
+	return reading
+end
+
+function Statistics:PrintMeter()
+	local available, reason = meterAvailable()
+	if not available then
+		SoundAlerter:Print("Damage meter: not available" .. (reason and reason ~= "" and (" (" .. tostring(reason) .. ")") or ""))
+		return
+	end
+	if InCombatLockdown() then
+		SoundAlerter:Print("Damage meter: available. The numbers are hidden in combat, try again after the fight.")
+		return
+	end
+	local reading = readMeter()
+	if not reading then
+		SoundAlerter:Print("Damage meter: available, but it has nothing readable for you yet.")
+		return
+	end
+	local spells = 0
+	for _ in pairs(reading.spells) do spells = spells + 1 end
+	SoundAlerter:Print("Damage meter: damage " .. Debrief.Amount(reading.damage) .. " from " .. spells ..
+		" spells, healing " .. Debrief.Amount(reading.healing) .. " this session.")
+end
+
+function Statistics:OnMeterCombatEnded()
+	if self.meterPending then return end
+	self.meterPending = true
+	C_Timer.After(METER_DELAY, function()
+		self.meterPending = false
+		if activeMatch and Debrief.Meter(activeMatch, readMeter()) then matchVersion = matchVersion + 1 end
+	end)
+end
+
+function Statistics:OnMatchComplete(_, winner, duration)
+	local match = activeMatch
+	if not match then return end
+	winner, duration = Plain(winner), Plain(duration)
+	local shuffle = C_PvP and C_PvP.IsSoloShuffle and select(2, pcall(C_PvP.IsSoloShuffle))
+	local team = GetBattlefieldArenaFaction and Plain(GetBattlefieldArenaFaction())
+	SoundAlerter:Debug("Statistics", "match complete: winner %s, your team %s, length %s", tostring(winner), tostring(team), tostring(duration))
+	if Plain(shuffle) == true then winner = nil end
+	if Debrief.Result(match, winner, team, duration) then matchVersion = matchVersion + 1 end
+end
+
 function Statistics:WatchControl(on)
 	if on == (self.watchingControl or false) then return end
 	self.watchingControl = on
 	if on then
 		pcall(self.RegisterEvent, self, "LOSS_OF_CONTROL_ADDED", "OnControlAdded")
 		pcall(self.RegisterEvent, self, "LOSS_OF_CONTROL_UPDATE", "OnControlUpdate")
+		self:RegisterEvent("PLAYER_REGEN_ENABLED", "OnMeterCombatEnded")
+		pcall(self.RegisterEvent, self, "PVP_MATCH_COMPLETE", "OnMatchComplete")
 	else
 		pcall(self.UnregisterEvent, self, "LOSS_OF_CONTROL_ADDED")
 		pcall(self.UnregisterEvent, self, "LOSS_OF_CONTROL_UPDATE")
+		self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+		pcall(self.UnregisterEvent, self, "PVP_MATCH_COMPLETE")
 	end
 end
 
 local function closeMatch(matches, now, clock)
+	Debrief.Meter(matches.open, readMeter())
 	local record = Debrief.Close(matches.open, now, clock, spellNameOf)
 	if record then Debrief.Push(matches.list, record) end
 	matches.open = nil
@@ -594,7 +717,10 @@ function Statistics:UpdateMatch()
 		Debrief.Sync(matches.open, clock)
 		if Debrief.ControlEnded(matches.open, clock) then matchVersion = matchVersion + 1 end
 	end
-	if kind and not matches.open then matches.open = Debrief.Open(kind, zone, now, clientBuild()) end
+	if kind and not matches.open then
+		matches.open = Debrief.Open(kind, zone, now, clientBuild())
+		Debrief.Meter(matches.open, readMeter())
+	end
 	activeMatch, activeStore = matches.open, matches
 	self:WatchControl(activeMatch ~= nil)
 	if activeMatch ~= previous then matchVersion = matchVersion + 1 end

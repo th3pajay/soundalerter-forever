@@ -6,11 +6,13 @@ local PREVIEW_ICONS = {
     "Interface\\Icons\\INV_Misc_Gem_Pearl_04",
     "Interface\\Icons\\INV_Misc_QuestionMark",
     "Interface\\Icons\\INV_Chest_Plate06",
+    "Interface\\Icons\\INV_Mace_01",
 }
 local TRINKET_COLOR = { 0.66, 0.77, 0.9 }
 local SET_COLOR = { 0.24, 0.84, 0.78 }
 local GEAR_COLOR = { 0.74, 0.58, 0.96 }
-local BUTTON_COLORS = { TRINKET_COLOR, TRINKET_COLOR, SET_COLOR, GEAR_COLOR }
+local WEAPON_COLOR = { 0.88, 0.66, 0.31 }
+local BUTTON_COLORS = { TRINKET_COLOR, TRINKET_COLOR, SET_COLOR, GEAR_COLOR, WEAPON_COLOR }
 
 local function menu()
     return SoundAlerter.TrinketMenu
@@ -53,6 +55,19 @@ local function gearText()
     return "Your sets: " .. table.concat(names, ", ")
 end
 
+local function pairText(index, pair)
+    local label = SA_TrinketModel.WEAPON_NAMES[index] .. ": "
+    if not SA_TrinketModel.PairFilled(pair) then return label .. "not saved" end
+    local text = label .. setName(pair, 16)
+    if pair[17] then text = text .. " + " .. setName(pair, 17) end
+    return text
+end
+
+local function weaponText(settings)
+    if not SecureHandlerWrapScript then return "This client cannot run the secure toggle, so the weapon button stays hidden." end
+    return pairText(1, settings.weapons[1]) .. "\n" .. pairText(2, settings.weapons[2])
+end
+
 local TrinketPreview = { height = 96 }
 
 function TrinketPreview.build(stage)
@@ -79,8 +94,8 @@ function TrinketPreview.update(state, settings)
     if not state then return end
     local size = math.max(14, math.min(26, settings.iconSize * 0.6))
     local spacing = math.max(2, settings.spacing * 0.6)
-    local offsets, width, height = SA_TrinketModel.Layout(settings.orientation, settings.swapOrder, settings.showSet, settings.showGear, size, spacing)
-    local keys = { 13, 14, "set", "gear" }
+    local offsets, width, height = SA_TrinketModel.Layout(settings.orientation, settings.swapOrder, settings.showSet, settings.showGear, size, spacing, settings.showWeapon)
+    local keys = { 13, 14, "set", "gear", "weapon" }
     for index, key in ipairs(keys) do
         local parts = state.icons[index]
         local offset = offsets[key]
@@ -95,7 +110,7 @@ function TrinketPreview.update(state, settings)
             parts.icon:Hide()
         end
     end
-    state.caption:SetText((settings.orientation == "horizontal" and "Horizontal" or "Vertical") .. (settings.showSet and ", set button" or "") .. (settings.showGear and ", gear button" or ""))
+    state.caption:SetText((settings.orientation == "horizontal" and "Horizontal" or "Vertical") .. (settings.showSet and ", set button" or "") .. (settings.showGear and ", gear button" or "") .. (settings.showWeapon and ", weapon button" or ""))
 end
 
 local function gearSummary(settings)
@@ -111,7 +126,8 @@ local function summary(settings)
         settings.orientation == "horizontal" and "horizontal" or "vertical",
         settings.locked and "locked" or "unlocked, drag to move",
         "set " .. settings.activeSet,
-        gearSummary(settings))
+        gearSummary(settings),
+        settings.showWeapon and "weapon button" or nil)
 end
 
 local function saveAction(index)
@@ -120,6 +136,15 @@ local function saveAction(index)
         if not active then return false end
         return active:SaveSet(index)
     end, false, "Sets")
+end
+
+local function saveWeaponAction(index)
+    local name = SA_TrinketModel.WEAPON_NAMES[index]
+    return SoundAlerter.Page.When("showWeapon", SoundAlerter.Page.Action("Save " .. name .. " weapons", "Save the weapons you are wearing as your " .. name .. " pair. Works out of combat only.", function()
+        local active = menu()
+        if not active then return false end
+        return active:SaveWeapon(index)
+    end, false, "Weapons"))
 end
 
 function SoundAlerter:BuildTrinketMenuOptions()
@@ -158,14 +183,18 @@ function SoundAlerter:BuildTrinketMenuOptions()
         Page.When("showGear", Page.Stepper(Page.Select("gearMain", "Main set", "The set you wear most. A click goes back to it.", gearOptions, false, "Gear"))),
         Page.When("showGear", Page.Stepper(Page.Select("gearAlt", "Alternate set", "The set a click switches to from the main set.", gearOptions, false, "Gear"))),
         Page.Block("Equipment sets", gearText, false, "Gear"),
+        Page.Toggle("showWeapon", "Weapon swap button", "A button after the trinkets that switches between your DPS and Healing weapons at once, also in combat. Shift-click it to save what you wear.", false, "Weapons"),
+        saveWeaponAction(1),
+        saveWeaponAction(2),
+        Page.When("showWeapon", Page.Block("Weapon pairs", weaponText, false, "Weapons")),
     }
 
     return Page.Module({
         key = "TrinketMenu",
         title = "Trinket Menu",
         icon = ICON,
-        desc = "Your two trinkets with cooldowns, a bag flyout for swapping, three saved sets and a gear set switch.",
-        blurb = "Experimental. Your trinkets on a small bar: use them, swap them from your bags, switch between three saved sets and between two equipment sets. Swaps wait until combat ends.",
+        desc = "Your two trinkets with cooldowns, a bag flyout for swapping, three saved sets, a gear set switch and a weapon switch.",
+        blurb = "Experimental. Your trinkets on a small bar: use them, swap them from your bags, switch between three saved sets and between two equipment sets. These swaps wait until combat ends. The optional weapon button swaps at once, also in combat.",
         order = 2.92,
         module = menu,
         defaults = function() return dbDefaults.profile.trinketMenu end,

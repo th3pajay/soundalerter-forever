@@ -15,7 +15,9 @@ local DIAMOND_NAME = "SoundAlerterTrinketDiamond"
 local BUTTON_NAMES = { [13] = "SA_TrinketButton1", [14] = "SA_TrinketButton2" }
 local SET_NAME = "SA_TrinketSetButton"
 local GEAR_NAME = "SA_TrinketGearButton"
+local WEAPON_NAME = "SA_TrinketWeaponButton"
 local BINDINGS = {
+    weapon = "CLICK SA_TrinketWeaponButton:Keybind",
     [13] = "CLICK SA_TrinketButton1:LeftButton",
     [14] = "CLICK SA_TrinketButton2:LeftButton",
     set = "CLICK SA_TrinketSetButton:LeftButton",
@@ -24,6 +26,7 @@ local BINDINGS = {
 
 local DEFAULT_X, DEFAULT_Y = -300, -120
 local EMPTY_ICON = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Trinket"
+local WEAPON_ICON = "Interface\\PaperDoll\\UI-PaperDoll-Slot-MainHand"
 local UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local GLOW_TEXTURE = "Interface\\Buttons\\UI-ActionButton-Border"
 local FLAT_TEXTURE = "Interface\\Buttons\\WHITE8X8"
@@ -33,6 +36,7 @@ local SWEEP_ALPHA = 0.62
 local TRINKET_COLOR = { 0.66, 0.77, 0.9 }
 local SET_COLOR = { 0.24, 0.84, 0.78 }
 local GEAR_COLOR = { 0.74, 0.58, 0.96 }
+local WEAPON_COLORS = { { 0.88, 0.66, 0.31 }, { 0.37, 0.83, 0.54 } }
 local WAIT_COLOR = { 1, 0.49, 0.04 }
 local EMPTY_COLOR = { 0.29, 0.32, 0.38 }
 local MUTED = { 0.588, 0.627, 0.698 }
@@ -61,6 +65,18 @@ local UNFOLD_SCALE = 0.4
 local SPIN_DEGREES = 90
 local SPIN_SCALE = 0.5
 local RIPPLE_TIME = 0.7
+local SQUEEZE_TIME = 0.2
+local SQUEEZE_SCALE = 0.25
+local BANG_SIZE = 13
+local WEAPON_SNIPPET = [[
+    if button == "RightButton" then return end
+    if button ~= "Keybind" and (button ~= "LeftButton" or IsShiftKeyDown()) then return false end
+    local nextPair = 3 - self:GetAttribute("weapon-worn")
+    local macro = self:GetAttribute("weapon-macro" .. nextPair)
+    if not macro then return false end
+    self:SetAttribute("weapon-worn", nextPair)
+    self:SetAttribute("*macrotext*", macro)
+]]
 local RING_TEXTURE = "Interface\\AddOns\\SoundAlerter\\Textures\\cp_ring"
 local NOTCH_SIZE = 8
 local NUMBER_SIZE = 11
@@ -88,7 +104,7 @@ local SETTING_KEYS = {
     orientation = true, swapOrder = true, iconSize = true, spacing = true,
     showSet = true, flyout = true, tooltips = true, cooldownNumbers = true,
     fade = true, fadeAlpha = true, fadeDelay = true, collapse = true, activeSet = true,
-    showGear = true, gearMain = true, gearAlt = true, readyGlow = true,
+    showGear = true, gearMain = true, gearAlt = true, readyGlow = true, showWeapon = true,
 }
 
 local LIVE_KEYS = {
@@ -105,6 +121,8 @@ local LIFT = {
     [TRINKET_COLOR] = Lighten(TRINKET_COLOR, HOVER_LIFT),
     [SET_COLOR] = Lighten(SET_COLOR, HOVER_LIFT),
     [GEAR_COLOR] = Lighten(GEAR_COLOR, HOVER_LIFT),
+    [WEAPON_COLORS[1]] = Lighten(WEAPON_COLORS[1], HOVER_LIFT),
+    [WEAPON_COLORS[2]] = Lighten(WEAPON_COLORS[2], HOVER_LIFT),
     [EMPTY_COLOR] = Lighten(EMPTY_COLOR, HOVER_LIFT),
 }
 local SPARK_COLOR = Lighten(TRINKET_COLOR, 0.55)
@@ -115,6 +133,7 @@ _G["BINDING_NAME_" .. BINDINGS[13]] = "Use top trinket"
 _G["BINDING_NAME_" .. BINDINGS[14]] = "Use bottom trinket"
 _G["BINDING_NAME_" .. BINDINGS.set] = "Equip selected trinket set"
 _G["BINDING_NAME_" .. BINDINGS.gear] = "Switch main and alternate gear set"
+_G["BINDING_NAME_" .. BINDINGS.weapon] = "Switch DPS and healing weapons"
 
 local function Fighting()
     return InCombatLockdown() or Plain(UnitAffectingCombat("player")) == true
@@ -165,13 +184,13 @@ end
 
 function TrinketMenu:Equipped()
     local equipped = self.equipped
-    equipped[13] = (COMPAT.InventoryItem(13))
-    equipped[14] = (COMPAT.InventoryItem(14))
+    equipped[13] = COMPAT.InventoryItemID(13)
+    equipped[14] = COMPAT.InventoryItemID(14)
     return equipped
 end
 
 function TrinketMenu:ForgetBags()
-    self.bagCache, self.flyoutItems = nil, nil
+    self.bagCache, self.bagWeapons, self.flyoutItems, self.weaponFlyout = nil, nil, nil, nil
 end
 
 function TrinketMenu:FlyoutItems()
@@ -181,21 +200,81 @@ end
 
 function TrinketMenu:BagTrinkets()
     if self.bagCache then return self.bagCache end
-    local list, owned = {}, {}
+    local list, weapons, owned = {}, {}, {}
+    local wantWeapons = self:WeaponShown()
     for bag = 0, NUM_BAGS do
         for slot = 1, COMPAT.ContainerSlots(bag) do
             local id = COMPAT.ContainerItemID(bag, slot)
             if id then
                 local equipLoc, icon = COMPAT.ItemBasics(id)
+                local equipSlot = wantWeapons and Model.WEAPON_SLOTS[equipLoc]
                 if equipLoc == "INVTYPE_TRINKET" then
                     owned[id] = true
                     list[#list + 1] = { id = id, bag = bag, slot = slot, icon = icon, name = COMPAT.ItemName(id) }
+                elseif equipSlot then
+                    owned[id] = true
+                    weapons[#weapons + 1] = { id = id, bag = bag, slot = slot, icon = icon, name = COMPAT.ItemName(id), equipSlot = equipSlot }
                 end
             end
         end
     end
-    self.bagCache, self.owned = list, owned
+    self.bagCache, self.bagWeapons, self.owned = list, weapons, owned
     return list
+end
+
+function TrinketMenu:WeaponShown()
+    return self.db.enabled and self.db.showWeapon and self.buttons ~= nil and self.buttons.weapon ~= nil
+end
+
+function TrinketMenu:WornWeapons()
+    return COMPAT.InventoryItemID(Model.MAIN_HAND), COMPAT.InventoryItemID(Model.OFF_HAND)
+end
+
+function TrinketMenu:ArmWeapon()
+    local button = self.buttons and self.buttons.weapon
+    if not button or InCombatLockdown() then return end
+    local shown, pairList = self:WeaponShown(), self.db.weapons
+    if not shown and not self.weaponArmed then return end
+    self.weaponArmed = shown
+    local main, off = self:WornWeapons()
+    button:SetAttribute("weapon-macro1", shown and Model.WeaponMacro(pairList[1]) or nil)
+    button:SetAttribute("weapon-macro2", shown and Model.WeaponMacro(pairList[2]) or nil)
+    button:SetAttribute("weapon-worn", Model.ArmWorn(pairList, Model.PairWorn(pairList, main, off)))
+end
+
+function TrinketMenu:SaveWeapon(index)
+    if Fighting() then
+        self.addon:Print("Weapon pairs can only change out of combat.")
+        return false
+    end
+    local main, off = self:WornWeapons()
+    if not main then
+        self.addon:Print("Equip a main-hand weapon first, then save it.")
+        return false
+    end
+    local pairList = self.db.weapons
+    local target = index or Model.SaveTarget(pairList, main, off, self.weaponLast)
+    pairList[target] = Model.PairFrom(main, off)
+    local otherPair = pairList[3 - target]
+    self.addon:Print("Saved " .. (COMPAT.ItemName(main) or "your weapon") .. (off and (" + " .. (COMPAT.ItemName(off) or "your off-hand")) or "") .. " as " .. Model.WEAPON_NAMES[target] .. " weapons.")
+    if not Model.PairFilled(otherPair) then
+        self.addon:Print("Now equip your " .. Model.WEAPON_NAMES[3 - target] .. " weapons and shift-click the button again.")
+    end
+    self:ArmWeapon()
+    self:Paint()
+    return true
+end
+
+function TrinketMenu:WeaponClicked()
+    local pairList = self.db.weapons
+    local empty = not Model.PairFilled(pairList[1]) and 1 or not Model.PairFilled(pairList[2]) and 2
+    if empty and (Model.PairWorn(pairList, self:WornWeapons()) == 3 - empty or not Model.PairFilled(pairList[3 - empty])) then
+        self.addon:Print("Wear your " .. Model.WEAPON_NAMES[empty] .. " weapons and shift-click to save them.")
+    end
+    if self.pendingGear then
+        self.pendingGear = nil
+        self:Paint()
+    end
 end
 
 function TrinketMenu:GearShown()
@@ -290,6 +369,10 @@ end
 
 local function PaintQueued()
     TrinketMenu.paintQueued = false
+    if TrinketMenu.weaponDirty then
+        TrinketMenu.weaponDirty = false
+        TrinketMenu:ArmWeapon()
+    end
     TrinketMenu:Paint()
 end
 
@@ -393,7 +476,7 @@ function TrinketMenu:CycleSet(delta)
 end
 
 local function Shade(face)
-    local dim = face.empty or face.cdStart ~= false
+    local dim = face.empty or face.faded or face.cdStart ~= false
     if face.dim == dim then return end
     face.dim = dim
     face.texture:SetDesaturated(dim)
@@ -522,6 +605,7 @@ function TrinketMenu:Dress(button, color, split)
     face.pulse = Pulse(face.glow, GLOW_ALPHA)
     face.waiting, face.cdStart, face.cdDuration, face.cdToken = false, 0, 0, 0
     face.hovered, face.empty, face.dim, face.slot, face.size, face.comet, face.readyFor, face.unfold = false, false, false, false, false, false, false, false
+    face.faded, face.squeeze, face.badgeTint = false, false, false
 
     local inset = face:CreateTexture(nil, "BORDER")
     inset:SetColorTexture(0, 0, 0, 1)
@@ -894,6 +978,47 @@ function TrinketMenu:CreateGearButton()
     return button
 end
 
+local function OnWeaponEnter(button)
+    Hover(button, true)
+    TrinketMenu:Wake()
+    TrinketMenu:WeaponTip(button)
+    TrinketMenu:OpenWeaponFlyout(button)
+end
+
+local function OnWeaponPostClick(button, mouse)
+    if mouse == "RightButton" then return end
+    if mouse == "LeftButton" and IsShiftKeyDown() then
+        TrinketMenu:SaveWeapon()
+    else
+        TrinketMenu:WeaponClicked()
+    end
+    if GameTooltip:IsOwned(button) then TrinketMenu:WeaponTip(button) end
+end
+
+function TrinketMenu:CreateWeaponButton()
+    local button = CreateFrame("Button", WEAPON_NAME, self.bar, "SecureActionButtonTemplate")
+    button:SetAttribute("useOnKeyDown", false)
+    button:SetAttribute("*type*", "macro")
+    button:SetAttribute("*type2", "item")
+    button:SetAttribute("*item2", tostring(Model.MAIN_HAND))
+    button:SetAttribute("weapon-worn", 2)
+    button:RegisterForClicks("AnyUp")
+    local face = self:Dress(button, WEAPON_COLORS[1])
+    face.slot = Model.MAIN_HAND
+    face.cooldown:SetScript("OnCooldownDone", OnCooldownDone)
+    face.bang = face.over:CreateFontString(nil, "OVERLAY")
+    face.bang:SetFont(STANDARD_TEXT_FONT, BANG_SIZE, "OUTLINE")
+    face.bang:SetPoint("BOTTOMRIGHT", -2, 1)
+    face.bang:SetTextColor(HOT_COLOR[1], HOT_COLOR[2], HOT_COLOR[3], 1)
+    face.bang:SetText("!")
+    face.bang:Hide()
+    SecureHandlerWrapScript(button, "OnClick", self.bar, WEAPON_SNIPPET)
+    button:SetScript("PostClick", OnWeaponPostClick)
+    button:HookScript("OnEnter", OnWeaponEnter)
+    button:HookScript("OnLeave", HideTip)
+    return button
+end
+
 function TrinketMenu:CreateMover()
     local bar = self.bar
     local mover = CreateFrame("Frame", nil, bar, "BackdropTemplate")
@@ -956,6 +1081,8 @@ function TrinketMenu:FlyoutButton(index)
         flyout:Hide()
         if flyout.mode == "gear" then
             TrinketMenu:RequestGear(item.gearName)
+        elseif flyout.mode == "weapon" then
+            if not Fighting() then COMPAT.EquipItem(item.itemID, item.equipSlot) end
         else
             TrinketMenu:Request(Model.Request(TrinketMenu.pending, flyout.slot, item.itemID))
         end
@@ -980,7 +1107,7 @@ end
 
 function TrinketMenu:FillTrinket(button, item)
     local face = button.face
-    button.itemID, button.bag, button.bagSlot, button.gearName = item.id, item.bag, item.slot, nil
+    button.itemID, button.bag, button.bagSlot, button.gearName, button.equipSlot = item.id, item.bag, item.slot, nil, item.equipSlot
     face.texture:SetTexture(item.icon or UNKNOWN_ICON)
     face.texture:SetDesaturated(false)
     SetLabel(face, "")
@@ -1017,19 +1144,36 @@ function TrinketMenu:OpenGearFlyout(owner)
     self:ShowFlyout(owner, "gear", sets)
 end
 
+function TrinketMenu:OpenWeaponFlyout(owner)
+    if not self.db.flyout or not self.db.enabled or Fighting() then
+        self.flyout:Hide()
+        return
+    end
+    local list = self.weaponFlyout
+    if not list then
+        self:BagTrinkets()
+        list = { Model.WeaponFlyout(self.bagWeapons) }
+        self.weaponFlyout = list
+    end
+    self:ShowFlyout(owner, "weapon", list[1], list[2], list[3])
+end
+
 function TrinketMenu:RefreshFlyout()
     local flyout = self.flyout
     if not flyout:IsShown() then return end
     if flyout.mode == "gear" then
         self:OpenGearFlyout(flyout.owner)
+    elseif flyout.mode == "weapon" then
+        self:OpenWeaponFlyout(flyout.owner)
     else
         self:OpenFlyout(flyout.owner)
     end
 end
 
-function TrinketMenu:ShowFlyout(owner, mode, entries)
+function TrinketMenu:ShowFlyout(owner, mode, entries, lanes, longest)
     local flyout = self.flyout
-    local count = math.min(#entries, Model.FLYOUT_MAX)
+    lanes = lanes or 1
+    local count = lanes > 1 and #entries or math.min(#entries, Model.FLYOUT_MAX)
     if count == 0 then
         flyout:Hide()
         return
@@ -1039,15 +1183,17 @@ function TrinketMenu:ShowFlyout(owner, mode, entries)
     local step = size + FLYOUT_PAD
     local vertical = self.db.orientation ~= "horizontal"
     for index = 1, count do
+        local entry = entries[index]
         local button = self:FlyoutButton(index)
-        local offset = FLYOUT_PAD + (index - 1) * step
+        local offset = FLYOUT_PAD + ((entry.along or index) - 1) * step
+        local across = ((lanes - 1) / 2 - ((entry.lane or 1) - 1)) * step
         button:SetSize(size, size)
         SizeFace(button.face, size)
         button:ClearAllPoints()
         if vertical then
-            button:SetPoint("LEFT", flyout, "LEFT", offset, 0)
+            button:SetPoint("LEFT", flyout, "LEFT", offset, across)
         else
-            button:SetPoint("BOTTOM", flyout, "BOTTOM", 0, offset)
+            button:SetPoint("BOTTOM", flyout, "BOTTOM", -across, offset)
         end
         button:Show()
         if mode == "gear" then
@@ -1058,8 +1204,8 @@ function TrinketMenu:ShowFlyout(owner, mode, entries)
     end
     for index = count + 1, #flyout.buttons do flyout.buttons[index]:Hide() end
 
-    local span = FLYOUT_PAD + count * step
-    local thick = size + FLYOUT_PAD * 2
+    local span = FLYOUT_PAD + (longest or count) * step
+    local thick = lanes * step + FLYOUT_PAD
     local scale = owner:GetEffectiveScale() / UIParent:GetEffectiveScale()
     local left, bottom, width, height = owner:GetRect()
     flyout:ClearAllPoints()
@@ -1085,6 +1231,30 @@ function TrinketMenu:TrinketTip(button)
         GameTooltip:AddLine("Equips " .. (COMPAT.ItemName(incoming) or "a trinket") .. " when combat ends", WAIT_COLOR[1], WAIT_COLOR[2], WAIT_COLOR[3])
     end
     GameTooltip:AddLine("Click: use · Right-click: swap top and bottom", MUTED[1], MUTED[2], MUTED[3])
+    GameTooltip:Show()
+end
+
+local function WeaponPairLine(index, pair, worn)
+    local label = Model.WEAPON_NAMES[index] .. ": "
+    if not Model.PairFilled(pair) then return label .. "not saved" end
+    local text = label .. (COMPAT.ItemName(pair[16]) or "a weapon")
+    if pair[17] then text = text .. " + " .. (COMPAT.ItemName(pair[17]) or "an off-hand") end
+    return worn == index and (text .. " (worn)") or text
+end
+
+function TrinketMenu:WeaponTip(button)
+    if not self.db.tooltips then return end
+    local pairList = self.db.weapons
+    local main, off = self:WornWeapons()
+    local worn = Model.PairWorn(pairList, main, off)
+    GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+    GameTooltip:AddLine("Weapons")
+    GameTooltip:AddLine(WeaponPairLine(1, pairList[1], worn), 1, 1, 1)
+    GameTooltip:AddLine(WeaponPairLine(2, pairList[2], worn), 1, 1, 1)
+    GameTooltip:AddLine("Click: switch · Right-click: use the main-hand effect · Shift-click: save what you wear", MUTED[1], MUTED[2], MUTED[3], true)
+    if Fighting() then
+        GameTooltip:AddLine("Pairs can only change out of combat", WAIT_COLOR[1], WAIT_COLOR[2], WAIT_COLOR[3], true)
+    end
     GameTooltip:Show()
 end
 
@@ -1224,6 +1394,7 @@ function TrinketMenu:Build()
         set = self:CreateSetButton(),
         gear = self:CreateGearButton(),
     }
+    if template and SecureHandlerWrapScript then self.buttons.weapon = self:CreateWeaponButton() end
     self:CreateMover()
     self:CreateFlyout()
     if template then self:CreateDiamond() end
@@ -1234,7 +1405,7 @@ end
 function TrinketMenu:ApplyLayout()
     local db, bar, diamond = self.db, self.bar, self.diamond
     local size = db.iconSize
-    local offsets, width, height = Model.Layout(db.orientation, db.swapOrder, db.showSet, self:GearShown(), size, db.spacing)
+    local offsets, width, height = Model.Layout(db.orientation, db.swapOrder, db.showSet, self:GearShown(), size, db.spacing, self:WeaponShown())
     self.layout = { offsets = offsets, width = width, height = height, size = size, spacing = db.spacing }
     bar:SetSize(width, height)
     for key, button in pairs(self.buttons) do
@@ -1249,6 +1420,7 @@ function TrinketMenu:ApplyLayout()
             button:Hide()
         end
     end
+    self:ArmWeapon()
     BarUtils:LoadPosition(bar, db, "", DEFAULT_X, DEFAULT_Y)
     self.mover:SetShown(not db.locked)
 
@@ -1347,6 +1519,7 @@ function TrinketMenu:Paint()
     SetWaiting(face, self:SetQueued())
 
     if self:GearShown() then self:PaintGear() end
+    if self:WeaponShown() then self:PaintWeapon() end
 
     if self.diamond then
         TogglePulse(self.diamond.pulse, (queued and Model.Waiting(queued, equipped)) or self:GearQueued())
@@ -1364,11 +1537,61 @@ function TrinketMenu:PaintGear()
     SetWaiting(face, self:GearQueued())
 end
 
+local function Squeeze(face)
+    local group = face.squeeze
+    if not group then
+        group = face:CreateAnimationGroup()
+        local narrow = Step(group, "Scale", 1, SQUEEZE_TIME)
+        narrow:SetScaleFrom(SQUEEZE_SCALE, 1)
+        narrow:SetScaleTo(1, 1)
+        face.squeeze = group
+    end
+    group:Stop()
+    group:Play()
+end
+
+function TrinketMenu:PaintWeapon()
+    local face = self.buttons.weapon.face
+    local pairList = self.db.weapons
+    local main, off = self:WornWeapons()
+    local _, icon = COMPAT.InventoryItem(Model.MAIN_HAND)
+    self:BagTrinkets()
+    local state, worn, nextIndex = Model.WeaponState(pairList, main, off, self.owned)
+    local saved = state ~= "unsaved"
+    face.texture:SetTexture(saved and icon or WEAPON_ICON)
+    face.empty, face.faded = not saved, state == "other" or state == "missing"
+    face.bang:SetShown(state == "missing")
+    if worn then
+        SetBase(face, WEAPON_COLORS[worn])
+        SetLabel(face, Model.WeaponLabel(worn, self.db.iconSize))
+        if self.weaponLast and self.weaponLast ~= worn then Squeeze(face) end
+        self.weaponLast = worn
+    else
+        SetBase(face, EMPTY_COLOR)
+        SetLabel(face, saved and "?" or "SET")
+    end
+    local badge = nextIndex and ItemIcon(pairList[nextIndex][16])
+    face.badge:SetShown(badge ~= nil)
+    if nextIndex then
+        local tint = WEAPON_COLORS[nextIndex]
+        if face.badgeTint ~= tint then
+            face.badgeTint = tint
+            face.badge:SetBackdropBorderColor(tint[1], tint[2], tint[3], 1)
+        end
+        if badge then face.badge.icon:SetTexture(badge) end
+    end
+    Shade(face)
+end
+
 function TrinketMenu:PaintCooldowns()
     if not self.bar then return end
     for _, slot in ipairs(Model.SLOTS) do
         local start, duration = Model.Cooldown(COMPAT.InventoryCooldown(slot))
         ApplyCooldown(self.buttons[slot].face, start, duration)
+    end
+    if self:WeaponShown() then
+        local start, duration = Model.Cooldown(COMPAT.InventoryCooldown(Model.MAIN_HAND))
+        ApplyCooldown(self.buttons.weapon.face, start, duration)
     end
     local flyout = self.flyout
     if flyout:IsShown() and flyout.mode == "trinket" then
@@ -1390,9 +1613,8 @@ end
 
 function TrinketMenu:PaintNumbers()
     local hide = not self.db.cooldownNumbers
-    for _, slot in ipairs(Model.SLOTS) do
-        local numbers = self.buttons[slot].face.numbers
-        if numbers then numbers:SetHideCountdownNumbers(hide) end
+    for key, button in pairs(self.buttons) do
+        if key ~= "set" and key ~= "gear" and button.face.numbers then button.face.numbers:SetHideCountdownNumbers(hide) end
     end
     for _, button in ipairs(self.flyout.buttons) do
         if button.face.numbers then button.face.numbers:SetHideCountdownNumbers(hide) end
@@ -1404,6 +1626,7 @@ function TrinketMenu:OnEvent(event, arg)
         self:Flush()
         if not self.bar then return end
         self.attempts = 0
+        self:ArmWeapon()
         self:Paint()
         self:Drive()
         return
@@ -1411,15 +1634,18 @@ function TrinketMenu:OnEvent(event, arg)
     if not self.bar then return end
     if event == "PLAYER_REGEN_DISABLED" then
         self:StopMoving()
+        if self.flyout.mode == "weapon" then self.flyout:Hide() end
         self:Paint()
     elseif event == "PLAYER_EQUIPMENT_CHANGED" then
         local trinket = arg == 13 or arg == 14
-        if not trinket and not self:GearLive() then return end
+        local weapon = (arg == Model.MAIN_HAND or arg == Model.OFF_HAND) and self:WeaponShown()
+        if not trinket and not weapon and not self:GearLive() then return end
         self:ForgetGear()
-        if trinket then
+        if trinket or weapon then
             self:ForgetBags()
             self:PaintCooldowns()
         end
+        if weapon then self.weaponDirty = true end
         self:QueuePaint()
         if self.pending then self:Drive() end
     elseif event == "EQUIPMENT_SETS_CHANGED" then
@@ -1437,6 +1663,7 @@ function TrinketMenu:OnEvent(event, arg)
         self:ForgetBags()
         self:ForgetGear()
         self:RefreshFlyout()
+        if self:WeaponShown() then self:QueuePaint() end
     elseif event == "BAG_UPDATE_COOLDOWN" then
         self:PaintCooldowns()
     elseif event == "UPDATE_BINDINGS" then
@@ -1445,6 +1672,7 @@ function TrinketMenu:OnEvent(event, arg)
         self:ForgetBags()
         self:ForgetGear()
         self.gearUsable = nil
+        self:ArmWeapon()
         self:Paint()
         self:PaintCooldowns()
         self:PaintHotkeys()
@@ -1493,8 +1721,12 @@ function TrinketMenu:LoadSettings(live)
     if not (db.enabled and db.flyout) then self.flyout:Hide() end
     if not db.readyGlow then
         for _, slot in ipairs(Model.SLOTS) do StopComet(self.buttons[slot].face) end
+        if self.buttons.weapon then StopComet(self.buttons.weapon.face) end
     end
-    if not live then self:Run("layout", ApplyLayoutNow) end
+    if not live then
+        self:ForgetBags()
+        self:Run("layout", ApplyLayoutNow)
+    end
     self:ApplyFade()
     self:PaintNumbers()
     self:Paint()
@@ -1522,6 +1754,7 @@ function TrinketMenu:RunTest()
     SetWaiting(self.buttons.set.face, true)
     SetWaiting(self.buttons.gear.face, true)
     if self.db.readyGlow then PlayComet(self.buttons[13].face) end
+    if self:WeaponShown() then Squeeze(self.buttons.weapon.face) end
     C_Timer.After(TEST_TIME, PaintLater)
     self:Wake()
     self:Rest()
@@ -1532,7 +1765,7 @@ function TrinketMenu:OnProfileChanged()
     if not addon then return end
     self.addon = addon
     self.db = addon.db1.profile.trinketMenu
-    self.pending, self.pendingSet, self.pendingGear = nil, nil, nil
+    self.pending, self.pendingSet, self.pendingGear, self.weaponLast = nil, nil, nil, nil
     self:ForgetGear()
     if self.initialized then self:LoadSettings() end
 end

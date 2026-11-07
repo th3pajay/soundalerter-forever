@@ -18,6 +18,15 @@ local MAX_AURA_ICONS = 3
 local AURA_ICON_SIZE = 18
 local AURA_ICON_SPACING = 4
 local AURA_SCAN_MAX = 6
+local INTEL_NAME_X = 54
+local THREAT_NAME_X = 86
+local TOAST_EDGE = 10
+local NAME_CLEARANCE = 8
+local SPELL_TEXT_WIDTH = 110
+local SPELL_TEXT_RIGHT = 32
+local SECOND_NAME_SIZE = 11
+local SECOND_RULE_PAD = 5
+local TEST_SECOND_NAME = "Ashwhisper"
 local TRAP_NOTE = "Traps down 30s"
 local TRAP_CASTS = {
     [1499] = true, [14310] = true, [14311] = true, [13809] = true,
@@ -107,15 +116,20 @@ local function GetClassColor(className)
     return cached[1], cached[2], cached[3]
 end
 
+local backdropConfig
+
 local function GetBackdropConfig()
-    return {
-        bgFile = SoundAlerter.BarUtils.BACKDROP_TEXTURES.Solid,
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true,
-        tileSize = 16,
-        edgeSize = 16,
-        insets = {left = 4, right = 4, top = 4, bottom = 4}
-    }
+    if not backdropConfig then
+        backdropConfig = {
+            bgFile = SoundAlerter.BarUtils.BACKDROP_TEXTURES.Solid,
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true,
+            tileSize = 16,
+            edgeSize = 16,
+            insets = {left = 4, right = 4, top = 4, bottom = 4}
+        }
+    end
+    return backdropConfig
 end
 
 local ACCENT = {1, 0.49, 0.04}
@@ -129,10 +143,33 @@ local function ClassTextColor(className)
     return 1, 1, 1
 end
 
+local function SpellTextWidth(toast)
+    local width = toast.spellText:GetUnboundedStringWidth()
+    if issecretvalue(width) then return SPELL_TEXT_WIDTH end
+    return math.min(width, SPELL_TEXT_WIDTH)
+end
+
+local function FitName(toast, view)
+    local left, right = INTEL_NAME_X, TOAST_WIDTH - TOAST_EDGE
+    if view.style == "threat" then
+        left = THREAT_NAME_X
+        right = right - toast.tagText:GetUnboundedStringWidth() - NAME_CLEARANCE
+    elseif toast.spellText:IsShown() then
+        right = TOAST_WIDTH - SPELL_TEXT_RIGHT - SpellTextWidth(toast) - NAME_CLEARANCE
+    end
+    local secondWidth = view.second and toast.secondText:GetUnboundedStringWidth() or nil
+    local first, second = SA_ToastStyle.NameFit(right - left, toast.detailText:GetUnboundedStringWidth(), secondWidth)
+    toast.detailText:SetWidth(first)
+    if second then toast.secondText:SetWidth(second) end
+    toast.secondText:SetShown(second ~= nil)
+    toast.secondRule:SetShown(second ~= nil)
+end
+
 local function DrawSpell(toast, view)
     local shown = view.spellName ~= nil and SA_Secret.Draw(toast.spellText, toast.spellIcon, view.spellName, view.spellIcon)
     toast.spellText:SetShown(shown)
     toast.spellIcon:SetShown(shown)
+    FitName(toast, view)
 end
 
 local function ApplyView(toast, view)
@@ -147,6 +184,7 @@ local function ApplyView(toast, view)
     toast.levelText:ClearAllPoints()
     toast.tagText:ClearAllPoints()
     toast.auraIcons[1]:ClearAllPoints()
+    toast.spellIcon:ClearAllPoints()
 
     toast.tagText:SetText(view.tag or "")
     toast.titleText:SetFontObject(GameFontNormalSmall)
@@ -155,6 +193,7 @@ local function ApplyView(toast, view)
     toast.detailText:SetFontObject(GameFontNormalLarge)
     toast.detailText:SetTextColor(r, g, b)
     toast.detailText:SetText(view.primary or "")
+    toast.secondText:SetText(view.second or "")
 
     if threatStyle then
         toast.sideBlock:ClearAllPoints()
@@ -167,14 +206,14 @@ local function ApplyView(toast, view)
         toast.levelText:SetPoint("BOTTOM", toast.sideBlock, "BOTTOM", 0, 12)
         toast.levelText:SetTextColor(0.08, 0.09, 0.1)
         toast.levelText:SetText(view.sideLabel or "")
-        toast.detailText:SetPoint("TOPLEFT", toast, "TOPLEFT", 86, -12)
-        toast.detailText:SetPoint("RIGHT", toast, "RIGHT", -120, 0)
+        toast.detailText:SetPoint("TOPLEFT", toast, "TOPLEFT", THREAT_NAME_X, -12)
         toast.titleText:SetPoint("TOPLEFT", toast.detailText, "BOTTOMLEFT", 0, -4)
         toast.titleText:SetPoint("RIGHT", toast, "RIGHT", -10, 0)
         toast.tagText:SetPoint("TOPRIGHT", toast, "TOPRIGHT", -10, -14)
         local tint = THREAT_COLORS[view.threatLevel] or THREAT_COLORS.LOW
         toast.tagText:SetTextColor(tint[1], tint[2], tint[3])
         toast.auraIcons[1]:SetPoint("TOPLEFT", toast, "TOPLEFT", 86, -54)
+        toast.spellIcon:SetPoint("TOPRIGHT", toast, "TOPRIGHT", -TOAST_EDGE, -54)
         for i = 1, 3 do
             toast.cellLabels[i]:Hide()
             toast.cellValues[i]:Hide()
@@ -187,10 +226,10 @@ local function ApplyView(toast, view)
         toast.titleText:SetPoint("TOPLEFT", toast.icon, "TOPRIGHT", 8, 0)
         toast.titleText:SetPoint("RIGHT", toast, "RIGHT", -100, 0)
         toast.detailText:SetPoint("TOPLEFT", toast.titleText, "BOTTOMLEFT", 0, -2)
-        toast.detailText:SetPoint("RIGHT", toast, "RIGHT", -10, 0)
         toast.tagText:SetPoint("TOPRIGHT", toast, "TOPRIGHT", -10, -12)
         toast.tagText:SetTextColor(0.85, 0.87, 0.92)
         toast.auraIcons[1]:SetPoint("TOPLEFT", toast, "TOPLEFT", 262, -52)
+        toast.spellIcon:SetPoint("TOPRIGHT", toast, "TOPRIGHT", -TOAST_EDGE, -30)
         local values = {view.levelShort or "-", view.band or "-", view.groupText or "-"}
         for i = 1, 3 do
             toast.cellLabels[i]:ClearAllPoints()
@@ -238,6 +277,25 @@ local function ApplyView(toast, view)
 end
 
 local function BuildContent(toast)
+    toast.titleText:SetWordWrap(false)
+    toast.detailText:SetWordWrap(false)
+
+    toast.secondRule = toast:CreateTexture(nil, "ARTWORK")
+    toast.secondRule:SetTexture("Interface\\Buttons\\WHITE8X8")
+    toast.secondRule:SetVertexColor(1, 1, 1, 0.3)
+    toast.secondRule:SetSize(1, 12)
+    toast.secondRule:SetPoint("LEFT", toast.detailText, "RIGHT", SECOND_RULE_PAD, 0)
+    toast.secondRule:Hide()
+
+    toast.secondText = toast:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local secondFont, _, secondFlags = toast.secondText:GetFont()
+    toast.secondText:SetFont(secondFont, SECOND_NAME_SIZE, secondFlags)
+    toast.secondText:SetPoint("BOTTOMLEFT", toast.detailText, "BOTTOMRIGHT", SA_ToastStyle.NAME_GAP, 1)
+    toast.secondText:SetJustifyH("LEFT")
+    toast.secondText:SetWordWrap(false)
+    toast.secondText:SetTextColor(0.72, 0.74, 0.8)
+    toast.secondText:Hide()
+
     toast.levelText = toast:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     toast.levelText:SetPoint("BOTTOM", toast.icon, "BOTTOM", 0, 2)
     toast.levelText:SetTextColor(1, 0.82, 0)
@@ -287,7 +345,6 @@ local function BuildContent(toast)
 
     toast.spellIcon = toast:CreateTexture(nil, "ARTWORK")
     toast.spellIcon:SetSize(18, 18)
-    toast.spellIcon:SetPoint("TOPRIGHT", toast, "TOPRIGHT", -10, -30)
     toast.spellIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     toast.spellIcon:Hide()
     toast.spellText = toast:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -314,6 +371,9 @@ local function ReleaseContent(toast)
     toast.levelText:SetText("")
     toast.tagText:SetText("")
     toast.sideBlock:Hide()
+    toast.secondText:SetText("")
+    toast.secondText:Hide()
+    toast.secondRule:Hide()
     toast.spellText:SetText("")
     toast.spellText:Hide()
     toast.spellIcon:SetTexture(nil)
@@ -543,22 +603,21 @@ local function CollectAuras(unitToken)
     if unitToken and UnitExists(unitToken) then
         for _, filter in ipairs(AURA_FILTERS) do
             for i = 1, AURA_SCAN_MAX do
+                if #list >= MAX_AURA_ICONS then return list end
                 local found, icon, duration, expirationTime = AuraTiming(unitToken, i, filter)
                 if not found then break end
-                if #list < MAX_AURA_ICONS then
-                    local remaining = duration and duration > 0 and expirationTime and (expirationTime - GetTime())
-                    list[#list + 1] = {
-                        icon = icon,
-                        text = remaining and remaining > 0 and FormatAuraDuration(remaining) or nil,
-                    }
-                end
+                local remaining = duration and duration > 0 and expirationTime and (expirationTime - GetTime())
+                list[#list + 1] = {
+                    icon = icon,
+                    text = remaining and remaining > 0 and FormatAuraDuration(remaining) or nil,
+                }
             end
         end
     end
     return list
 end
 
-function ProximityToasts:ShowToast(unitName, className, distance, guid, level, unitToken, customTitle, nearbyCount)
+function ProximityToasts:ShowToast(unitName, className, distance, guid, level, unitToken, customTitle, nearbyCount, secondName)
     local sadb = SoundAlerter.db1.profile
 
     if not self.initialized then
@@ -621,6 +680,7 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
         className = className,
         iconTexture = CLASS_ICONS[className] or "Interface\\Icons\\Ability_Rogue_Ambush",
         primary = (sadb.proximityToasts.showPlayerName and unitName) or classLabel,
+        second = sadb.proximityToasts.showPlayerName and secondName ~= "" and secondName or nil,
         band = distance,
         bandRank = Style.BandRank(distance),
         levelShort = Style.LevelText(level),
@@ -717,11 +777,11 @@ function SoundAlerter.ProximityToasts:HandleCommand(msg)
         if duration and duration > 0 then
             local savedDuration = sadb.proximityToasts.displayDuration
             sadb.proximityToasts.displayDuration = duration
-            self:ShowToast("TestEnemy", "ROGUE", nil, nil, 80, nil, nil)
+            self:ShowToast("TestEnemy", "ROGUE", nil, nil, 80, nil, nil, nil, TEST_SECOND_NAME)
             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Test toast displayed with " .. duration .. "s duration.|r")
             sadb.proximityToasts.displayDuration = savedDuration
         else
-            self:ShowToast("TestEnemy", "ROGUE", nil, nil, 80, nil, nil)
+            self:ShowToast("TestEnemy", "ROGUE", nil, nil, 80, nil, nil, nil, TEST_SECOND_NAME)
             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Test toast displayed.|r")
         end
 
@@ -741,7 +801,7 @@ function SoundAlerter.ProximityToasts:HandleCommand(msg)
 
         local classes = {"WARRIOR", "PALADIN", "ROGUE", "MAGE", "WARLOCK"}
         for i = 1, math.min(count, 5) do
-            self:ShowToast("TestEnemy"..i, classes[i], nil, nil, 80, nil, nil)
+            self:ShowToast("TestEnemy"..i, classes[i], nil, nil, 80, nil, nil, nil, TEST_SECOND_NAME)
         end
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Created " .. count .. " test toasts.|r")
 

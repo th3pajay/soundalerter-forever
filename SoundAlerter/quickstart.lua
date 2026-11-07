@@ -26,6 +26,8 @@ QuickStart.CATEGORIES = {
     { key = "chatalerts", label = "Chat messages", hint = "Alerts also appear in chat" },
 }
 
+QuickStart.SIGHTINGS_NOTICE = "Global sightings is now on. It shares the enemies you see and your rough map square with other SoundAlerter users of your faction on your realm, and shows theirs on your world map. To opt out: /sa, Proximity Alerts, Global sightings."
+
 QuickStart.STEPS = {
     { key = "style", label = "Style", title = "Pick your style", hint = "Sets the zones and who triggers alerts in one step. Anything you change afterwards shows as Custom." },
     { key = "hear", label = "Hear", title = "What do you want to hear?", hint = "Fine-tune single spells later on the Voice Alerts page." },
@@ -130,7 +132,7 @@ QuickStart.ITEMS = {
             set = function(profile, value) profile.stealthenemy = value end,
         },
         {
-            key = "sightings", label = "Global sightings", hint = "Experimental: enemies other users report show on your world map", available = supported,
+            key = "sightings", label = "Global sightings", hint = "On by default: shares enemies you see and your rough map area with your faction. Switch off to opt out.", available = supported,
             get = function(profile) return profile.globalSightings and true or false end,
             set = function(profile, value) profile.globalSightings = value end,
         },
@@ -171,6 +173,15 @@ end
 
 function QuickStart.NeedsSetup(global)
     return global.quickStartDone == false
+end
+
+function QuickStart.SeedSightingsNotice(global, existing)
+    if global.sightingsNoticeDone == nil then global.sightingsNoticeDone = not existing end
+end
+
+function QuickStart.SightingsNoticeDue(global, profile, isSupported)
+    if global.sightingsNoticeDone ~= false or not isSupported then return nil end
+    return profile.globalSightings and "tell" or "skip"
 end
 
 function QuickStart.Scope(profile)

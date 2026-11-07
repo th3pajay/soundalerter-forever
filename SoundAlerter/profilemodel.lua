@@ -284,7 +284,7 @@ end
 do
 SA_ProfileCleanup = {}
 
-SA_ProfileCleanup.PASS = 5
+SA_ProfileCleanup.PASS = 6
 
 SA_ProfileCleanup.DEAD_KEYS = {
     "objectiveAlertsEnabled", "ArenaPartner", "prowlhenemy", "vanishalert", "enemyinterrupts",
@@ -301,6 +301,8 @@ SA_ProfileCleanup.DEAD_RESOURCE_KEYS = {
     "showOverCapAlert", "showLowEnergyAlert", "showLowRageAlert", "showLowManaAlert",
     "smoothPower", "cpAnimations", "fullCPAnimation",
 }
+
+SA_ProfileCleanup.DEAD_GLOBAL_KEYS = { "nextProbe", "nextProbeWatch", "swingProbe", "recapProbe" }
 
 SA_ProfileCleanup.COPIED_KEYS = {
     { from = "friendcountered", to = "lockout" },
@@ -338,6 +340,7 @@ function SA_ProfileCleanup.Run(saved)
             end
         end
     end
+    removed = removed + strip(saved.global, SA_ProfileCleanup.DEAD_GLOBAL_KEYS)
     saved.global.deadKeysRemoved = nil
     saved.global.deadKeysPass = SA_ProfileCleanup.PASS
     return removed

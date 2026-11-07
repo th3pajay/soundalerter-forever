@@ -7,7 +7,7 @@ local PREVIEW_WIDTH = 220
 local BAR_KEYS = { "energy", "rage", "health", "mana" }
 local BAR_FRAMES = { energyScale = "energyFrame", rageScale = "rageFrame", healthScale = "healthFrame", manaScale = "manaFrame", comboScale = "comboFrame" }
 local COLOR_UPDATES = { energyColor = "UpdateEnergyBar", rageColor = "UpdateRageBar", healthColor = "UpdateHealthBar", manaColor = "UpdateManaBar" }
-local VISIBILITY = { energyEnabled = true, rageEnabled = true, healthEnabled = true, manaEnabled = true, comboEnabled = true, comboTextEnabled = true }
+local VISIBILITY = { swingSpark = true, energyEnabled = true, rageEnabled = true, rageFade = true, healthEnabled = true, manaEnabled = true, comboEnabled = true, comboTextEnabled = true }
 local COMBO_COLORS = { comboActiveColor = true, comboMaxColor = true }
 local CELEBRATIONS = SoundAlerter.CPCelebration:Styles()
 local QUALITIES = SoundAlerter.CPCelebration:Qualities()
@@ -53,6 +53,10 @@ local function write(active, key, value)
         active:CacheColors()
         active:RefreshComboColors()
     end
+end
+
+local function swingSupported()
+    return C_SwingTimer ~= nil
 end
 
 local TEXTURE_QUALITIES = { { "low", "Low" }, { "normal", "Normal" }, { "high", "High" } }
@@ -151,7 +155,8 @@ function SoundAlerter:BuildResourceBarOptions()
             Page.Select("barTexture", "Bar texture", "Choose the visual texture for all resource bars (Health, Mana, Energy, Rage). This provides a unified look across all bars.", textureOptions(), false, "General"),
             Page.Select("barTextureQuality", "Texture quality", "Low animates 15 times a second and drops the farthest layer. Normal is the full animation. High adds a moving glint along the bar border. Only animated textures are affected.", TEXTURE_QUALITIES, true, "General"),
             Page.Toggle("energyEnabled", "Show energy bar", "Display energy bar (for Rogues, Druids in Cat Form).", false, "Bars"),
-            Page.Toggle("rageEnabled", "Show rage bar", "Display rage bar (for Warriors, Druids in Bear Form).", false, "Bars"),
+            Page.Toggle("rageEnabled", "Show rage bar", "Display rage bar (for Warriors, Druids in Bear Form). Out of Bear Form the bar reads empty, and rage starts fresh when you shift back.", false, "Bars"),
+            Page.When("rageEnabled", Page.Toggle("rageFade", "Fade rage bar when empty", "Fade the rage bar out of view while you have no rage, and while a druid is out of Bear Form. Works while the bars are locked; unlock to see and move it.", false, "Bars")),
             Page.Toggle("healthEnabled", "Show health bar", "Display health bar.", false, "Bars"),
             Page.Toggle("manaEnabled", "Show mana bar", "Display mana bar (for casters).", false, "Bars"),
             Page.Toggle("comboEnabled", "Show combo points", "Display combo points (for Rogues, Druids in Cat Form).", false, "Bars"),
@@ -170,6 +175,11 @@ function SoundAlerter:BuildResourceBarOptions()
             Page.When("healthEnabled", Page.Range("healthHeight", "Health bar height", "Adjust the height of the health bar.", 10, 40, 1, true, "Health bar", " px")),
             Page.When("manaEnabled", Page.Color("manaColor", "Mana color", "Color of the mana bar.", true, "Mana bar")),
             Page.When("manaEnabled", Page.Range("manaScale", "Mana bar scale", "Adjust the size of the mana bar.", 0.5, 2, 0.05, true, "Mana bar", "x")),
+            Page.Visible(swingSupported, Page.Toggle("swingSpark", "Swing spark", "A small spark runs along the top border of the bar your form uses and reaches the end as your next swing lands. Off-hand runs along the bottom border. It shows only while you are swinging, and needs an energy, rage, mana or health bar shown.", false, "Swing timer")),
+            Page.Visible(swingSupported, Page.When("swingSpark", Page.Toggle("swingSparkFlash", "Flash when the swing lands", "The bar's border flashes briefly each time a swing lands.", false, "Swing timer"))),
+            Page.Visible(swingSupported, Page.When("swingSpark", Page.Action("Preview spark", "Run one pass on the bar your form uses.", function()
+                if SoundAlerter.SwingSpark then SoundAlerter.SwingSpark:Preview() end
+            end, false, "Swing timer"))),
             Page.When("comboEnabled", Page.Range("comboScale", "Combo points scale", "Adjust the size of the combo points.", 0.5, 2, 0.05, true, "Combo points", "x")),
             Page.When("comboEnabled", Page.Toggle("comboTextEnabled", "Show combo text", "Display combo points as text (e.g., '3/5').", true, "Combo points")),
             Page.When("comboEnabled", Page.Color("comboActiveColor", "Active combo color", "Color of active combo points (1-4).", true, "Combo points")),

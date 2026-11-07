@@ -107,6 +107,14 @@ end
 
 SA_GlobalMap.HOT_RANGE = HOT_RANGE
 
+local WORLD_HOT = 10
+
+function SA_GlobalMap.WorldVerdict(count)
+    if count == 0 then return "Quiet" end
+    if count >= WORLD_HOT then return "Hot" end
+    return "Active"
+end
+
 function SA_GlobalMap.Group(list, count, groupOf, groups)
     for i = 1, count do groupOf[i] = 0 end
     local total = 0
@@ -154,20 +162,12 @@ local DOT_SIZE = 9
 local WINDOW = 300
 local HOT = 5
 local UNCONFIRMED_ALPHA = 0.45
-local PANEL_WIDTH = 220
-local STRIP_WIDTH = 22
-local STRIP_HEIGHT = 150
 local RING_SIZE, RING_PIPS, RING_PIP, RING_RADIUS = 24, 12, 5, 9
 local MERGE_DISTANCE = 26
 local TIP_ZONES = 8
-local MAX_ROWS = 8
-local COMPACT_ROWS = 3
-local ROW_HEIGHT = 14
-local ROWS_TOP = 62
 local GROUP_LIMIT = 60
 local ARROW_TEXTURE = "Interface\\AddOns\\SoundAlerter\\Textures\\gs_arrow"
 local VERDICT_COLOR = { Quiet = { 0.5, 0.83, 0.54 }, Active = { 1, 0.82, 0.29 }, Hot = { 1, 0.35, 0.29 } }
-local BAR_SEGMENTS = 10
 local FRESH = 20
 local QUIET_AFTER_MOVE = 0.4
 local CHECK_EVERY = 0.1
@@ -180,7 +180,6 @@ local layer, panel, attached
 local dots, rings = {}, {}
 local dotsShown, ringsShown = 0, 0
 local mode = "rings"
-local panelOpen = false
 local clusters = {}
 local pipClass, pipExact, pipGive, pipSource = {}, {}, {}, nil
 local hostShown, scaleShown, quietUntil = nil, nil, 0
@@ -190,8 +189,14 @@ local tier = M.TIERS.normal
 local names = {}
 local ordered, zones = {}, {}
 local centres, centreHost = {}, nil
-local mix = {}
-local groups, groupOf, groupDistance, order, factParts, swatchParts, worldSizes = {}, {}, {}, {}, {}, {}, {}
+local mix, worldMix, zoneList = {}, {}, {}
+local worldTotal, worldPrevious = 0, 0
+local worldStealth, worldHigher = 0, 0
+local litZone
+local LIT_SCALE = 1.5
+local zoneData = { kind = "zone", rows = {}, tiles = { {}, {}, {} }, mix = mix }
+local worldData = { kind = "world", rows = {}, tiles = { {}, {}, {} }, mix = worldMix }
+local groups, groupOf, groupDistance, order, swatchParts, worldSizes = {}, {}, {}, {}, {}, {}
 
 local function ClassColor(class)
     local colors = RAID_CLASS_COLORS
@@ -458,44 +463,7 @@ local function AssignPips(ring, classes, total)
     end
 end
 
-local function FillBar(segments, classes, total, length, anchor, x, y, vertical)
-    local offset, used = 0, 0
-    for class, count in pairs(classes) do
-        if count > 0 and used < #segments then
-            used = used + 1
-            local segment = segments[used]
-            local size = math.max(1, length * count / total)
-            if segment.class ~= class then
-                segment.class = class
-                local color = ClassColor(class)
-                segment:SetVertexColor(color.r, color.g, color.b, 1)
-            end
-            local px, py = x, y
-            if vertical then py = y - offset else px = x + offset end
-            if segment.x ~= px or segment.y ~= py then
-                segment.x, segment.y = px, py
-                segment:ClearAllPoints()
-                segment:SetPoint("TOPLEFT", anchor, "TOPLEFT", px, py)
-            end
-            if segment.size ~= size then
-                segment.size = size
-                if vertical then segment:SetHeight(size) else segment:SetWidth(size) end
-            end
-            segment:Show()
-            offset = offset + size
-        end
-    end
-    for i = used + 1, #segments do segments[i]:Hide() end
-end
-
 local function ByRecent(a, b) return a.lastSeen > b.lastSeen end
-
-local function SetText(fontString, text)
-    if fontString.shownText ~= text then
-        fontString.shownText = text
-        fontString:SetText(text)
-    end
-end
 
 local function HideFrom(list, first, shown)
     for i = first, shown do list[i]:Hide() end
@@ -503,15 +471,7 @@ end
 
 local function Expanded()
     local profile = SoundAlerter.db1 and SoundAlerter.db1.profile
-    return profile and profile.globalPanelExpanded and true or false
-end
-
-local function PanelText(parent, fontObject)
-    local text = parent:CreateFontString(nil, "OVERLAY")
-    text:SetFontObject(fontObject)
-    text:SetJustifyH("LEFT")
-    if text.SetWordWrap then text:SetWordWrap(false) end
-    return text
+    return not profile or profile.globalPanelExpanded ~= false
 end
 
 local function ShowRowTip(owner)
@@ -533,109 +493,84 @@ local function ShowRowTip(owner)
     GameTooltip:Show()
 end
 
-local function BuildPanel()
-    local parent = WorldMapFrame.ScrollContainer or WorldMapFrame
-    panel = CreateFrame("Frame", nil, parent)
-    panel:SetSize(STRIP_WIDTH, STRIP_HEIGHT)
-    panel:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, -10)
-    panel:SetFrameLevel(math.min(parent:GetFrameLevel() + 3100, 9000))
-    panel:EnableMouse(true)
-    local bg = panel:CreateTexture(nil, "BACKGROUND")
-    bg:SetTexture(FLAT)
-    bg:SetVertexColor(0.04, 0.05, 0.06, 0.85)
-    bg:SetAllPoints(panel)
-    panel.edge = panel:CreateTexture(nil, "BORDER")
-    panel.edge:SetTexture(FLAT)
-    panel.edge:SetWidth(2)
-    panel.edge:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, 0)
-    panel.edge:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 0, 0)
-    local strip = CreateFrame("Frame", nil, panel)
-    strip:SetAllPoints(panel)
-    panel.strip = strip
-    panel.stripDot = strip:CreateTexture(nil, "OVERLAY")
-    panel.stripDot:SetTexture(DOT_TEXTURE)
-    panel.stripDot:SetSize(8, 8)
-    panel.stripDot:SetPoint("TOP", strip, "TOP", 1, -8)
-    panel.stripCount = PanelText(strip, "GameFontHighlight")
-    panel.stripCount:SetJustifyH("CENTER")
-    panel.stripCount:SetPoint("TOP", panel.stripDot, "BOTTOM", 0, -3)
-    panel.stripTrend = PanelText(strip, "GameFontHighlightSmall")
-    panel.stripTrend:SetJustifyH("CENTER")
-    panel.stripTrend:SetPoint("TOP", panel.stripCount, "BOTTOM", 0, -2)
-    panel.stripBar = {}
-    for i = 1, BAR_SEGMENTS do
-        local segment = strip:CreateTexture(nil, "ARTWORK")
-        segment:SetTexture(FLAT)
-        segment:SetWidth(5)
-        segment:Hide()
-        panel.stripBar[i] = segment
+local function ClusterHas(cluster, mapID)
+    for j = 1, cluster.size do
+        if cluster.zones[j].mapID == mapID then return true end
     end
-    local full = CreateFrame("Frame", nil, panel)
-    full:SetAllPoints(panel)
-    full:Hide()
-    panel.full = full
-    panel.head = CreateFrame("Button", nil, full)
-    panel.head:SetPoint("TOPLEFT", full, "TOPLEFT", 2, 0)
-    panel.head:SetPoint("TOPRIGHT", full, "TOPRIGHT", 0, 0)
-    panel.head:SetHeight(18)
-    panel.head:SetScript("OnClick", function()
+    return false
+end
+
+local function StyleRing(ring)
+    local lit = litZone ~= nil and ring.cluster ~= nil and ClusterHas(ring.cluster, litZone)
+    local scale = (lit and LIT_SCALE or 1) / ring.k
+    if ring.scaleSet ~= scale then
+        ring.scaleSet = scale
+        ring:SetScale(scale)
+    end
+end
+
+local function ApplyLit()
+    for i = 1, ringsShown do StyleRing(rings[i]) end
+end
+
+local function ShowFactsTip(owner, data)
+    if not data then return end
+    GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
+    GameTooltip:AddLine("Enemies in the last 5 minutes", 1, 1, 1)
+    local stealth, higher = data.stealth or 0, data.higher or 0
+    if stealth == 0 and higher == 0 then
+        GameTooltip:AddLine("None can stealth, none are higher level than you", 0.6, 0.65, 0.7)
+    else
+        GameTooltip:AddDoubleLine("Can stealth", tostring(stealth), 1, 0.96, 0.41, 1, 1, 1)
+        GameTooltip:AddDoubleLine("Higher level than you", tostring(higher), 1, 0.48, 0.35, 1, 1, 1)
+    end
+    GameTooltip:Show()
+end
+
+local panelHooks = {
+    factsTip = ShowFactsTip,
+    rowTip = ShowRowTip,
+    hideTip = HideTip,
+    rowEnter = function(mapID)
+        litZone = mapID
+        ApplyLit()
+    end,
+    rowLeave = function()
+        if litZone ~= nil then
+            litZone = nil
+            ApplyLit()
+        end
+    end,
+    toggle = function()
         local profile = SoundAlerter.db1 and SoundAlerter.db1.profile
         if not profile then return end
-        profile.globalPanelExpanded = not profile.globalPanelExpanded
+        profile.globalPanelExpanded = not Expanded()
         forceDraw = true
-    end)
-    panel.title = PanelText(panel.head, "GameFontNormalSmall")
-    panel.title:SetPoint("LEFT", panel.head, "LEFT", 8, -1)
-    panel.title:SetPoint("RIGHT", panel.head, "RIGHT", -44, -1)
-    panel.toggle = PanelText(panel.head, "GameFontDisableSmall")
-    panel.toggle:SetPoint("RIGHT", panel.head, "RIGHT", -8, -1)
-    panel.verdict = PanelText(full, "GameFontNormal")
-    panel.verdict:SetPoint("TOPLEFT", full, "TOPLEFT", 8, -20)
-    panel.count = PanelText(full, "GameFontHighlightLarge")
-    panel.count:SetPoint("LEFT", panel.verdict, "RIGHT", 6, 0)
-    panel.trend = PanelText(full, "GameFontHighlightSmall")
-    panel.trend:SetPoint("LEFT", panel.count, "RIGHT", 6, 0)
-    panel.facts = PanelText(full, "GameFontDisableSmall")
-    panel.facts:SetPoint("TOPLEFT", full, "TOPLEFT", 8, -40)
-    panel.facts:SetWidth(PANEL_WIDTH - 16)
-    panel.bar = {}
-    for i = 1, BAR_SEGMENTS do
-        local segment = full:CreateTexture(nil, "ARTWORK")
-        segment:SetTexture(FLAT)
-        segment:SetHeight(5)
-        segment:Hide()
-        panel.bar[i] = segment
+    end,
+}
+
+local function PanelOption(key)
+    local profile = SoundAlerter.db1 and SoundAlerter.db1.profile
+    return SA_GlobalPanel.Option(profile and profile[key])
+end
+
+local function BuildPanel()
+    panel = SA_GlobalPanel.Create(WorldMapFrame.ScrollContainer or WorldMapFrame, panelHooks)
+end
+
+local function Trend(data, change)
+    if change > 0 then
+        data.trend, data.trR, data.trG, data.trB = "+" .. change, 1, 0.48, 0.35
+    elseif change < 0 then
+        data.trend, data.trR, data.trG, data.trB = tostring(change), 0.5, 0.83, 0.54
+    else
+        data.trend, data.trR, data.trG, data.trB = "", 0.55, 0.58, 0.64
     end
-    panel.rows = {}
-    for i = 1, MAX_ROWS do
-        local row = CreateFrame("Button", nil, full)
-        row:SetHeight(ROW_HEIGHT)
-        row:SetPoint("TOPLEFT", full, "TOPLEFT", 2, -ROWS_TOP - (i - 1) * ROW_HEIGHT)
-        row:SetPoint("RIGHT", full, "RIGHT", 0, 0)
-        row.name = PanelText(row, "GameFontHighlightSmall")
-        row.name:SetPoint("LEFT", row, "LEFT", 8, 0)
-        row.ago = PanelText(row, "GameFontDisableSmall")
-        row.ago:SetPoint("RIGHT", row, "RIGHT", -8, 0)
-        row.ago:SetJustifyH("RIGHT")
-        row.dist = PanelText(row, "GameFontHighlightSmall")
-        row.dist:SetPoint("RIGHT", row, "RIGHT", -54, 0)
-        row.dist:SetJustifyH("RIGHT")
-        row.level = PanelText(row, "GameFontHighlightSmall")
-        row.level:SetJustifyH("RIGHT")
-        row.arrow = row:CreateTexture(nil, "OVERLAY")
-        row.arrow:SetTexture(ARROW_TEXTURE)
-        row.arrow:SetSize(9, 9)
-        row.arrow:SetVertexColor(0.85, 0.88, 0.92, 1)
-        row.arrow:SetPoint("RIGHT", row.level, "LEFT", -4, 0)
-        row.name:SetPoint("RIGHT", row.arrow, "LEFT", -4, 0)
-        row.members = {}
-        row.count = 0
-        row:SetScript("OnEnter", ShowRowTip)
-        row:SetScript("OnLeave", HideTip)
-        row:Hide()
-        panel.rows[i] = row
-    end
-    panel:Hide()
+end
+
+local function Tile(tile, label, value, sub, r, g, b)
+    tile.label, tile.value, tile.sub = label, value, sub or ""
+    tile.r, tile.g, tile.b = r or 0.55, g or 0.58, b or 0.64
 end
 
 local function PlayerSpot(zone, current)
@@ -697,38 +632,29 @@ local function Swatches(group, size)
     return table.concat(swatchParts, "")
 end
 
-local function Layout()
-    local width = panelOpen and PANEL_WIDTH or STRIP_WIDTH
-    if panel.shownWidth ~= width then
-        panel.shownWidth = width
-        panel:SetWidth(width)
-        panel.full:SetShown(panelOpen)
-        panel.strip:SetShown(not panelOpen)
-    end
-    local height = panelOpen and panel.fullHeight or STRIP_HEIGHT
-    if panel.shownHeight ~= height then
-        panel.shownHeight = height
-        panel:SetHeight(height)
-    end
-end
-
 local function DrawPanel(store, zone, now)
+    local option = PanelOption("globalPanelZone")
+    if option == "off" then
+        panelZone = nil
+        if panel then SA_GlobalPanel.Hide(panel) end
+        return
+    end
     if not panel then BuildPanel() end
     panelZone = zone
     local expanded = Expanded()
     for class in pairs(mix) do mix[class] = 0 end
     for i = 1, #ordered do ordered[i] = nil end
-    local count, previous, stealth, higher, confirmed = 0, 0, 0, 0, 0
+    local count, previous, confirmed, stealth, higher = 0, 0, 0, 0, 0
     local mine = UnitLevel and UnitLevel("player")
     for _, record in pairs(store.records) do
         if record.mapID == zone then
             local age = now - record.lastSeen
             if age <= WINDOW then
                 count = count + 1
-                ordered[count] = record
-                mix[record.class] = (mix[record.class] or 0) + 1
                 if M.STEALTH[record.class] then stealth = stealth + 1 end
                 if M.Higher(record.level, mine) then higher = higher + 1 end
+                ordered[count] = record
+                mix[record.class] = (mix[record.class] or 0) + 1
                 if SA_GlobalSight.Confirmed(record) then confirmed = confirmed + 1 end
             end
             if record.firstSeen <= now - WINDOW and age <= WINDOW * 2 then previous = previous + 1 end
@@ -757,139 +683,65 @@ local function DrawPanel(store, zone, now)
     end
     local verdict = M.Verdict(count, nearGroup, confirmed)
     local color = VERDICT_COLOR[verdict]
+    local data = zoneData
     local name = ZoneName(zone)
-    SetText(panel.title, (name ~= "" and name or "This zone") .. " · last 5 min")
-    SetText(panel.toggle, expanded and "less" or "more")
-    SetText(panel.verdict, verdict:upper())
-    panel.verdict:SetTextColor(color[1], color[2], color[3])
-    if panel.verdictShown ~= verdict then
-        panel.verdictShown = verdict
-        panel.edge:SetVertexColor(color[1], color[2], color[3], 1)
-        panel.stripDot:SetVertexColor(color[1], color[2], color[3], 1)
-    end
-    SetText(panel.stripCount, tostring(count))
-    SetText(panel.count, count == 1 and "1 enemy" or count .. " enemies")
-    local change = count - previous
-    if change > 0 then
-        SetText(panel.trend, "+" .. change)
-        panel.trend:SetTextColor(1, 0.48, 0.35)
-        SetText(panel.stripTrend, "+" .. change)
-        panel.stripTrend:SetTextColor(1, 0.48, 0.35)
-    elseif change < 0 then
-        SetText(panel.trend, tostring(change))
-        panel.trend:SetTextColor(0.5, 0.83, 0.54)
-        SetText(panel.stripTrend, tostring(change))
-        panel.stripTrend:SetTextColor(0.5, 0.83, 0.54)
-    else
-        SetText(panel.trend, "=")
-        panel.trend:SetTextColor(0.55, 0.58, 0.64)
-        SetText(panel.stripTrend, "")
-    end
-    local facts, n = factParts, 0
-    if nearest then
-        n = n + 1
-        facts[n] = "Nearest ~" .. M.Yards(nearest) .. " yd " .. nearestDir
-    end
-    if stealth > 0 then
-        n = n + 1
-        facts[n] = stealth .. " can stealth"
-    end
-    if higher > 0 then
-        n = n + 1
-        facts[n] = higher .. " higher level"
-    end
-    local watchers = store.watcherCounts[zone] or 0
-    n = n + 1
-    facts[n] = watchers .. " watching"
-    for i = n + 1, #facts do facts[i] = nil end
-    SetText(panel.facts, table.concat(facts, " · "))
-    if count > 0 then
-        FillBar(panel.bar, mix, count, PANEL_WIDTH - 20, panel.full, 10, -54)
-        FillBar(panel.stripBar, mix, count, STRIP_HEIGHT - 72, panel.strip, 9, -62, true)
-    else
-        for i = 1, #panel.bar do panel.bar[i]:Hide() end
-        for i = 1, #panel.stripBar do panel.stripBar[i]:Hide() end
-    end
+    data.option, data.expanded = option, expanded
+    data.title = (name ~= "" and name or "This zone") .. " · last 5 min"
+    data.verdict = verdict:upper()
+    data.vr, data.vg, data.vb = color[1], color[2], color[3]
+    data.count, data.total, data.countText = count, count, tostring(count)
+    data.stealth, data.higher = stealth, higher
+    Trend(data, count - previous)
+    local tiles = data.tiles
+    Tile(tiles[1], "Enemies", data.countText, data.trend, data.trR, data.trG, data.trB)
+    Tile(tiles[2], "Nearest", nearest and (M.Yards(nearest) .. " yd " .. nearestDir) or "none")
+    Tile(tiles[3], "Watching", tostring(store.watcherCounts[zone] or 0))
     for g = 1, total do order[g] = g end
     for g = total + 1, #order do order[g] = nil end
     table.sort(order, ByGroup)
-    local limit = expanded and MAX_ROWS or COMPACT_ROWS
-    local rows = math.min(total, limit)
-    local extra = total - rows
-    if extra > 0 then rows = rows - 1 end
-    local shownRows = 0
-    for i = 1, MAX_ROWS do
-        local row = panel.rows[i]
-        if i <= rows then
-            local members = groups[order[i]]
-            local size = #members
-            local lead = members[1]
-            row.count = size
-            for k = 1, size do row.members[k] = members[k] end
-            for k = size + 1, #row.members do row.members[k] = nil end
-            local leadColor = ClassColor(lead.class)
-            if size >= 2 then
-                SetText(row.name, "Group of " .. size .. " " .. Swatches(members, size))
-                row.name:SetTextColor(1, 0.69, 0.63)
-            else
-                SetText(row.name, lead.name)
-                row.name:SetTextColor(leadColor.r, leadColor.g, leadColor.b)
-            end
-            local level = lead.level
-            for k = 2, size do
-                local other = members[k].level
-                if type(other) ~= "number" or other < 0 then level = -1 elseif type(level) == "number" and level >= 0 and other > level then level = other end
-            end
-            if type(level) == "number" and level >= 0 then
-                SetText(row.level, tostring(level))
-            else
-                SetText(row.level, "|TInterface\\TargetingFrame\\UI-TargetingFrame-Skull:10:10|t")
-            end
-            row.level:SetTextColor(M.LevelColor(level, mine))
-            local distance = groupDistance[order[i]]
-            local seen = size == 1 and lead.reporterCount and lead.reporterCount >= 2 and (" (" .. lead.reporterCount .. ")") or ""
-            if expanded and distance then
-                local dx, dy = Offset(lead, px, py, width, height)
-                SetText(row.dist, "~" .. M.Yards(distance) .. " yd " .. M.Dir(dx, dy) .. seen)
-            else
-                SetText(row.dist, seen)
-            end
-            SetText(row.ago, M.Short(now - lead.lastSeen))
-            local sure = false
-            for k = 1, size do
-                if SA_GlobalSight.Confirmed(members[k]) then sure = true break end
-            end
-            row:SetAlpha(sure and 1 or 0.55)
-            local gap = row.dist.shownText == "" and 0 or -6
-            if row.gap ~= gap then
-                row.gap = gap
-                row.level:ClearAllPoints()
-                row.level:SetPoint("RIGHT", row.dist, "LEFT", gap, 0)
-            end
-            SetArrow(row.arrow, Heading(lead, width, height))
-            row:Show()
-            shownRows = shownRows + 1
-        elseif i == rows + 1 and extra > 0 then
-            row.count = 0
-            SetText(row.name, "+ " .. (extra + 1) .. " more")
-            row.name:SetTextColor(0.55, 0.58, 0.64)
-            SetText(row.level, "")
-            SetText(row.dist, "")
-            SetText(row.ago, "")
-            row.arrow:Hide()
-            row:SetAlpha(1)
-            row:Show()
-            shownRows = shownRows + 1
-        else
-            row.count = 0
-            row:Hide()
+    local rows = SA_GlobalPanel.RowLimit(total, expanded)
+    data.rowCount = rows
+    data.more = SA_GlobalPanel.MoreText(total, rows, expanded)
+    for i = 1, rows do
+        local entry = data.rows[i]
+        if not entry then
+            entry = {}
+            data.rows[i] = entry
         end
+        local members = groups[order[i]]
+        local size = #members
+        local lead = members[1]
+        entry.members, entry.count, entry.zone, entry.meter = members, size, nil, nil
+        if size >= 2 then
+            entry.name = "Group of " .. size .. " " .. Swatches(members, size)
+            entry.nameR, entry.nameG, entry.nameB = 1, 0.69, 0.63
+        else
+            local leadColor = ClassColor(lead.class)
+            entry.name = lead.name
+            entry.nameR, entry.nameG, entry.nameB = leadColor.r, leadColor.g, leadColor.b
+        end
+        entry.dotR, entry.dotG, entry.dotB = entry.nameR, entry.nameG, entry.nameB
+        local level = lead.level
+        for k = 2, size do
+            local other = members[k].level
+            if type(other) ~= "number" or other < 0 then level = -1 elseif type(level) == "number" and level >= 0 and other > level then level = other end
+        end
+        if type(level) == "number" and level >= 0 then
+            entry.lvlText = tostring(level)
+        else
+            entry.lvlText = "|TInterface\\TargetingFrame\\UI-TargetingFrame-Skull:10:10|t"
+        end
+        entry.lvlR, entry.lvlG, entry.lvlB = M.LevelColor(level, mine)
+        entry.chip = true
+        entry.ago = SA_GlobalPanel.AgeText(now - lead.lastSeen)
+        entry.bearing = Heading(lead, width, height)
+        local sure = false
+        for k = 1, size do
+            if SA_GlobalSight.Confirmed(members[k]) then sure = true break end
+        end
+        entry.alpha = sure and 1 or 0.55
     end
-    local panelHeight = ROWS_TOP + math.max(1, shownRows) * ROW_HEIGHT + 6
-    if count == 0 then panelHeight = ROWS_TOP + 4 end
-    panel.fullHeight = panelHeight
-    Layout()
-    panel:Show()
+    SA_GlobalPanel.Draw(panel, data)
 end
 
 local function DrawDots(store, host, canvas, now, tier, stitched)
@@ -1003,8 +855,16 @@ local function DrawRings(store, host, canvas, now, tier, stitched)
         for class in pairs(zone.classes) do zone.classes[class] = 0 end
     end
     local mine = UnitLevel and UnitLevel("player")
+    worldTotal, worldPrevious, worldStealth, worldHigher = 0, 0, 0, 0
+    for class in pairs(worldMix) do worldMix[class] = 0 end
     for _, record in pairs(store.records) do
-        if now - record.lastSeen <= WINDOW then
+        local age = now - record.lastSeen
+        if record.firstSeen <= now - WINDOW and age <= WINDOW * 2 then worldPrevious = worldPrevious + 1 end
+        if age <= WINDOW then
+            worldTotal = worldTotal + 1
+            if M.STEALTH[record.class] then worldStealth = worldStealth + 1 end
+            if M.Higher(record.level, mine) then worldHigher = worldHigher + 1 end
+            worldMix[record.class] = (worldMix[record.class] or 0) + 1
             local zone = zones[record.mapID]
             if not zone then
                 zone = { mapID = record.mapID, count = 0, higher = false, classes = {} }
@@ -1058,10 +918,8 @@ local function DrawRings(store, host, canvas, now, tier, stitched)
             rings[i] = ring
         end
         ring.cluster = cluster
-        if ring.k ~= k then
-            ring.k = k
-            ring:SetScale(1 / k)
-        end
+        ring.k = k
+        StyleRing(ring)
         if ring.px ~= cluster.x or ring.py ~= cluster.y then
             ring.px, ring.py = cluster.x, cluster.y
             ring:ClearAllPoints()
@@ -1086,11 +944,76 @@ local function DrawRings(store, host, canvas, now, tier, stitched)
     ringsShown = count
 end
 
+local function ByZoneCount(a, b)
+    if a.count ~= b.count then return a.count > b.count end
+    return a.mapID < b.mapID
+end
+
+local function DrawWorldPanel(store, host)
+    local option = PanelOption("globalPanelWorld")
+    if option == "off" then
+        if panel then SA_GlobalPanel.Hide(panel) end
+        return
+    end
+    if not panel then BuildPanel() end
+    local expanded = Expanded()
+    local zoneCount, mostEnemies = 0, 1
+    for _, zone in pairs(zones) do
+        if zone.count > 0 then
+            zoneCount = zoneCount + 1
+            zoneList[zoneCount] = zone
+            if zone.count > mostEnemies then mostEnemies = zone.count end
+        end
+    end
+    for i = zoneCount + 1, #zoneList do zoneList[i] = nil end
+    table.sort(zoneList, ByZoneCount)
+    local watchers = 0
+    for _, number in pairs(store.watcherCounts) do watchers = watchers + number end
+    local verdict = M.WorldVerdict(worldTotal)
+    local color = VERDICT_COLOR[verdict]
+    local data = worldData
+    local name = ZoneName(host)
+    data.option, data.expanded = option, expanded
+    data.title = (name ~= "" and name or "World") .. " · last 5 min"
+    data.verdict = verdict:upper()
+    data.vr, data.vg, data.vb = color[1], color[2], color[3]
+    data.count, data.total, data.countText = worldTotal, worldTotal, tostring(worldTotal)
+    data.stealth, data.higher = worldStealth, worldHigher
+    Trend(data, worldTotal - worldPrevious)
+    local tiles = data.tiles
+    Tile(tiles[1], "Enemies", data.countText, data.trend, data.trR, data.trG, data.trB)
+    Tile(tiles[2], "Zones", tostring(zoneCount))
+    Tile(tiles[3], "Watching", tostring(watchers))
+    local rows = SA_GlobalPanel.RowLimit(zoneCount, expanded)
+    data.rowCount = rows
+    data.more = SA_GlobalPanel.MoreText(zoneCount, rows, expanded)
+    for i = 1, rows do
+        local entry = data.rows[i]
+        if not entry then
+            entry = {}
+            data.rows[i] = entry
+        end
+        local zone = zoneList[i]
+        entry.members, entry.count, entry.zone = nil, 0, zone.mapID
+        entry.name = ZoneName(zone.mapID)
+        entry.nameR, entry.nameG, entry.nameB = 1, 1, 1
+        if zone.higher then
+            entry.dotR, entry.dotG, entry.dotB = 1, 0.6, 0.25
+        else
+            entry.dotR, entry.dotG, entry.dotB = 0.36, 0.48, 0.69
+        end
+        entry.lvlText, entry.lvlR, entry.lvlG, entry.lvlB = tostring(zone.count), 1, 1, 1
+        entry.chip, entry.ago, entry.bearing, entry.alpha = false, "", nil, 1
+        entry.meter = math.max(3, math.floor(zone.count / mostEnemies * 60))
+    end
+    SA_GlobalPanel.Draw(panel, data)
+end
+
 local function HideAll()
     HideFrom(dots, 1, dotsShown)
     HideFrom(rings, 1, ringsShown)
     dotsShown, ringsShown = 0, 0
-    if panel then panel:Hide() end
+    if panel then SA_GlobalPanel.Hide(panel) end
 end
 
 local function ClearDirty(store)
@@ -1130,8 +1053,8 @@ local function Draw()
     else
         HideFrom(dots, 1, dotsShown)
         dotsShown = 0
-        if panel then panel:Hide() end
         DrawRings(store, host, canvas, now, tier, stitched)
+        DrawWorldPanel(store, host)
     end
 end
 
@@ -1154,13 +1077,6 @@ local function OnUpdate(_, elapsed)
     if tier.hideMoving and now < quietUntil then return end
     local store = SoundAlerter:GlobalSightStore()
     if not store then return end
-    if panel and panel:IsShown() then
-        local over = panel:IsMouseOver()
-        if over ~= panelOpen then
-            panelOpen = over
-            Layout()
-        end
-    end
     if forceDraw or now >= nextRefresh or (next(store.dirty) ~= nil and now - lastDraw >= tier.redraw) then
         Draw()
     elseif mode == "dots" and now >= nextPanel and panelZone then

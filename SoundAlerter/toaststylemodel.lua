@@ -2,6 +2,8 @@ SA_ToastStyle = {}
 
 SA_ToastStyle.STYLES = { "intel", "threat" }
 SA_ToastStyle.DEFAULT = "intel"
+SA_ToastStyle.NAME_GAP = 11
+SA_ToastStyle.SECOND_NAME_MIN = 28
 
 local BAND_RANK = { Close = 4, Nearby = 3, Medium = 2, Detected = 1 }
 local BAND_PHRASE = { Close = "very close", Nearby = "close by", Medium = "in range", Detected = "far away" }
@@ -38,6 +40,17 @@ function SA_ToastStyle.Threat(className, band, nearbyCount)
     local why = table.concat(parts, ", ")
     if why ~= "" then why = why:sub(1, 1):upper() .. why:sub(2) end
     return level, score, why
+end
+
+function SA_ToastStyle.NameFit(room, nameWidth, secondWidth)
+    room = math.floor(room)
+    local first = math.min(math.ceil(nameWidth) + 1, room)
+    if not secondWidth then return first, nil end
+    local left = room - first - SA_ToastStyle.NAME_GAP
+    local second = math.ceil(secondWidth) + 1
+    if second <= left then return first, second end
+    if left >= SA_ToastStyle.SECOND_NAME_MIN then return first, left end
+    return first, nil
 end
 
 function SA_ToastStyle.GroupText(nearbyCount)

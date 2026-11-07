@@ -39,6 +39,24 @@ function Game.LookupAura(unit, spellID, auraType)
     }, data.auraInstanceID
 end
 
+function Game.AuraDelta(info)
+    if info == nil or issecretvalue(info) then
+        return false
+    end
+    local full, added, removed = info.isFullUpdate, info.addedAuras, info.removedAuraInstanceIDs
+    if issecretvalue(full) or issecretvalue(added) or issecretvalue(removed) then
+        return false
+    end
+    return true, added, removed
+end
+
+function Game.AddedAura(aura)
+    if aura == nil or issecretvalue(aura) then
+        return nil
+    end
+    return Game.Readable(aura.spellId), Game.Readable(aura.auraInstanceID)
+end
+
 local FINISHER_SPELLS = { 1079, 1943, 408, 22568, 8647, 2098, 26679, 22570 }
 local finisherNames
 

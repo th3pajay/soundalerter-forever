@@ -11,6 +11,9 @@ local BANDS = {
 local GLOBAL_QUALITIES = {
     { "low", "Low" }, { "normal", "Normal" }, { "high", "High" },
 }
+local PANEL_MODES = {
+    { "strip", "Strip (hover to open)" }, { "full", "Always open" }, { "off", "Off" },
+}
 local TOAST_STYLES = {
     { "intel", "Intel card" }, { "threat", "Threat card" },
 }
@@ -23,11 +26,13 @@ local SIDE_EFFECTS = {
     shareAlertsReceive = "UpdatePartyShare",
     globalSightings = "UpdateGlobalSight",
     globalQuality = "UpdateGlobalSight",
+    globalPanelZone = "UpdateGlobalMap",
+    globalPanelWorld = "UpdateGlobalMap",
     globalMinimap = "UpdateGlobalMap",
 }
 local SAMPLES = {
-    { "Shadowstep", "Rogue", "Group of 3 - 12 yd", { 1, 0.96, 0.41 }, "Interface\\Icons\\Ability_Stealth", "ROGUE", "Close", 3 },
-    { "Moonfang", "Druid", "Nearby - 28 yd", { 1, 0.49, 0.04 }, "Interface\\Icons\\Ability_Druid_CatForm", "DRUID", "Nearby", 1 },
+    { "Shadowstep", "Rogue", "Group of 3 - 12 yd", { 1, 0.96, 0.41 }, "Interface\\Icons\\Ability_Stealth", "ROGUE", "Close", 3, "Nightwhisper" },
+    { "Moonfang", "Druid", "Nearby - 28 yd", { 1, 0.49, 0.04 }, "Interface\\Icons\\Ability_Druid_CatForm", "DRUID", "Nearby", 1, "Ironwood" },
 }
 
 local function profile()
@@ -40,7 +45,7 @@ end
 
 local function testToast()
     local active = toasts()
-    if active then active:ShowToast("TestEnemy", "ROGUE", "Close", nil, 60, nil, nil, 3) end
+    if active then active:ShowToast("TestEnemy", "ROGUE", "Close", nil, 60, nil, nil, 3, "Ashwhisper") end
 end
 
 local function voicePlayer(file)
@@ -109,6 +114,7 @@ function ProximityPreview.update(state, settings)
         Page.Toast.Update(toast, {
             shown = t.enabled and index <= math.max(1, t.maxConcurrent or 1),
             name = t.showPlayerName and sample[1] or (sample[2] .. " nearby"),
+            second = t.showPlayerName and sample[9] or nil,
             sub = sub,
             nameColor = classColors and color or nil,
             background = classColors and { color[1] * 0.28, color[2] * 0.28, color[3] * 0.28, 0.95 } or nil,
@@ -163,9 +169,11 @@ function SoundAlerter:BuildProximityOptions()
             Page.When("p.stealthKeepWatch", Page.Range("p.stealthWatchGap", "Time between alerts", "Shortest time between repeat alerts for the same enemy.", 2, 30, 1, false, "Stealth", " s")),
             Page.Visible(SA_PartyShare.Supported, Page.Toggle("p.shareAlertsSend", "Share alerts with your group", "Tell group members who run SoundAlerter when you spot a stealthed or watched enemy, or a new enemy nearby. Off by default.", false, "Party sharing")),
             Page.Visible(SA_PartyShare.Supported, Page.Playable(Page.Toggle("p.shareAlertsReceive", "Hear alerts from your group", "Alert you for enemies your group members report, with a soft two-note tone instead of the class voice so you can tell them from your own sightings. Watched players only alert when they are on your own watchlist. Your own alert switches, zones and quiet rules still apply, and the distance limit treats them like enemies your group targets. Off by default.", false, "Party sharing"), voicePlayer("sharedintel.mp3"))),
-            Page.Visible(SA_PartyShare.Supported, Page.Experimental(Page.Toggle("p.globalSightings", "Global sightings (Experimental)", "Share the enemy players you see in the open world with every SoundAlerter user of your faction on your realm, and collect theirs. Shares your rough location (a map square, never your exact position). No sounds or toasts. Off by default.", false, "Party sharing"))),
-            Page.When("p.globalSightings", Page.Select("p.globalQuality", "World map detail", "How much the world map overlay draws. Low redraws every 3 s, shows at most 50 enemies, fades in steps and hides markers while you zoom or pan. Normal redraws every second with up to 150 enemies. High shows every enemy, pulses fresh sightings and adds detail to tooltips and zone badges.", GLOBAL_QUALITIES, true, "Party sharing")),
-            Page.When("p.globalSightings", Page.Toggle("p.globalMinimap", "Show on the minimap", "Class-coloured dots on the minimap for shared sightings around you. Enemies just outside the minimap show as smaller, fainter dots on its edge, pointing the way. Hover a dot for details.", false, "Party sharing")),
+            Page.Visible(SA_PartyShare.Supported, Page.Toggle("p.globalSightings", "Global sightings", "Share the enemy players you see in the open world with every SoundAlerter user of your faction on your realm, and collect theirs. Shares your rough location (a map square, never your exact position). No sounds or toasts. On by default. Turn it off to stop sharing and collecting.", false, "Global sightings")),
+            Page.When("p.globalSightings", Page.Select("p.globalQuality", "World map detail", "How much the world map overlay draws. Low redraws every 3 s, shows at most 50 enemies, fades in steps and hides markers while you zoom or pan. Normal redraws every second with up to 150 enemies. High shows every enemy, pulses fresh sightings and adds detail to tooltips and zone badges.", GLOBAL_QUALITIES, true, "Global sightings")),
+            Page.When("p.globalSightings", Page.Select("p.globalPanelZone", "Zone panel", "The stats card on the world map when you are zoomed into a zone: enemies in the last 5 minutes, nearest, watchers, class mix and the groups seen. Strip is a slim bar that opens while you hover it (click its title to keep it open), Always open keeps the card out, Off hides it.", PANEL_MODES, false, "Global sightings")),
+            Page.When("p.globalSightings", Page.Select("p.globalPanelWorld", "World panel", "The same card when the map is zoomed out to a continent or the world: total enemies and trend, zones reporting, watchers, class mix and the busiest zones. Hover a zone row to highlight its ring on the map.", PANEL_MODES, false, "Global sightings")),
+            Page.When("p.globalSightings", Page.Toggle("p.globalMinimap", "Show on the minimap", "Class-coloured dots on the minimap for shared sightings around you. Enemies just outside the minimap show as smaller, fainter dots on its edge, pointing the way. Hover a dot for details. Off by default.", false, "Global sightings")),
             Page.When("p.proximityChat", Page.Text("p.proximityChatText", "Chat message template", "Customize the chat message. Placeholders: #class# is the enemy class name, #player# is the enemy player name. Example: [#class#] #player# detected nearby!", true, "How it alerts")),
             Page.When("t.enabled", Page.Range("t.displayDuration", "Display duration", "How long the toast remains visible on screen.", 2, 8, 0.5, true, "How it alerts", " s")),
             Page.When("t.enabled", Page.Range("t.maxConcurrent", "Max concurrent toasts", "Maximum number of toasts to show at once (older toasts fade out early if the limit is exceeded).", 1, 5, 1, true, "How it alerts")),

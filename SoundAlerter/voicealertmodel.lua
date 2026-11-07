@@ -315,7 +315,7 @@ Model.ARENA_ROWS = {
 
 Model.INTERRUPT_ROWS = {
     { key = "interruptFocusVoice", label = "Own sound for focus", hint = "Plays focusinterrupted for focus interrupts." },
-    { key = "interruptReadyVoice", label = "Say when interrupt is ready", hint = "Estimated from the spell's usual cooldown." },
+    { key = "interruptReadyVoice", label = "Say when interrupt is ready", hint = "Uses the cooldown learned from your own casts, else the spell's usual cooldown." },
 }
 
 Model.LOSS_MASTER = { key = "lossOfControlVoice", label = "Enable", hint = "Speaks the control effect that hits you." }
@@ -333,6 +333,7 @@ Model.LOSS_ROWS = {
 
 Model.INTERRUPT_MIN = { key = "interruptMinCast", label = "Minimum cast time", hint = "Ignore interrupts of shorter casts. 0 announces all.", min = 0, max = 3, step = 0.1, unit = " s" }
 Model.INTERRUPT_PETS = { key = "interruptPets", label = "Count pet interrupts" }
+Model.PROC_ROW = { key = "procVoices", label = "Say my procs", hint = "Says the spell when one of yours lights up. /sa procs lists which have a voice." }
 Model.ENGINE_ROW = { key = "engineAuraSounds", label = "Let the game play debuff alerts", hint = "Experimental. Covers you and an enemy target or focus. Skips Statistics. /sa aurasound tests it." }
 
 Model.CHANNELS = {
@@ -489,6 +490,7 @@ function Model.ResetKeys(model)
     add(Model.INTERRUPT_MIN.key)
     add(Model.INTERRUPT_PETS.key)
     add(Model.ENGINE_ROW.key)
+    add(Model.PROC_ROW.key)
     add(Model.CHAT_TARGET_ONLY.key)
     add("chatgroups")
     for _, row in ipairs(Model.CHAT_EVENTS) do add(row.key) end

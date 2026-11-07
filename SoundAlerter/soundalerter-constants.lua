@@ -148,6 +148,10 @@ SA_COMPAT.InventoryItem = function(slot)
     return SA_COMPAT.Plain(GetInventoryItemID("player", slot)), SA_COMPAT.Plain(GetInventoryItemTexture("player", slot))
 end
 
+SA_COMPAT.InventoryItemID = function(slot)
+    return SA_COMPAT.Plain(GetInventoryItemID("player", slot))
+end
+
 SA_COMPAT.InventoryCooldown = function(slot)
     local start, duration, enable = GetInventoryItemCooldown("player", slot)
     return SA_COMPAT.Plain(start), SA_COMPAT.Plain(duration), SA_COMPAT.Plain(enable)

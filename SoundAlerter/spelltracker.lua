@@ -25,6 +25,7 @@ local iconFrames = {}
 local throttleTime = 0
 local spellTextureCache = {}
 local trackedSpellsByUnit = { player = {}, target = {} }
+local playerAuraOwners = {}
 
 local cooldownThrottle = 0
 local COOLDOWN_UPDATE_INTERVAL = 0.1
@@ -383,7 +384,10 @@ end
 
 function SpellTracker:OnEvent(event, ...)
     if event == "UNIT_AURA" then
-        local unit = ...
+        local unit, info = ...
+        if unit == "player" then
+            self:ReadAuraChanges(info)
+        end
         if unit == "player" or unit == "target" then
             self:ScanAuras(unit)
         end
@@ -448,6 +452,37 @@ function SpellTracker:OnTrackedCast(spellID)
                         self:CheckFinisher(trackerIndex, spellID, castTime)
                     end)
                 end
+            end
+        end
+    end
+end
+
+function SpellTracker:ReadAuraChanges(info)
+    if next(playerAuraOwners) == nil then return end
+    local readable, added, removed = Game.AuraDelta(info)
+    if not readable then
+        if not self.auraDeltaHidden then
+            self.auraDeltaHidden = true
+            self.addon:Debug("SpellTracker", "player aura changes are hidden, in-combat timers run in full (reported once)")
+        end
+        return
+    end
+
+    if added then
+        for _, aura in ipairs(added) do
+            local spellID, instanceID = Game.AddedAura(aura)
+            local owner = spellID and playerAuraOwners[spellID]
+            if owner and instanceID then
+                self.state:NoteAura(owner, instanceID)
+            end
+        end
+    end
+
+    if removed then
+        for _, instanceID in ipairs(removed) do
+            local plain = Game.Readable(instanceID)
+            if plain and self.state:AuraRemoved(plain) then
+                self.addon:Debug("SpellTracker", "aura instance %d removed, its timer stops", plain)
             end
         end
     end
@@ -968,6 +1003,7 @@ end
 
 function SpellTracker:RebuildTrackingLookups()
     trackedSpellsByUnit = { player = {}, target = {} }
+    playerAuraOwners = {}
     for k in pairs(cooldownEnabledTrackers) do
         cooldownEnabledTrackers[k] = nil
     end
@@ -980,11 +1016,18 @@ function SpellTracker:RebuildTrackingLookups()
             if not trackedSpellsByUnit[config.unit] then
                 trackedSpellsByUnit[config.unit] = {}
             end
+            local aliases = SA_TrackerModel.RANK_ALIASES[config.spellID]
             trackedSpellsByUnit[config.unit][config.spellID] = {
                 trackerIndex = i,
                 auraType = config.auraType,
-                aliases = SA_TrackerModel.RANK_ALIASES[config.spellID],
+                aliases = aliases,
             }
+            if config.unit == "player" then
+                playerAuraOwners[config.spellID] = i
+                if aliases then
+                    for a = 1, #aliases do playerAuraOwners[aliases[a]] = i end
+                end
+            end
             if config.trackCooldown then
                 cooldownEnabledTrackers[#cooldownEnabledTrackers + 1] = i
             else

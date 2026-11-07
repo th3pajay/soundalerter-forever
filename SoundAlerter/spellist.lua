@@ -58,6 +58,7 @@ SoundAlerterSpells = {
 
         [402913] = "enragedregeneration",
         [1719] = "recklessness",
+        [1329555] = "recklessswings",
         [871] = "shieldwall",
         [12975] = "laststand",
         [18499] = "berserkerrage",
@@ -271,6 +272,7 @@ SoundAlerterSpells = {
 
         [5138] = "drainmana",
         [17928] = "fear2",
+        [19244] = "spelllock",
         [19647] = "spelllock",
         [6789] = "deathcoil",
 		[17925] = "deathcoil",
@@ -315,6 +317,8 @@ SoundAlerterSpells = {
         [6552] = "pummel",
         [6554] = "pummel",
         [72] = "shieldbash",
+        [1671] = "shieldbash",
+        [1672] = "shieldbash",
 
         [10890] = "fear4",
         [34433] = "shadowfiend",
@@ -368,10 +372,7 @@ SoundAlerterSpells = {
         [450600] = "hexdown",
         [339] = "roots",
     },
-    interruptFriend = {
-        [2139] = "lockout",
-        [1766] = "lockout",
-    },
+    interruptFriend = {},
     friendCCs = {
         [450600] = "hexfriend",
         [12824] = "polyfriend",
@@ -647,6 +648,7 @@ SoundAlerterSpellMeta = {
     rallyingcry = { "Warrior", "Rallying Cry" },
     recklessness = { "Warrior", "Recklessness" },
     recklessnessdown = { "Warrior", "Recklessness" },
+    recklessswings = { "Warrior", "Reckless Swings" },
     retaliation = { "Warrior", "Retaliation" },
     shieldbash = { "Warrior", "Shield Bash" },
     shieldwall = { "Warrior", "Shield Wall" },
@@ -669,3 +671,7 @@ SoundAlerterSpellMeta = {
     lockout = { "Other", "Interrupts on you" },
     resurrection = { "Other", "Resurrections" },
 }
+
+for spellID in pairs(SA_Interrupt.COOLDOWN) do
+    SoundAlerterSpells.interruptFriend[spellID] = "lockout"
+end

@@ -471,6 +471,13 @@ function Window:SyncPlaceholder()
     self.clear:SetShown(text ~= "")
 end
 
+function Window:SearchFor(text)
+    self.box:SetText(text)
+    self.box:ClearFocus()
+    self:SyncPlaceholder()
+    self:RunSearch()
+end
+
 function Window:RefreshControls()
     local settings = self:Settings()
     self.scopeSelect:Set(settings.scope)

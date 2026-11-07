@@ -3,4 +3,5 @@
 	<Binding name="CLICK SA_TrinketButton2:LeftButton" category="ADDONS"/>
 	<Binding name="CLICK SA_TrinketSetButton:LeftButton" category="ADDONS"/>
 	<Binding name="CLICK SA_TrinketGearButton:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK SA_TrinketWeaponButton:Keybind" category="ADDONS"/>
 </Bindings>

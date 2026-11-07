@@ -6,6 +6,8 @@ local SLIDE_DISTANCE = 12
 local SLIDE_TIME = 0.16
 local TINT_TIME = 0.12
 local KNOB_TIME = 0.14
+local MOVE_TIME = 0.35
+local APPEAR_TIME = 0.3
 local FLASH_TIME = 0.65
 local SHAKE_TIME = 0.05
 local SHAKE_OFFSETS = { 7, -13, 9, -5, 2 }
@@ -16,6 +18,7 @@ local function registry()
 end
 
 local slides, fades, glides, flashes, shakes = registry(), registry(), registry(), registry(), registry()
+local moves, appears = registry(), registry()
 
 function FX.Enabled()
     local addon = SoundAlerter
@@ -145,6 +148,65 @@ function FX.Glide(region, relative, x, animate)
     place(region, relative, from)
     set.move:SetOffset(x - from, 0)
     set.group:Play()
+end
+
+local function placeAt(region, relative, x, y)
+    region:ClearAllPoints()
+    region:SetPoint("TOPLEFT", relative, "TOPLEFT", x, -y)
+end
+
+function FX.Forget(region)
+    local set = moves[region]
+    if not set then return end
+    if set.group and set.group:IsPlaying() then set.group:Stop() end
+    set.x, set.y = nil, nil
+end
+
+function FX.GlideXY(region, relative, x, y, animate, fromX, fromY)
+    local set = moves[region]
+    if not set then
+        set = {}
+        moves[region] = set
+    end
+    local playing = set.group and set.group:IsPlaying()
+    if set.x == x and set.y == y then
+        if not playing then placeAt(region, relative, x, y) end
+        return
+    end
+    local startX, startY = set.x or fromX, set.y or fromY
+    if playing then set.group:Stop() end
+    set.x, set.y, set.relative = x, y, relative
+    if not animate or startX == nil or not FX.Enabled() then
+        placeAt(region, relative, x, y)
+        return
+    end
+    if not set.group then
+        local group = region:CreateAnimationGroup()
+        local move = group:CreateAnimation("Translation")
+        move:SetOrder(1)
+        move:SetDuration(MOVE_TIME)
+        move:SetSmoothing("OUT")
+        set.group, set.move = group, move
+        local function done() placeAt(region, set.relative, set.x, set.y) end
+        group:SetScript("OnFinished", done)
+        group:SetScript("OnStop", done)
+    end
+    placeAt(region, relative, startX, startY)
+    set.move:SetOffset(x - startX, startY - y)
+    set.group:Play()
+end
+
+function FX.Appear(region)
+    if not FX.Enabled() then return false end
+    local group = appears[region]
+    if not group then
+        group = region:CreateAnimationGroup()
+        alpha(group, 1, 0, 1, APPEAR_TIME):SetSmoothing("OUT")
+        appears[region] = group
+    end
+    group:Stop()
+    group:Play()
+    return true
 end
 
 function FX.Flash(texture)

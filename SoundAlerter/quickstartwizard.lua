@@ -498,9 +498,22 @@ function SoundAlerter:ShowQuickStartSetup()
     OpenWindow()
 end
 
+function SoundAlerter:ShowSightingsNotice()
+    local global = self.db1 and self.db1.global
+    if global then global.sightingsNoticeDone = true end
+    self:Print(QuickStart.SIGHTINGS_NOTICE)
+end
+
 function SoundAlerter:CheckQuickStartSetup()
     local global = self.db1 and self.db1.global
-    if global and QuickStart.NeedsSetup(global) then self:ScheduleTimer("ShowQuickStartSetup", FIRST_RUN_DELAY) end
+    if not global then return end
+    if QuickStart.NeedsSetup(global) then self:ScheduleTimer("ShowQuickStartSetup", FIRST_RUN_DELAY) end
+    local notice = QuickStart.SightingsNoticeDue(global, profile() or {}, SA_PartyShare.Supported())
+    if notice == "tell" then
+        self:ScheduleTimer("ShowSightingsNotice", FIRST_RUN_DELAY)
+    elseif notice == "skip" then
+        global.sightingsNoticeDone = true
+    end
 end
 
 local WidgetMethods = {}

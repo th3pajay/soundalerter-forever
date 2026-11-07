@@ -28,6 +28,7 @@ local function write(key, value)
     local scope, name = key:match("^(%a+)%.(.+)$")
     if scope == "p" then
         current[name] = value
+        if name == "updateNotice" and SoundAlerter.UpdateCheck then SoundAlerter.UpdateCheck:Refresh() end
         if name == "hiddenSpells" then
             SA_Secret.SetEnabled(value)
             SA_Secret.Reset()
@@ -108,6 +109,7 @@ function SoundAlerter:BuildGeneralOptions()
             Page.When("m.enabled", Page.Toggle("m.target", "Track target", "", true, "Minimap tracking")),
             Page.When("m.enabled", Page.Toggle("m.focus", "Track focus", "", true, "Minimap tracking")),
             Page.Visible(SA_Secret.Supported, Page.Toggle("p.hiddenSpells", "Show hidden enemy spells", "Draws the real name and icon of casts the client hides, in the cast feed, toasts and aura display. /sa secrets shows the state.", false, "Hidden spells")),
+            Page.Toggle("p.updateNotice", "Tell me when a newer version is out", "Prints one chat line when another SoundAlerter user's copy proves a newer release exists. Your copy also shares that it knows of a release with your guild, group and, if Global sightings is on, its channel. Turning this off stops both.", false, "Updates"),
             Page.Toggle("p.flatWindow", "Dark flat options window", "Restyle the options window in the same dark flat look as the pages. Turning it off fully applies after /reload.", true, "Window"),
             Page.Toggle("p.menuAnimations", "Animate the options window", "Page slide-in, hover tint, switch glide, change flash and press feedback. Off shows everything instantly.", true, "Window"),
             Page.When("p.debugmode", Page.Toggle("p.spelldebug", "Spell ID output debugging", "Print the spell ID of every spell the addon sees. Needs Debug Mode, set in Developer tools.", true, "Debug")),

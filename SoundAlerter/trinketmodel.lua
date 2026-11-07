@@ -16,15 +16,16 @@ function Model.Other(slot)
     return slot == 13 and 14 or 13
 end
 
-function Model.Order(swapOrder, showSet, showGear)
+function Model.Order(swapOrder, showSet, showGear, showWeapon)
     local order = swapOrder and { 14, 13 } or { 13, 14 }
+    if showWeapon then order[#order + 1] = "weapon" end
     if showSet then order[#order + 1] = "set" end
     if showGear then order[#order + 1] = "gear" end
     return order
 end
 
-function Model.Layout(orientation, swapOrder, showSet, showGear, size, spacing)
-    local order = Model.Order(swapOrder, showSet, showGear)
+function Model.Layout(orientation, swapOrder, showSet, showGear, size, spacing, showWeapon)
+    local order = Model.Order(swapOrder, showSet, showGear, showWeapon)
     local offsets, step = {}, size + spacing
     local horizontal = orientation == "horizontal"
     for index, key in ipairs(order) do
@@ -142,6 +143,99 @@ function Model.GearLabel(name)
         label, count = label .. char, count + 1
     end
     return label
+end
+
+Model.MAIN_HAND, Model.OFF_HAND = 16, 17
+Model.WEAPON_SLOTS = {
+    INVTYPE_WEAPON = 16, INVTYPE_2HWEAPON = 16, INVTYPE_WEAPONMAINHAND = 16,
+    INVTYPE_WEAPONOFFHAND = 17, INVTYPE_SHIELD = 17, INVTYPE_HOLDABLE = 17,
+}
+Model.WEAPON_NAMES = { "DPS", "Healing" }
+local WEAPON_LABELS = { "DPS", "HEAL" }
+local WEAPON_LETTERS = { "N", "H" }
+local WEAPON_WORD_MIN = 30
+
+function Model.PairFilled(pair)
+    return type(pair) == "table" and pair[16] ~= nil
+end
+
+function Model.PairFrom(main, off)
+    if not main then return nil end
+    return { [16] = main, [17] = off }
+end
+
+function Model.PairWorn(weaponPairs, main, off)
+    if not main then return nil end
+    for index = 1, 2 do
+        local pair = weaponPairs[index]
+        if Model.PairFilled(pair) and pair[16] == main and (pair[17] == nil or pair[17] == off) then return index end
+    end
+    return nil
+end
+
+function Model.ArmWorn(weaponPairs, worn)
+    if worn then return worn end
+    return Model.PairFilled(weaponPairs[1]) and 2 or 1
+end
+
+function Model.WeaponMacro(pair)
+    if not Model.PairFilled(pair) then return nil end
+    local macro = "/equipslot 16 item:" .. pair[16]
+    if pair[17] then macro = macro .. "\n/equipslot 17 item:" .. pair[17] end
+    return macro
+end
+
+function Model.SaveTarget(weaponPairs, main, off, last)
+    local worn = Model.PairWorn(weaponPairs, main, off)
+    if worn then return worn end
+    for index = 1, 2 do
+        if not Model.PairFilled(weaponPairs[index]) then return index end
+    end
+    return last or 1
+end
+
+function Model.WeaponLabel(index, size)
+    if size < WEAPON_WORD_MIN then return WEAPON_LETTERS[index] end
+    return WEAPON_LABELS[index]
+end
+
+local function Available(id, owned, main, off)
+    return id == nil or owned[id] or id == main or id == off
+end
+
+function Model.WeaponState(weaponPairs, main, off, owned)
+    if not Model.PairFilled(weaponPairs[1]) and not Model.PairFilled(weaponPairs[2]) then
+        return "unsaved", nil, nil
+    end
+    local worn = Model.PairWorn(weaponPairs, main, off)
+    if not worn then return "other", nil, nil end
+    local nextIndex = 3 - worn
+    local pair = weaponPairs[nextIndex]
+    if not Model.PairFilled(pair) then return "ready", worn, nil end
+    if not (Available(pair[16], owned, main, off) and Available(pair[17], owned, main, off)) then
+        return "missing", worn, nextIndex
+    end
+    return "ready", worn, nextIndex
+end
+
+function Model.WeaponFlyout(bagWeapons)
+    local mains, offs = {}, {}
+    for _, item in ipairs(bagWeapons) do
+        local list = item.equipSlot == 16 and mains or offs
+        list[#list + 1] = item
+    end
+    mains, offs = Model.Flyout(mains), Model.Flyout(offs)
+    local entries, lanes = {}, 0
+    for _, list in ipairs({ mains, offs }) do
+        if #list > 0 then
+            lanes = lanes + 1
+            for along, item in ipairs(list) do
+                item.lane, item.along = lanes, along
+                entries[#entries + 1] = item
+            end
+        end
+    end
+    return entries, lanes, math.max(#mains, #offs)
 end
 
 function Model.IdleAlpha(enabled, idleFor, delay, target)

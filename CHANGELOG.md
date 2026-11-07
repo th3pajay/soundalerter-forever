@@ -1,5 +1,79 @@
 # Changelog
 
+## 0.3.00
+
+## Really?.. Venn diagrams?
+
+Highlights
+- Global sightings is out of experimental and on by default, with your opt-out under Proximity Alerts. Minimap dots are now a separate choice, off by default.
+- The match debrief now shows whether you won or lost, plus your damage and healing, and Statistics has a new Visuals tab.
+- New swing timer: a low-profile spark on your resource bar, off by default.
+- Say when interrupt is ready learns your real cooldown, and interrupts now cover Forever's spells and every rank.
+- Buffs you cast in combat stop their timer when consumed early, and toasts show the enemy's second name.
+- New optional weapon swap button on the Trinket Menu that works in combat, and new Fire and Leaves bar textures.
+- SoundAlerter can now tell you when a newer version is out.
+
+Update notice
+- SoundAlerter now prints one chat line when a newer version is out. Addons cannot reach the internet, so it learns this from other players' copies, and each announcement carries a proof that only a real release can have, so nobody can fake it. The notice never contains a link: update through CurseForge. It starts with this version, so older copies stay quiet. Turn it off under General, Updates; `/sa updates` shows what it knows.
+
+Statistics
+- New Visuals tab next to Now, Trends and Rivals: a Venn diagram of your spells by where they were seen. The three circles are Arena, Battlegrounds and World PvP; a spell sits in the region for every zone it has fired in, so the centre holds the spells you meet everywhere.
+- Spells are drawn as round icons, bigger for more alerts, with a ring in the colour of the spell type (crowd control, defensive, interrupt, removal, other). The heaviest ones sit nearest the middle of their region; whatever does not fit collapses into a +N bubble you can hover to list.
+- The circle labels show how many spells each zone holds. The legend under the diagram shows and hides a spell type.
+- Hover an icon for its name, type, ID, total alerts, the split between the three zones and the class that casts it most; the zones it belongs to light up. Click it to look it up in Spell Finder.
+- The icons fly in when the tab opens and slide when the filter changes. Both follow the menu animations setting.
+- The match debrief now shows the damage and healing you did in each arena and battleground match, with your three biggest damage spells and their share. The numbers come from the game's damage meter and are read after each fight, because the game hides them in combat. Your own damage meter is never reset.
+- New `/sa meter` command: shows what the game's damage meter reports for you, to check that match results will work.
+- Busiest hours on the Trends tab now has hour labels under the bars.
+- The match debrief now says whether you won, lost or drew each arena and battleground match, with your record for the kept matches at the top. Match length now comes from the game when it reports one. Solo Shuffle shows no result.
+- New `/sa perf` command: shows how much frame time and memory SoundAlerter uses, from the game's own addon profiler.
+
+Voice Alerts
+- Say when interrupt is ready now learns your interrupt's real cooldown per character, so talents and Forever's own values are respected instead of a fixed table. A single odd timing, such as a cooldown reset, does not change it. The fixed value is used until something has been learned.
+- Interrupts now cover Forever's spells and every rank: all Earth Shock and Shield Bash ranks, Spell Lock, Feral Charge, Skull Bash, Rebuke and Silence. They count for your own interrupt messages and the ready voice, and an enemy using one on you now plays Lockout.
+- The Lockout setting now applies to every interrupt used on you. Before, it only applied to Counterspell and Kick rank 1, and the others always played.
+- Enemy Shield Bash (all ranks) and the other Spell Lock rank now play their voice alert.
+- The Spell Lock ready voice now waits 30 seconds, not 24, matching the game's data.
+- New Say my procs setting under More options, off by default: says the spell when one of your own lights up. The voice comes from the spell's name, so a matching mp3 in your voice folder just works, and `/sa procs` lists which of your procs have a voice.
+- New alert for an enemy gaining Reckless Swings. It is off by default because it can fire every 15 seconds; turn it on under Warrior.
+
+Spell tracker
+- A buff you cast in combat now stops its timer when it is consumed or removed early, such as Nature's Grasp, and the icon goes back to idle. This works where the game shows aura changes; where it hides them, such as in a duel, the timer still runs its full length.
+
+Resource bars
+- New swing timer, off by default: Swing spark under Resource Management. A small spark runs along the top border of the bar your form uses and reaches the end as your next swing lands, with a brief flash you can turn off. Off-hand runs along the bottom border. It shows only while you are swinging and needs a resource bar shown. It covers melee and ranged, and runs on the game's animation engine so it costs almost no script time.
+- The rage bar now empties when a druid leaves Bear Form instead of showing leftover rage that slowly drains, and starts from the real value when you shift back. The bar does no work while it is out of form.
+- New Fade rage bar when empty setting: the rage bar fades out of view when you have no rage or are out of Bear Form, in Bear and Dire Bear Form as well, while the bars are locked.
+
+Bar textures
+- Two new animated bar textures for the resource bars and casting bars: Fire (three layers of flames that rise and flicker while drifting sideways, with a heat glow at High) and Leaves (autumn leaves blown sideways at three depths, with gusts, and larger leaves at High). Both cost about as much as Streaks.
+
+Global sightings
+- No longer experimental: Global sightings is now on by default, also in Quick Start. It shares the enemies you see and your rough map square with other SoundAlerter users of your faction on your realm, and shows theirs on your world map. To opt out, turn it off under Proximity Alerts, Global sightings. If you already use SoundAlerter, one chat message tells you this at your next login.
+- Minimap dots are now a separate choice and off by default, so if you had them, turn on Show on the minimap to get them back. The world map overlay and panels stay on.
+- Its settings now have their own Global sightings section on the Proximity Alerts page, apart from Party sharing. They are separate features with separate switches.
+- It now waits 15 seconds after login or a loading screen before joining its channel, so your General and Trade channel numbers are left alone. If every channel is refused it retries every 5 minutes instead of every 10 seconds.
+- On a busy channel, watcher counts can no longer crowd out enemy sightings.
+- The world map card has a new look: a coloured verdict pill, three tiles (enemies with a trend, nearest, watching), a class bar with the three biggest classes, and compact rows with a level chip.
+- Zoomed out to a continent or the world, the card now stays and shows the world: enemies with a trend, zones reporting, watchers, the class mix and the busiest zones. Hover a zone row to enlarge its ring on the map.
+- Fixed the card jumping open and shut when the pointer sat on the lower part of the slim strip.
+- The strip opens when you hover it, keeps its place for a moment after you leave, and stays open when you click its title. Opening and closing ease over 0.12 seconds with the menu animations setting.
+- Zone panel and World panel settings under Global sightings: Strip, Always open or Off.
+- Hover the Enemies tile to see how many enemies can stealth and how many are higher level than you.
+- The card shows all rows by default; click the +N more or show less row to switch.
+- Ages read now, <1m, 2m. The card no longer polls the pointer and only rewrites text that changed.
+
+Proximity toasts
+- Toasts now show the enemy's second name after the first, smaller and behind a thin divider. When both do not fit, the second name is cut first and hidden if too little room is left. Alerts shared by party members still show one name.
+- Long names no longer run under the enemy's latest spell on the Intel card, and the Threat card gives the name row more room.
+- On the Threat card, the enemy's latest spell moved down beside the aura icons, so a long threat reason no longer runs under it. A title too long for its line now ends in dots instead of wrapping into the row below.
+- Showing a toast does less work: the buff and debuff scan stops once it has 3 icons.
+
+Trinket Menu
+- New optional weapon button, off by default, for swapping between damage and healing weapons mid-fight. Unlike the other swaps it works at once, also in combat. It changes the main hand and the off-hand, and has its own keybind under Key Bindings > AddOns > SoundAlerter.
+- To set it up, turn on Weapon swap button in the new Weapons group. Wear your DPS weapons and shift-click the button, then wear your healing weapons and shift-click it again. The options page has Save buttons for each pair too. Pairs can only change out of combat.
+- The button shows your worn weapon, a coloured border and label (amber DPS, green HEAL) and a corner badge with what a click equips. A red mark warns when the next weapon is not in your bags. Hover it out of combat to equip weapons from your bags, right-click to use the main-hand effect.
+
 ## 0.2.94
 
 ## Looks and glances

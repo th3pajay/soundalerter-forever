@@ -79,6 +79,7 @@ function SoundAlerter:ChangeProfile()
 	self:ApplyNameplateRange()
 	self:UpdatePartyShare()
 	self:UpdateGlobalSight()
+	if self.UpdateCheck then self.UpdateCheck:Refresh() end
 	self:OnOptionsProfileChanged()
 
 	for _,v in SoundAlerter:IterateModules() do
@@ -185,6 +186,7 @@ function SoundAlerter:OnInitialize()
     self.db1 = LibStub("AceDB-3.0"):New("SoundAlerterDB", dbDefaults, defaultProfile)
     SA_ProfileCleanup.Run(SoundAlerterDB)
     SA_QuickStart.Seed(self.db1.global, existingInstall)
+    SA_QuickStart.SeedSightingsNotice(self.db1.global, existingInstall)
     sadb = self.db1.profile
 
     self.db1.RegisterCallback(self, "OnProfileChanged", "ChangeProfile")
@@ -271,6 +273,7 @@ function SoundAlerter:OnEnable()
     self:ApplyTotemPlates()
     self:UpdatePartyShare()
     self:UpdateGlobalSight()
+    if self.UpdateCheck then self.UpdateCheck:Refresh() end
 
     self:ResetDiagnostics()
 
@@ -656,7 +659,10 @@ function SoundAlerter:HandleCommand(input)
         self:Print("  |cffFFFFFF/sa speed|r - Print the raw speed values and what the Speed Meter would show (stand in the water, then run it)")
         self:Print("  |cffFFFFFF/sa fxstats [reset]|r - Show how often the casting bars and spell tracker icons update at the current animation quality")
         self:Print("  |cffFFFFFF/sa probe|r - Print what the client lets the addon read (turn on Debug Mode first to record events)")
-        self:Print("  |cffFFFFFF/sa nextprobe|r - Check whether Blizzard's assisted combat pick is readable; |cffFFFFFF/sa nextprobe watch|r follows it for 20 s in a fight")
+        self:Print("  |cffFFFFFF/sa meter|r - Check what the game's damage meter reports for match results")
+        self:Print("  |cffFFFFFF/sa perf|r - Show how much frame time and memory SoundAlerter uses")
+        self:Print("  |cffFFFFFF/sa procs|r - List the procs seen since login and which have a voice")
+        self:Print("  |cffFFFFFF/sa updates|r - Show what the update notice knows")
         self:Print("  |cffFFFFFF/sa global|r - Global sightings status: channel, messages, tracked enemies, ignored senders; |cffFFFFFF/sa global mute <name>|r or |cffFFFFFFunmute <name>|r (saved for all your characters)")
         self:Print("  |cffFFFFFF/sa snooze [minutes]|r / |cffFFFFFF/sa unsnooze|r - Silence proximity and enemy awareness alerts for a while")
         self:Print("  |cffFFFFFF/sa watch [guild] <name>|r / |cffFFFFFF/sa unwatch [guild] <name>|r / |cffFFFFFF/sa watchlist|r - Manage the watchlist")
@@ -716,8 +722,14 @@ function SoundAlerter:HandleCommand(input)
         self:PrintZoneLog()
     elseif command == "probe" then
         self:PrintProbeReport()
-    elseif command == "nextprobe" then
-        self:NextActionProbe(rest)
+    elseif command == "meter" then
+        if self.Statistics and self.Statistics.PrintMeter then self.Statistics:PrintMeter() end
+    elseif command == "perf" then
+        self:PerfReport()
+    elseif command == "procs" then
+        self:ProcList()
+    elseif command == "updates" then
+        if self.UpdateCheck then self.UpdateCheck:Status() end
     elseif command == "watch" or command == "unwatch" or command == "watchlist" then
         self:HandleWatchCommand(command, rest)
     elseif command == "aurasound" then
@@ -910,19 +922,7 @@ function SoundAlerter:ClearAuraTracking(unit)
     end
 end
 
-local INTERRUPT_ABILITY_SPELLS = {
-    [1766] = true,
-    [1767] = true,
-    [1768] = true,
-    [1769] = true,
-    [6552] = true,
-    [6554] = true,
-    [2139] = true,
-    [19647] = true,
-    [16979] = true,
-    [72] = true,
-    [8042] = true,
-}
+local INTERRUPT_ABILITY_SPELLS = SA_Interrupt.COOLDOWN
 local lastInterruptCast = nil
 local lastEnemyCast = {}
 local lastEnemyCastAt = {}
@@ -974,7 +974,10 @@ function SoundAlerter:ScheduleInterruptReady(spellID)
         self.interruptReadyTimer = nil
     end
     if not sadb.interruptReadyVoice then return end
-    local cooldown = SA_Interrupt.Cooldown(spellID)
+    local known = SA_Interrupt.Cooldown(spellID)
+    local store = SA_CooldownLearn.Store(self.db1.char)
+    SA_CooldownLearn.Start(spellID, store, known)
+    local cooldown = SA_CooldownLearn.Expected(store, spellID, known)
     if not cooldown then return end
     self.interruptReadyTimer = self:ScheduleTimer("InterruptReady", cooldown)
 end
@@ -1929,7 +1932,7 @@ local function ProximityBandAllowed(band)
     return not SA_Distance.IsRestricted(sadb.proximityMaxBand) or SA_Distance.Allows(sadb.proximityMaxBand, band)
 end
 
-function SoundAlerter:FireProximityAlert(guid, unitName, unitClass, unitLevel, band, unitToken, nearbyCount, title, shared)
+function SoundAlerter:FireProximityAlert(guid, unitName, unitClass, unitLevel, band, unitToken, nearbyCount, title, shared, secondName)
     if shared then
         SoundAlerter:PlayVoice(sadb.sapath .. "sharedintel.mp3", "Master")
     else
@@ -1950,7 +1953,7 @@ function SoundAlerter:FireProximityAlert(guid, unitName, unitClass, unitLevel, b
     end
 
     if self.ProximityToasts and self.ProximityToasts:GetSettings().enabled then
-        self.ProximityToasts:ShowToast(unitName, unitClass, band, guid, unitLevel, unitToken, title, nearbyCount)
+        self.ProximityToasts:ShowToast(unitName, unitClass, band, guid, unitLevel, unitToken, title, nearbyCount, secondName)
     end
 end
 
@@ -1995,7 +1998,7 @@ function SoundAlerter:CheckProximityAlert(unit, allySpotted)
 
     if not self:IsProximityZoneAllowed() then return end
 
-    local unitName = UnitName(unit)
+    local unitName, secondName = UnitName(unit)
     local _, unitClass = UnitClass(unit)
     local unitLevel = UnitLevel(unit)
 
@@ -2020,7 +2023,7 @@ function SoundAlerter:CheckProximityAlert(unit, allySpotted)
     self.proximityAlertCache[guid] = currentTime
     SA_Plates.ClearPending(guid)
 
-    self:FireProximityAlert(guid, unitName, unitClass, unitLevel, approxRange, not allySpotted and unit or nil, SA_Plates.Count())
+    self:FireProximityAlert(guid, unitName, unitClass, unitLevel, approxRange, not allySpotted and unit or nil, SA_Plates.Count(), nil, nil, Plain(secondName))
 
     if sadb.proximityChat and sadb.proximityChatText then
         local chatText = gsub(sadb.proximityChatText, "#class#", unitClass)

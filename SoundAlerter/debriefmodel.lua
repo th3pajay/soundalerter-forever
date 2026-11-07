@@ -14,6 +14,9 @@ local GREY = "|cff888888"
 local GOLD = "|cffFFD700"
 local LIVE = "|cff3ddc84"
 local RESET = "|r"
+local DRAW = 255
+local RESULT_TEXT = { won = "Won", lost = "Lost", draw = "Draw" }
+local RESULT_COLOR = { won = "|cff3ddc84", lost = "|cffff5a4a", draw = GREY }
 
 function Model.KindOf(instanceType)
     if instanceType == "arena" then return "arena" end
@@ -112,10 +115,66 @@ local function topSpells(spells, nameOf)
     return top
 end
 
+local function emptyMeter()
+    return { damage = 0, healing = 0, spells = {} }
+end
+
+local function addGain(kept, last, base)
+    kept.damage = kept.damage + math.max(0, last.damage - base.damage)
+    kept.healing = kept.healing + math.max(0, last.healing - base.healing)
+    for spellID, amount in pairs(last.spells) do
+        local gain = amount - (base.spells[spellID] or 0)
+        if gain > 0 then kept.spells[spellID] = (kept.spells[spellID] or 0) + gain end
+    end
+end
+
+function Model.Meter(match, reading)
+    if not reading then return false end
+    local meter = match.meter
+    if not meter then
+        match.meter = { base = reading, last = reading, kept = emptyMeter() }
+        return false
+    end
+    if reading.damage < meter.last.damage or reading.healing < meter.last.healing then
+        addGain(meter.kept, meter.last, meter.base)
+        meter.base = emptyMeter()
+    end
+    meter.last = reading
+    return true
+end
+
+local function meterTotals(meter)
+    if not meter then return nil end
+    local totals = emptyMeter()
+    addGain(totals, meter.kept, emptyMeter())
+    addGain(totals, meter.last, meter.base)
+    return totals
+end
+
+function Model.Result(match, winner, team, duration)
+    local changed = false
+    if type(duration) == "number" and duration > 0 then
+        match.gameLength = duration
+        changed = true
+    end
+    if type(winner) ~= "number" or type(team) ~= "number" then return changed end
+    if winner == DRAW then
+        match.result = "draw"
+    elseif winner == team then
+        match.result = "won"
+    elseif winner == 0 or winner == 1 then
+        match.result = "lost"
+    else
+        return changed
+    end
+    return true
+end
+
 function Model.Close(match, now, clock, nameOf)
     local length = math.max(0, now - (match.started or now))
     if length > Model.STALE then length = math.max(0, (match.last or match.started or now) - (match.started or now)) end
     if length < Model.MIN_LENGTH and match.alerts == 0 then return nil end
+    if match.gameLength and match.gameLength <= length then length = match.gameLength end
     if clock then Model.Sync(match, clock) end
     local cc = match.cc
     local seconds
@@ -123,12 +182,14 @@ function Model.Close(match, now, clock, nameOf)
         local overrun = clock and math.max(0, cc.untilAt - clock) or 0
         seconds = math.floor(math.min(length, math.max(0, cc.seconds - overrun)) + 0.5)
     end
+    local totals = meterTotals(match.meter)
     return {
         kind = match.kind,
         zone = match.zone,
         build = match.build,
         at = match.started,
         length = length,
+        result = match.result,
         alerts = match.alerts,
         byCategory = match.byCategory,
         spells = topSpells(match.spells, nameOf),
@@ -136,6 +197,9 @@ function Model.Close(match, now, clock, nameOf)
         ccCount = cc.count,
         ccSeconds = seconds,
         ccPartial = cc.timed > 0 and cc.timed < cc.count or nil,
+        damage = totals and totals.damage > 0 and totals.damage or nil,
+        healing = totals and totals.healing > 0 and totals.healing or nil,
+        damageSpells = totals and totals.damage > 0 and topSpells(totals.spells, nameOf) or nil,
     }
 end
 
@@ -155,6 +219,34 @@ local function controlText(count, seconds, partial)
     return "CC " .. seconds .. "s" .. (partial and "+" or "") .. " x" .. count
 end
 
+function Model.Amount(value)
+    value = value or 0
+    if value >= 1000000 then return string.format("%.1fM", value / 1000000) end
+    if value >= 10000 then return string.format("%.0fk", value / 1000) end
+    if value >= 1000 then return string.format("%.1fk", value / 1000) end
+    return tostring(math.floor(value))
+end
+
+local function damageSpellText(record)
+    local parts = {}
+    for index = 1, #(record.damageSpells or {}) do
+        local spell = record.damageSpells[index]
+        parts[index] = spell.name .. " " .. math.floor(spell.count / record.damage * 100 + 0.5) .. "%"
+    end
+    return table.concat(parts, ", ")
+end
+
+local function meterText(record, grey, reset)
+    local parts = {}
+    if record.damage then
+        local spells = damageSpellText(record)
+        parts[#parts + 1] = "Damage " .. Model.Amount(record.damage) ..
+            (spells ~= "" and (" " .. grey .. "(" .. spells .. ")" .. reset) or "")
+    end
+    if record.healing then parts[#parts + 1] = "Healing " .. Model.Amount(record.healing) end
+    return table.concat(parts, "  ")
+end
+
 local function spellText(spells)
     local parts = {}
     for index = 1, #(spells or {}) do
@@ -171,18 +263,47 @@ function Model.LiveRow(match, now, clock)
         "  " .. match.alerts .. " alerts  " .. controlText(cc.count, seconds, cc.timed > 0 and cc.timed < cc.count)
 end
 
+function Model.Summary(list)
+    local counts = { arena = { won = 0, total = 0 }, battleground = { won = 0, total = 0 } }
+    local won, total = 0, 0
+    for index = 1, #(list or {}) do
+        local record = list[index]
+        local count = counts[record.kind]
+        if record.result and count then
+            total = total + 1
+            count.total = count.total + 1
+            if record.result == "won" then
+                won = won + 1
+                count.won = count.won + 1
+            end
+        end
+    end
+    if total == 0 then return nil end
+    local parts = { GOLD .. "Won " .. won .. " of " .. total .. RESET }
+    for _, kind in ipairs({ "arena", "battleground" }) do
+        local count = counts[kind]
+        if count.total > 0 then parts[#parts + 1] = KIND_LABEL[kind] .. " " .. count.won .. " of " .. count.total end
+    end
+    return table.concat(parts, "  ")
+end
+
 function Model.Row(record, now, ago)
     local spells = spellText(record.spells)
+    local meter = meterText(record, GREY, RESET)
+    local result = record.result and ("  " .. RESULT_COLOR[record.result] .. RESULT_TEXT[record.result] .. RESET) or ""
     return GREY .. (ago and ago(now, record.at) or "") .. RESET .. "  " .. (KIND_LABEL[record.kind] or record.kind) ..
-        "  " .. record.zone .. "  " .. GOLD .. Model.Clock(record.length) .. RESET ..
+        "  " .. record.zone .. result .. "  " .. GOLD .. Model.Clock(record.length) .. RESET ..
         "  " .. record.alerts .. " alerts  " .. (record.enemies or 0) .. " enemies  " ..
         controlText(record.ccCount, record.ccSeconds, record.ccPartial) ..
+        (meter ~= "" and ("  " .. meter) or "") ..
         (spells ~= "" and ("  " .. GREY .. spells .. RESET) or "")
 end
 
 function Model.Rows(list, open, now, clock, ago)
     local rows = {}
-    if open then rows[1] = Model.LiveRow(open, now, clock) end
+    local summary = Model.Summary(list)
+    if summary then rows[1] = summary end
+    if open then rows[#rows + 1] = Model.LiveRow(open, now, clock) end
     for index = 1, #(list or {}) do rows[#rows + 1] = Model.Row(list[index], now, ago) end
     if #rows == 0 then
         return GREY .. "No arena or battleground match recorded yet. A match runs from entering the instance until you leave it." .. RESET
@@ -208,8 +329,11 @@ function Model.ExportLines(lines, list, categories)
             record.alerts or 0, #parts > 0 and table.concat(parts, ", ") or "none", record.enemies or 0,
             controlText(record.ccCount, record.ccSeconds, record.ccPartial), Model.Clock(record.length),
             record.build and ("build " .. record.build) or "unknown build")
+        if record.result then lines[#lines] = lines[#lines] .. " | " .. RESULT_TEXT[record.result] end
         local spells = spellText(record.spells)
         if spells ~= "" then lines[#lines] = lines[#lines] .. " | " .. spells end
+        local meter = meterText(record, "", "")
+        if meter ~= "" then lines[#lines] = lines[#lines] .. " | " .. meter end
     end
     return lines
 end

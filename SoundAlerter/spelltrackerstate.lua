@@ -163,7 +163,7 @@ local function show(record, expiration, duration, secret, predicted)
 end
 
 function TrackerState.New()
-    return setmetatable({ records = {}, knownDurations = nil }, TrackerState)
+    return setmetatable({ records = {}, auraOwners = {}, knownDurations = nil }, TrackerState)
 end
 
 function TrackerState:SetKnownDurations(knownDurations)
@@ -262,6 +262,27 @@ function TrackerState:ClearPredicted(index)
     end
 end
 
+local function releaseAura(owners, record)
+    local instanceID = record.auraInstance
+    if instanceID and owners[instanceID] == record then owners[instanceID] = nil end
+    record.auraInstance = nil
+end
+
+function TrackerState:NoteAura(index, instanceID)
+    local record = self:Get(index)
+    releaseAura(self.auraOwners, record)
+    record.auraInstance = instanceID
+    self.auraOwners[instanceID] = record
+end
+
+function TrackerState:AuraRemoved(instanceID)
+    local record = self.auraOwners[instanceID]
+    if not record then return false end
+    releaseAura(self.auraOwners, record)
+    clearPredicted(record)
+    return true
+end
+
 function TrackerState:ReadCooldown(index, reading, now, showReady)
     local record = self:Get(index)
     local readout = record.cooldown or {}
@@ -301,6 +322,8 @@ function TrackerState:Hide(index)
 end
 
 function TrackerState:Remove(index, count)
+    local removed = self.records[index]
+    if removed then releaseAura(self.auraOwners, removed) end
     for i = index, count - 1 do
         self.records[i] = self.records[i + 1]
     end

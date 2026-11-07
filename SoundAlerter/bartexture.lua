@@ -16,6 +16,9 @@ local BEVEL_LIGHT = { 0.62, 0.86, 1, 0.85 }
 local BEVEL_DARK = { 0.17, 0.44, 0.69, 0.85 }
 
 local math_ceil, math_floor, math_min = math.ceil, math.floor, math.min
+local math_sin, math_cos = math.sin, math.cos
+local CLOCK_WRAP = 6000
+local FLICKER_MAX = 0.35
 
 local Wave = {}
 Wave.__index = Wave
@@ -173,6 +176,31 @@ local ANIMATED = {
 			{ file = "bar_fog_3", rate = 0.1875, alpha = 0.6 },
 		},
 	},
+	fire = {
+		label = "Fire",
+		horizontal = true,
+		layers = {
+			{ file = "bar_fire_1", rate = 0.045, alpha = 0.55, flicker = { base = 0.1, amp = 0.1, hz = 0.9 } },
+			{ file = "bar_fire_2", rate = 0.11, alpha = 0.8, flicker = { base = 0.1, amp = 0.13, hz = 1.7 } },
+			{ file = "bar_fire_3", rate = 0.26, alpha = 1, flicker = { base = 0.1, amp = 0.16, hz = 2.9 } },
+		},
+		high = {
+			{ file = "bar_fire_4", rate = 0, alpha = 0.5, pulse = true },
+		},
+	},
+	leaves = {
+		label = "Leaves",
+		horizontal = true,
+		gust = true,
+		layers = {
+			{ file = "bar_leaves_1", rate = 0.035, alpha = 0.5, blend = "BLEND" },
+			{ file = "bar_leaves_2", rate = 0.1, alpha = 0.8, blend = "BLEND" },
+			{ file = "bar_leaves_3", rate = 0.24, alpha = 1, blend = "BLEND" },
+		},
+		high = {
+			{ file = "bar_leaves_4", rate = 0.42, alpha = 1, blend = "BLEND" },
+		},
+	},
 }
 
 local animatedBars = {}
@@ -264,6 +292,16 @@ end
 
 local function effectiveLayers(style, quality)
 	local layers = style.layers
+	if quality == "high" and style.high then
+		local extended = {}
+		for index = 1, #layers do
+			extended[index] = layers[index]
+		end
+		for index = 1, #style.high do
+			extended[#extended + 1] = style.high[index]
+		end
+		return extended
+	end
 	if quality ~= "low" or #layers < 3 then
 		return layers
 	end
@@ -296,6 +334,7 @@ local function applyStyle(state, style, fill, quality)
 			state.textures[index] = texture
 		end
 		texture:SetTexture(MEDIA .. layer.file, "REPEAT", layer.rise and "REPEAT" or "CLAMP")
+		texture:SetBlendMode(layer.blend or "ADD")
 		texture:SetVertexColor(1, 1, 1, layer.alpha)
 		texture:Show()
 		state.offsets[index] = 0
@@ -323,6 +362,15 @@ local function anchorLayers(state, bar, width, height, reverse, vertical)
 	state.width, state.height, state.reverse, state.vertical = width, height, reverse, vertical
 end
 
+local function flickerTop(flicker, clock, index)
+	local top = flicker.base
+		+ flicker.amp * (0.5 + 0.5 * math_sin(clock * flicker.hz * 3 + index))
+		+ flicker.amp * 0.4 * math_sin(clock * flicker.hz * 7.3)
+	if top < 0 then return 0 end
+	if top > FLICKER_MAX then return FLICKER_MAX end
+	return top
+end
+
 local function updateLayers(bar, state, dt, width, height, vertical)
 	local reverse = bar:GetReverseFill() and true or false
 	if state.width ~= width or state.height ~= height or state.reverse ~= reverse or state.vertical ~= vertical then
@@ -335,8 +383,15 @@ local function updateLayers(bar, state, dt, width, height, vertical)
 	end
 	local span = length / (thickness * TILE_ASPECT)
 
+	local clock = (state.clock + dt) % CLOCK_WRAP
+	state.clock = clock
+	local wind = 1
+	if state.style.gust then
+		wind = 1 + 0.5 * math_cos(0.4 * clock) + 0.35 * math_cos(1.1 * clock)
+	end
+
 	for index, layer in ipairs(state.layers) do
-		local offset = (state.offsets[index] + layer.rate * dt) % 1
+		local offset = (state.offsets[index] + layer.rate * wind * dt) % 1
 		state.offsets[index] = offset
 		local left = reverse and offset or 1 - offset
 
@@ -347,6 +402,14 @@ local function updateLayers(bar, state, dt, width, height, vertical)
 		end
 
 		local texture = state.textures[index]
+		local bottom = top + 1
+		if layer.flicker then
+			top = flickerTop(layer.flicker, clock, index)
+			bottom = 1
+		end
+		if layer.pulse then
+			texture:SetVertexColor(1, 1, 1, layer.alpha + 0.15 * math_sin(5 * clock))
+		end
 		if vertical then
 			if reverse then
 				texture:SetTexCoord(left, top, left + span, top, left, top + 1, left + span, top + 1)
@@ -354,7 +417,7 @@ local function updateLayers(bar, state, dt, width, height, vertical)
 				texture:SetTexCoord(left + span, top, left, top, left + span, top + 1, left, top + 1)
 			end
 		else
-			texture:SetTexCoord(left, left + span, top, top + 1)
+			texture:SetTexCoord(left, left + span, top, bottom)
 		end
 	end
 end
@@ -512,8 +575,17 @@ local function updateWaves(bar, state, dt, width, height, fill)
 	local ppu = SoundAlerter.BarUtils:PixelsPerUnit(bar)
 	local minTop = 1 / ppu
 	local r, g, b = bar:GetStatusBarColor()
-	if state.r ~= r or state.g ~= g or state.b ~= b then
+	if issecretvalue(r) or issecretvalue(g) or issecretvalue(b) then
+		local age = (state.secretAge or 1) + dt
+		if age >= 1 then
+			age = 0
+			state.colorVersion = (state.colorVersion or 0) + 1
+		end
+		state.secretAge = age
+		state.r, state.g, state.b = nil, nil, nil
+	elseif state.r ~= r or state.g ~= g or state.b ~= b then
 		state.r, state.g, state.b = r, g, b
+		state.secretAge = nil
 		state.colorVersion = (state.colorVersion or 0) + 1
 	end
 
@@ -588,7 +660,7 @@ function BarTexture:Update(bar, dt)
 
 	local orientation = bar:GetOrientation()
 	local vertical = orientation == "VERTICAL"
-	if (orientation ~= "HORIZONTAL" and not vertical) or width <= 0 or height <= 0 or (vertical and state.style.wave) then
+	if (orientation ~= "HORIZONTAL" and not vertical) or width <= 0 or height <= 0 or (vertical and (state.style.wave or state.style.horizontal)) then
 		state.clip:Hide()
 		hideColumns(state, fill)
 		return
@@ -648,7 +720,7 @@ function BarTexture:SetAnimation(bar, style, quality)
 		quality = self:NormalizeQuality(quality)
 		local state = bar.textureState
 		if not state then
-			state = { textures = {}, offsets = {}, rises = {}, columns = { {}, {}, {} } }
+			state = { textures = {}, offsets = {}, rises = {}, columns = { {}, {}, {} }, clock = 0 }
 			bar.textureState = state
 			createFrames(bar, state)
 		end

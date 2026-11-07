@@ -20,6 +20,7 @@ local TARGET_SWITCH_WINDOW = 0.25
 
 local POWER_TYPE_MANA = 0
 local POWER_TYPE_RAGE = 1
+local FADE_TIME = 0.3
 local POWER_TYPE_ENERGY = 3
 
 local BAR_WIDTH = 280
@@ -74,7 +75,10 @@ local BAR_CONFIGS = {
 		updateFreq = VALUE_UPDATE_THROTTLE,
 		getValueFunc = function() return UnitPower("player", POWER_TYPE_RAGE), UnitPowerMax("player", POWER_TYPE_RAGE) end,
 		shouldUpdate = function(self, current, lastValue) return current ~= lastValue end,
-		events = {"UNIT_POWER_FREQUENT", "UNIT_MAXPOWER"}
+		isActive = function() return UnitPowerType("player") == POWER_TYPE_RAGE end,
+		formEvent = "UNIT_DISPLAYPOWER",
+		fadeKey = "rageFade",
+		events = {"UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER"}
 	},
 	health = {
 		key = "health",
@@ -126,6 +130,9 @@ local RESOURCE_BAR_KEYS = {
 	energyScale = true,
 	rageEnabled = true,
 	rageScale = true,
+	rageFade = true,
+	swingSpark = true,
+	swingSparkFlash = true,
 	healthEnabled = true,
 	healthScale = true,
 	manaEnabled = true,
@@ -181,6 +188,9 @@ function ResourceBar:Initialize()
 
 	self.extents = {}
 	self.animating = {}
+	self.idle = {}
+	self.faded = {}
+	self.fadeGroups = {}
 	self.updaters = {}
 
 	for barKey, config in pairs(BAR_CONFIGS) do
@@ -290,12 +300,101 @@ function ResourceBar:ApplyOvercapAnimation(bar, percent, color, time)
 	end
 end
 
+function ResourceBar:SetFaded(barKey, faded)
+	local previous = self.faded[barKey]
+	if previous == faded then return end
+	local wasCurve = previous == "curve"
+	self.faded[barKey] = faded
+
+	local frame = self[barKey .. "Frame"]
+	local group = self.fadeGroups[barKey]
+	if not group then
+		group = frame:CreateAnimationGroup()
+		group.anim = group:CreateAnimation("Alpha")
+		group.anim:SetDuration(FADE_TIME)
+		group.anim:SetSmoothing("IN_OUT")
+		group:SetScript("OnFinished", function(finished)
+			frame:SetAlpha(finished.target)
+		end)
+		self.fadeGroups[barKey] = group
+	end
+
+	group:Stop()
+	group.target = faded and 0 or 1
+	group.anim:SetFromAlpha(wasCurve and group.target or frame:GetAlpha())
+	group.anim:SetToAlpha(group.target)
+	group:Play()
+end
+
+function ResourceBar:ApplyFade(barKey, config, empty)
+	if not config.fadeKey then return end
+	self:SetFaded(barKey, (self.db[config.fadeKey] and self.db.locked and empty) and true or false)
+end
+
+function ResourceBar:EmptyCurve()
+	if self.emptyCurve == nil then
+		self.emptyCurve = false
+		if C_CurveUtil and C_CurveUtil.CreateCurve and UnitPowerPercent and Enum and Enum.LuaCurveType then
+			local ok, curve = pcall(C_CurveUtil.CreateCurve)
+			if ok and curve then
+				curve:SetType(Enum.LuaCurveType.Step)
+				curve:AddPoint(0, 0)
+				curve:AddPoint(0.000001, 1)
+				self.emptyCurve = curve
+			end
+		end
+	end
+	return self.emptyCurve
+end
+
+function ResourceBar:ApplyFadeSecret(barKey, config)
+	if not config.fadeKey then return end
+	local curve = (self.db[config.fadeKey] and self.db.locked) and self:EmptyCurve()
+	local ok, alpha
+	if curve then
+		ok, alpha = pcall(UnitPowerPercent, "player", config.powerType, false, curve)
+	end
+	if not ok then
+		self:SetFaded(barKey, false)
+		return
+	end
+	local group = self.fadeGroups[barKey]
+	if group then group:Stop() end
+	self[barKey .. "Frame"]:SetAlpha(alpha)
+	self.faded[barKey] = "curve"
+end
+
+function ResourceBar:ShowInactive(barKey, config)
+	if not self.idle[barKey] then
+		self.idle[barKey] = true
+		local bar = self[barKey .. "Bar"]
+		local color = self.cachedColors[barKey]
+		self:SetAnimating(barKey, false)
+		bar:SetValue(0)
+		if color then
+			bar:SetStatusBarColor(color.r, color.g, color.b)
+		end
+		bar:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+		if bar.glow then bar.glow:SetAlpha(0) end
+		self[barKey .. "Text"]:SetText("0")
+		self.lastValues[barKey] = nil
+		self.lastText[barKey] = "0"
+	end
+	self:ApplyFade(barKey, config, true)
+end
+
 function ResourceBar:UpdateResourceBar(barKey, config)
 	local barName = barKey .. "Bar"
 	local textName = barKey .. "Text"
 	local bar = self[barName]
 
 	if not bar then return end
+
+	if config.isActive and not config.isActive() then
+		self:ShowInactive(barKey, config)
+		return
+	end
+	self.idle[barKey] = nil
 
 	local current, max = config.getValueFunc()
 	if current == nil or max == nil then return end
@@ -312,6 +411,7 @@ function ResourceBar:UpdateResourceBar(barKey, config)
 		self.lastValues[barKey] = nil
 		self.lastText[barKey] = nil
 		self:SetAnimating(barKey, false)
+		self:ApplyFadeSecret(barKey, config)
 		return
 	end
 
@@ -331,6 +431,8 @@ function ResourceBar:UpdateResourceBar(barKey, config)
 
 		self.lastValues[barKey] = current
 	end
+
+	self:ApplyFade(barKey, config, current == 0)
 
 	local percent = (current / max) * 100
 	local color = self.cachedColors[barKey]
@@ -461,8 +563,15 @@ function ResourceBar:RegisterEvents()
 			frame:RegisterUnitEvent(event, "player")
 		end
 
-		frame:SetScript("OnEvent", function(_, _, unitId, powerType)
+		local formEvent = config.formEvent
+		frame:SetScript("OnEvent", function(_, event, unitId, powerType)
 			if unitId ~= "player" then return end
+			if formEvent and event == formEvent then
+				self.idle[barKey] = nil
+				self:RefreshBar(barKey)
+				return
+			end
+			if self.idle[barKey] then return end
 			if powerToken and powerType ~= powerToken then return end
 			self:RefreshBar(barKey)
 		end)
@@ -795,6 +904,8 @@ end
 
 function ResourceBar:UpdateVisibility()
 	if not self.db then return end
+
+	if SoundAlerter.SwingSpark then SoundAlerter.SwingSpark:Refresh() end
 
 	for barKey, config in pairs(BAR_CONFIGS) do
 		local frameName = barKey .. "Frame"

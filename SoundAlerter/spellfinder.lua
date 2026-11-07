@@ -1655,3 +1655,9 @@ function SoundAlerter:OpenSpellFinder()
     finder.frame:Raise()
     finder.box:SetFocus()
 end
+
+function SoundAlerter:OpenSpellFinderFor(spellID)
+    self:OpenSpellFinder()
+    local finder = self.findSpellFrame
+    if finder then finder:SearchFor(tostring(spellID)) end
+end

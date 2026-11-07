@@ -276,9 +276,11 @@ function Voice:BuildGlobal(parent)
     local minimum = Model.INTERRUPT_MIN
     self:AddSetting(self.detailCard, { kind = "range", key = minimum.key, label = minimum.label, hint = minimum.hint, inline = true, min = minimum.min, max = minimum.max, step = minimum.step, unit = minimum.unit })
     self:AddSetting(self.detailCard, { kind = "toggle", key = Model.INTERRUPT_PETS.key, label = Model.INTERRUPT_PETS.label })
-    self.engineCard = NewCard(parent, "Engine")
+    self.engineCard = NewCard(parent, "Engine and procs")
     local engine = Model.ENGINE_ROW
     self:AddSetting(self.engineCard, { kind = "toggle", key = engine.key, label = engine.label, hint = engine.hint, inline = true, available = self.spec.engineSupported })
+    local proc = Model.PROC_ROW
+    self:AddSetting(self.engineCard, { kind = "toggle", key = proc.key, label = proc.label, hint = proc.hint, inline = true })
 end
 
 local function NewPill(parent)

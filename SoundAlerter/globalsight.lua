@@ -362,11 +362,14 @@ local PRESENCE_INTERVAL = 60
 local PRESENCE_JITTER = 5
 local RESEND_AFTER = 90
 local JOIN_RETRY = 10
+local JOIN_RETRY_LONG = 300
+local JOIN_SETTLE = 15
 local MAX_RECORDS = 500
 local MAX_REPORTERS = 10
 local MAX_WATCHERS = 50
-local QUALITY = { low = { receive = 4, sweep = 60 }, normal = { receive = 8, sweep = 30 }, high = { receive = 8, sweep = 30 } }
-local receivePerSecond, sweepInterval = QUALITY.normal.receive, QUALITY.normal.sweep
+local QUALITY = { low = { receive = 4, presence = 2, sweep = 60 }, normal = { receive = 8, presence = 4, sweep = 30 }, high = { receive = 8, presence = 4, sweep = 30 } }
+local receivePerSecond, presencePerSecond, sweepInterval = QUALITY.normal.receive, QUALITY.normal.presence, QUALITY.normal.sweep
+local PRESENCE_BYTE = string.byte("H")
 local SENDER_LIMIT, SENDER_SPAN = 4, 2
 local BUCKET_SIZE, BUCKET_RATE = 5, 0.5
 local GROUP_TARGETS = {}
@@ -378,6 +381,7 @@ local frame = CreateFrame("Frame")
 local tag = G.NewTag()
 local store, sentState, senderWindows, bucket, receiveBudget
 local channel, channelIndex, channelDay, joinAttempts = nil, 0, nil, 0
+local wantedName, wantedDay, wantedIndex, wantedFaction
 local offenses, ignored, ignoredAt, ignoredCount = {}, {}, {}, 0
 local holdUntil = 0
 local breaker = SA_PartyShare.NewBreaker()
@@ -431,7 +435,12 @@ local function WantedChannel()
         channelDay, channelIndex, joinAttempts = day, 0, 0
     end
     local faction = UnitFactionGroup and UnitFactionGroup("player")
-    return G.ChannelName(Plain(faction), day, channelIndex)
+    faction = Plain(faction)
+    if day ~= wantedDay or channelIndex ~= wantedIndex or faction ~= wantedFaction then
+        wantedDay, wantedIndex, wantedFaction = day, channelIndex, faction
+        wantedName = G.ChannelName(faction, day, channelIndex)
+    end
+    return wantedName
 end
 
 local function SetFilter(on)
@@ -447,8 +456,11 @@ end
 local function EnsureChannel(now)
     local wanted = WantedChannel()
     if wanted ~= channel then
-        Leave(channel)
-        channel, joined, joinAttempts, nextJoin = wanted, false, 0, 0
+        if channel then
+            Leave(channel)
+            nextJoin = 0
+        end
+        channel, joined, joinAttempts = wanted, false, 0
     end
     if ChannelId() then
         if not joined then
@@ -460,13 +472,13 @@ local function EnsureChannel(now)
     end
     joined = false
     if now < nextJoin then return false end
-    nextJoin = now + JOIN_RETRY
     if joinAttempts >= JOIN_ATTEMPTS and channelIndex < G.MAX_FALLBACK then
         channelIndex = channelIndex + 1
         counters.fallbacks = counters.fallbacks + 1
         channel, joinAttempts = WantedChannel(), 0
     end
     joinAttempts = joinAttempts + 1
+    nextJoin = now + (joinAttempts > JOIN_ATTEMPTS and JOIN_RETRY_LONG or JOIN_RETRY)
     local join = JoinTemporaryChannel or JoinChannelByName
     if join then pcall(join, channel) end
     return false
@@ -661,7 +673,8 @@ local function OnAddon(prefix, text, distribution, sender, _, _, _, channelName)
         return
     end
     local now = GetTime()
-    if not SA_PartyShare.Allow(receiveBudget, now, receivePerSecond) then
+    local limit = text:byte(3) == PRESENCE_BYTE and presencePerSecond or receivePerSecond
+    if not SA_PartyShare.Allow(receiveBudget, now, limit) then
         counters.overBudget = counters.overBudget + 1
         return
     end
@@ -706,7 +719,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
     if event == "CHAT_MSG_ADDON" then
         OnAddon(...)
     elseif event == "PLAYER_ENTERING_WORLD" then
-        nextJoin = 0
+        nextJoin = GetTime() + JOIN_SETTLE
         joined = false
     end
 end)
@@ -720,7 +733,7 @@ local function Start()
     bucket = G.NewBucket(BUCKET_SIZE, BUCKET_RATE)
     receiveBudget = SA_PartyShare.NewBudget()
     breaker = SA_PartyShare.NewBreaker()
-    nextSweep, nextJoin, holdUntil = GetTime() + sweepInterval, 0, 0
+    nextSweep, nextJoin, holdUntil = GetTime() + sweepInterval, GetTime() + JOIN_SETTLE, 0
     nextPresence = GetTime() + math.random(5, 15)
     ResetCounters()
     SetFilter(true)
@@ -746,9 +759,13 @@ end
 function SoundAlerter:UpdateGlobalSight()
     local profile = self.db1 and self.db1.profile
     local quality = QUALITY[profile and profile.globalQuality] or QUALITY.normal
-    receivePerSecond, sweepInterval = quality.receive, quality.sweep
+    receivePerSecond, presencePerSecond, sweepInterval = quality.receive, quality.presence, quality.sweep
     if profile and profile.globalSightings and SA_PartyShare.Supported() then Start() else Stop() end
     if self.UpdateGlobalMap then self:UpdateGlobalMap() end
+end
+
+function SoundAlerter:GlobalSightChannelId()
+    return active and joined and ChannelId() or nil
 end
 
 function SoundAlerter:GlobalSightStore()
