@@ -26,7 +26,8 @@ QuickStart.CATEGORIES = {
     { key = "chatalerts", label = "Chat messages", hint = "Alerts also appear in chat" },
 }
 
-QuickStart.SIGHTINGS_NOTICE = "Global sightings is now on. It shares the enemies you see and your rough map square with other SoundAlerter users of your faction on your realm, and shows theirs on your world map. To opt out: /sa, Proximity Alerts, Global sightings."
+QuickStart.SIGHTINGS_NOTICE = "Global sightings is now on. It shares the enemies you see and your rough map square with other SoundAlerter users of your faction on your realm, and shows a summary of theirs in the world map panels. It also shares which alert spells you saw, without names or counts, for the Global tab under Statistics. To opt out: /sa, Proximity Alerts, Global sightings."
+QuickStart.STATS_NOTICE = "Global sightings now also shares which alert spells you saw, without names or counts, so the new Global tab under Statistics can show what your realm and faction face. To opt out: /sa, Proximity Alerts, Global sightings."
 
 QuickStart.STEPS = {
     { key = "style", label = "Style", title = "Pick your style", hint = "Sets the zones and who triggers alerts in one step. Anything you change afterwards shows as Custom." },
@@ -132,7 +133,7 @@ QuickStart.ITEMS = {
             set = function(profile, value) profile.stealthenemy = value end,
         },
         {
-            key = "sightings", label = "Global sightings", hint = "On by default: shares enemies you see and your rough map area with your faction. Switch off to opt out.", available = supported,
+            key = "sightings", label = "Global sightings", hint = "On by default: shares enemies and spells you see and your rough map area. Switch off to opt out.", available = supported,
             get = function(profile) return profile.globalSightings and true or false end,
             set = function(profile, value) profile.globalSightings = value end,
         },
@@ -181,6 +182,15 @@ end
 
 function QuickStart.SightingsNoticeDue(global, profile, isSupported)
     if global.sightingsNoticeDone ~= false or not isSupported then return nil end
+    return profile.globalSightings and "tell" or "skip"
+end
+
+function QuickStart.SeedStatsNotice(global, existing)
+    if global.statsNoticeDone == nil then global.statsNoticeDone = not existing end
+end
+
+function QuickStart.StatsNoticeDue(global, profile, isSupported)
+    if global.statsNoticeDone ~= false or not isSupported then return nil end
     return profile.globalSightings and "tell" or "skip"
 end
 

@@ -181,6 +181,7 @@ local dots, rings = {}, {}
 local dotsShown, ringsShown = 0, 0
 local mode = "rings"
 local clusters = {}
+local markersOn = false
 local pipClass, pipExact, pipGive, pipSource = {}, {}, {}, nil
 local hostShown, scaleShown, quietUntil = nil, nil, 0
 local sinceCheck, lastDraw, nextRefresh, nextPanel, forceDraw = 0, -1e9, 0, 0, true
@@ -849,7 +850,7 @@ local function Absorb(a, b, count)
     clusters[b], clusters[count] = clusters[count], second
 end
 
-local function DrawRings(store, host, canvas, now, tier, stitched)
+local function DrawRings(store, host, canvas, now, tier, stitched, showRings)
     for _, zone in pairs(zones) do
         zone.count, zone.higher = 0, false
         for class in pairs(zone.classes) do zone.classes[class] = 0 end
@@ -874,6 +875,11 @@ local function DrawRings(store, host, canvas, now, tier, stitched)
             zone.classes[record.class] = (zone.classes[record.class] or 0) + 1
             if not zone.higher and M.Higher(record.level, mine) then zone.higher = true end
         end
+    end
+    if not showRings then
+        HideFrom(rings, 1, ringsShown)
+        ringsShown = 0
+        return
     end
     local width, height = canvas:GetWidth(), canvas:GetHeight()
     local k = canvas:GetEffectiveScale() / UIParent:GetEffectiveScale()
@@ -1043,7 +1049,12 @@ local function Draw()
     if mode == "dots" then
         HideFrom(rings, 1, ringsShown)
         ringsShown = 0
-        DrawDots(store, host, canvas, now, tier, stitched)
+        if markersOn then
+            DrawDots(store, host, canvas, now, tier, stitched)
+        else
+            HideFrom(dots, 1, dotsShown)
+            dotsShown = 0
+        end
         local zone = host
         if stitched and u and v and OpenMapAPI.MapAt then
             local at = OpenMapAPI.MapAt(u, v)
@@ -1053,7 +1064,7 @@ local function Draw()
     else
         HideFrom(dots, 1, dotsShown)
         dotsShown = 0
-        DrawRings(store, host, canvas, now, tier, stitched)
+        DrawRings(store, host, canvas, now, tier, stitched, markersOn)
         DrawWorldPanel(store, host)
     end
 end
@@ -1248,7 +1259,11 @@ end
 
 function SoundAlerter:UpdateGlobalMap()
     local profile = self.db1 and self.db1.profile
-    local on = profile and profile.globalSightings and self:GlobalSightStore() ~= nil
+    local sharing = profile and profile.globalSightings and self:GlobalSightStore() ~= nil
+    markersOn = sharing and profile.globalMapMarkers == true or false
+    local panelApi = SA_GlobalPanel
+    local panels = sharing and (not panelApi or panelApi.Option(profile.globalPanelZone) ~= "off" or panelApi.Option(profile.globalPanelWorld) ~= "off")
+    local on = sharing and (markersOn or panels)
     tier = M.Tier(profile and profile.globalQuality)
     forceDraw = true
     if on then
@@ -1260,7 +1275,7 @@ function SoundAlerter:UpdateGlobalMap()
         HideAll()
         layer:Hide()
     end
-    local wantPins = on and profile.globalMinimap ~= false
+    local wantPins = sharing and profile.globalMinimap ~= false
     if wantPins then
         AttachPins()
         if pinFrame then

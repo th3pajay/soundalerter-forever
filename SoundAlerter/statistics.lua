@@ -929,6 +929,7 @@ function Statistics:UpdateTopSpells(spellID, sourceGUID, sourceName, spellSchool
 	local zoneType = self:GetCurrentZoneType()
 
 	local sourceClass = sourceGUID and resolveClass(sourceGUID, sourceName) or nil
+	if zoneType and SA_GlobalStats then SA_GlobalStats.Note(spellID, zoneType) end
 
 	if topSpells[spellID] then
 		local spell = topSpells[spellID]
@@ -1246,53 +1247,7 @@ function Statistics:SpellSchoolName(school)
 end
 
 function Statistics:GetSpellCategory(spellID)
-	if not SoundAlerterSpells then return "Other" end
-
-	if SoundAlerterSpells.friendCCs and SoundAlerterSpells.friendCCs[spellID] then
-		return "CC"
-	end
-	if SoundAlerterSpells.enemyDebuffs and SoundAlerterSpells.enemyDebuffs[spellID] then
-		return "CC"
-	end
-	if SoundAlerterSpells.friendCCenemy and SoundAlerterSpells.friendCCenemy[spellID] then
-		return "CC"
-	end
-	if SoundAlerterSpells.friendCCSuccess and SoundAlerterSpells.friendCCSuccess[spellID] then
-		return "CC"
-	end
-
-	if SoundAlerterSpells.auraApplied and SoundAlerterSpells.auraApplied[spellID] then
-		return "Defensive"
-	end
-
-	if SoundAlerterSpells.interruptFriend and SoundAlerterSpells.interruptFriend[spellID] then
-		return "Interrupt"
-	end
-
-	if SoundAlerterSpells.enemyDebuffdown and SoundAlerterSpells.enemyDebuffdown[spellID] then
-		return "Debuff Removal"
-	end
-	if SoundAlerterSpells.enemyDebuffdownAP and SoundAlerterSpells.enemyDebuffdownAP[spellID] then
-		return "Debuff Removal"
-	end
-
-	if SoundAlerterSpells.auraRemoved and SoundAlerterSpells.auraRemoved[spellID] then
-		return "Buff Removal"
-	end
-
-	if SoundAlerterSpells.castStart and SoundAlerterSpells.castStart[spellID] then
-		return "Cast"
-	end
-
-	if SoundAlerterSpells.castSuccess and SoundAlerterSpells.castSuccess[spellID] then
-		return "Instant"
-	end
-
-	if SoundAlerterSpells.selfDebuff and SoundAlerterSpells.selfDebuff[spellID] then
-		return "Debuff on Self"
-	end
-
-	return "Other"
+	return Venn.CategoryOf(SoundAlerterSpells, spellID)
 end
 
 function Statistics:OnInitialize()

@@ -8,9 +8,10 @@ local BAR_KEYS = { "energy", "rage", "health", "mana" }
 local BAR_FRAMES = { energyScale = "energyFrame", rageScale = "rageFrame", healthScale = "healthFrame", manaScale = "manaFrame", comboScale = "comboFrame" }
 local COLOR_UPDATES = { energyColor = "UpdateEnergyBar", rageColor = "UpdateRageBar", healthColor = "UpdateHealthBar", manaColor = "UpdateManaBar" }
 local VISIBILITY = { swingSpark = true, energyEnabled = true, rageEnabled = true, rageFade = true, healthEnabled = true, manaEnabled = true, comboEnabled = true, comboTextEnabled = true }
-local COMBO_COLORS = { comboActiveColor = true, comboMaxColor = true }
+local COMBO_COLORS = { comboActiveColor = true, comboMaxColor = true, comboInactiveColor = true }
 local CELEBRATIONS = SoundAlerter.CPCelebration:Styles()
 local QUALITIES = SoundAlerter.CPCelebration:Qualities()
+local EXITS = SoundAlerter.CPCelebration:Exits()
 local SQUARE_SHAPES = { square = true, bar = true }
 
 local SHAPES = {
@@ -43,7 +44,7 @@ local function write(active, key, value)
     elseif COLOR_UPDATES[key] then
         active:CacheColors()
         active[COLOR_UPDATES[key]](active)
-    elseif key == "comboCelebration" or key == "comboAnimQuality" then
+    elseif key == "comboCelebration" or key == "comboAnimQuality" or key == "comboExit" then
         active:ApplyCelebration()
     elseif key == "poisedGlow" then
         active:UpdatePoisedTracking()
@@ -112,11 +113,8 @@ function ResourcePreview.update(state, settings)
         local active = index <= 4
         pip:SetTexture(square and FLAT or DOT)
         pip:SetSize(size, size)
-        if active then
-            pip:SetVertexColor(color.r, color.g, color.b, 1)
-        else
-            pip:SetVertexColor(0.227, 0.263, 0.322, 1)
-        end
+        if not active then color = settings.comboInactiveColor or color end
+        pip:SetVertexColor(color.r, color.g, color.b, 1)
         pip:SetAlpha(settings.comboEnabled and 1 or 0.2)
     end
 end
@@ -153,18 +151,25 @@ function SoundAlerter:BuildResourceBarOptions()
                 if active then active:ResetPositions() end
             end, false, "General"),
             Page.Select("barTexture", "Bar texture", "Choose the visual texture for all resource bars (Health, Mana, Energy, Rage). This provides a unified look across all bars.", textureOptions(), false, "General"),
-            Page.Select("barTextureQuality", "Texture quality", "Low animates 15 times a second and drops the farthest layer. Normal is the full animation. High adds a moving glint along the bar border. Only animated textures are affected.", TEXTURE_QUALITIES, true, "General"),
+            Page.Select("barTextureQuality", "Texture quality", "Low animates 15 times a second and drops the farthest layer. Normal is the full animation. High adds a fourth layer to Fire and Leaves. Only animated textures are affected.", TEXTURE_QUALITIES, true, "General"),
             Page.Toggle("energyEnabled", "Show energy bar", "Display energy bar (for Rogues, Druids in Cat Form).", false, "Bars"),
             Page.Toggle("rageEnabled", "Show rage bar", "Display rage bar (for Warriors, Druids in Bear Form). Out of Bear Form the bar reads empty, and rage starts fresh when you shift back.", false, "Bars"),
             Page.When("rageEnabled", Page.Toggle("rageFade", "Fade rage bar when empty", "Fade the rage bar out of view while you have no rage, and while a druid is out of Bear Form. Works while the bars are locked; unlock to see and move it.", false, "Bars")),
             Page.Toggle("healthEnabled", "Show health bar", "Display health bar.", false, "Bars"),
             Page.Toggle("manaEnabled", "Show mana bar", "Display mana bar (for casters).", false, "Bars"),
             Page.Toggle("comboEnabled", "Show combo points", "Display combo points (for Rogues, Druids in Cat Form).", false, "Bars"),
-            Page.When("comboEnabled", Page.Select("comboStyle", "Combo point shape", "Choose the visual shape for combo points.", SHAPES, false, "Bars")),
-            Page.When("comboEnabled", Page.Select("comboCelebration", "Combo celebration", "Animation when combo points are gained, reach 5, are spent with a finisher or are lost when the target changes or dies. Every style has its own spend and loss exit.", CELEBRATIONS, false, "Bars")),
-            Page.When("comboEnabled", Page.Select("comboAnimQuality", "Animation quality", "Low keeps the lightest version of each effect (fewer sparks and arcs, nothing spinning). High adds more sparks, arcs and a second pulse. Persistent effects run on the game's animation engine, so even High costs almost no script time.", QUALITIES, true, "Combo points")),
-            Page.When("comboEnabled", Page.Action("Preview spend", "Run 0 to 5 combo points on the live bar, then spend them with the chosen spend animation.", function() if bars() then bars():PreviewCelebration("spent") end end, false, "Bars")),
-            Page.When("comboEnabled", Page.Action("Preview loss", "Run 0 to 5 combo points on the live bar, then lose them as if the target died.", function() if bars() then bars():PreviewCelebration("lost") end end, false, "Bars")),
+            Page.When("comboEnabled", Page.Select("comboStyle", "Shape", "The shape of each combo point.", SHAPES, false, "Combo points")),
+            Page.When("comboEnabled", Page.Range("comboScale", "Size", "How big the combo points are.", 0.5, 2, 0.05, false, "Combo points", "x")),
+            Page.When("comboEnabled", Page.Color("comboActiveColor", "Colour (1-4)", "Colour of the points while you build up to five.", true, "Combo points")),
+            Page.When("comboEnabled", Page.Color("comboMaxColor", "Colour at 5", "Colour of all five points at maximum.", true, "Combo points")),
+            Page.When("comboEnabled", Page.Color("comboInactiveColor", "Empty colour", "Colour of the points you don't have yet.", true, "Combo points")),
+            Page.When("comboEnabled", Page.Toggle("comboTextEnabled", "Show 3/5 text", "The count as text, for example 3/5. Unlock to move it.", true, "Combo points")),
+            Page.When("comboEnabled", Page.Toggle("fullCPSound", "Chime at 5", "A short chime when you reach five combo points.", true, "Combo points")),
+            Page.When("comboEnabled", Page.Select("comboCelebration", "Celebration", "What plays when points reach 5, are spent with a finisher or are lost when the target changes or dies. Gains light up from a dim core and lost points drain away, for every style.", CELEBRATIONS, false, "Combo animation")),
+            Page.When("comboEnabled", Page.Select("comboExit", "Fade out", "How the points leave when you drop from 5. Style's own uses the exit of the celebration style. Sweep out dims them left to right. Collapse to centre slides them into the middle, with a flash when spent and slowly when lost.", EXITS, false, "Combo animation")),
+            Page.When("comboEnabled", Page.Select("comboAnimQuality", "Animation quality", "Low keeps scale and fade only. Normal adds rings. High adds sparks, arcs and a second pulse. Everything runs on the game's animation engine, so even High costs almost no script time.", QUALITIES, true, "Combo animation")),
+            Page.When("comboEnabled", Page.Action("Preview spend", "Run 0 to 5 combo points on the live bar, then spend them with a finisher.", function() if bars() then bars():PreviewCelebration("spent") end end, false, "Combo animation")),
+            Page.When("comboEnabled", Page.Action("Preview loss", "Run 0 to 5 combo points on the live bar, then lose them as if the target died.", function() if bars() then bars():PreviewCelebration("lost") end end, false, "Combo animation")),
             Page.When("energyEnabled", Page.Color("energyColor", "Energy color", "Color of the energy bar.", true, "Energy bar")),
             Page.When("energyEnabled", Page.Range("energyScale", "Energy bar scale", "Adjust the size of the energy bar.", 0.5, 2, 0.05, true, "Energy bar", "x")),
             Page.Visible(function() return poisedClass() end, Page.When("energyEnabled", Page.Toggle("poisedGlow", "Poised marker", "Gold edge and a Poised tag on the energy bar while Poised is up, so you know your next energy ability costs less. Rogues from level 18, druids from level 32.", true, "Energy bar"))),
@@ -180,11 +185,6 @@ function SoundAlerter:BuildResourceBarOptions()
             Page.Visible(swingSupported, Page.When("swingSpark", Page.Action("Preview spark", "Run one pass on the bar your form uses.", function()
                 if SoundAlerter.SwingSpark then SoundAlerter.SwingSpark:Preview() end
             end, false, "Swing timer"))),
-            Page.When("comboEnabled", Page.Range("comboScale", "Combo points scale", "Adjust the size of the combo points.", 0.5, 2, 0.05, true, "Combo points", "x")),
-            Page.When("comboEnabled", Page.Toggle("comboTextEnabled", "Show combo text", "Display combo points as text (e.g., '3/5').", true, "Combo points")),
-            Page.When("comboEnabled", Page.Color("comboActiveColor", "Active combo color", "Color of active combo points (1-4).", true, "Combo points")),
-            Page.When("comboEnabled", Page.Color("comboMaxColor", "Max combo color", "Color of combo points at maximum (5).", true, "Combo points")),
-            Page.When("comboEnabled", Page.Toggle("fullCPSound", "5 CP sound", "Play a satisfying chime when reaching 5 combo points.", true, "Combo points")),
         },
     })
 end

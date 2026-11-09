@@ -311,6 +311,14 @@ local function MakeToggle(parent, onChange)
     return control
 end
 
+local RING_ALPHA, FILL_ALPHA, FILL_HELD = 0.22, 0.55, 1
+
+local function ParseNumber(text)
+    local cleaned = tostring(text or ""):lower():gsub(",", "."):gsub("^%s+", ""):gsub("[%a%s]+$", "")
+    if not cleaned:find("^%-?%d*%.?%d+$") then return nil end
+    return tonumber(cleaned)
+end
+
 local function MakeRange(parent, row, onChange)
     local holder = CreateFrame("Frame", nil, parent)
     holder:SetSize(210, 22)
@@ -328,20 +336,130 @@ local function MakeRange(parent, row, onChange)
     local thumb = slider:GetThumbTexture()
     thumb:SetSize(8, 14)
     thumb:SetVertexColor(COLOR.accent[1], COLOR.accent[2], COLOR.accent[3], 1)
-    local readout = Text(holder, 11, COLOR.muted, "RIGHT")
-    readout:SetPoint("RIGHT", holder, "RIGHT", 0, 0)
-    readout:SetWidth(52)
-    local control = { frame = holder, slider = slider, readout = readout }
-    slider:SetScript("OnValueChanged", function(_, value)
-        if control.updating then return end
-        local snapped = Snap(row, value)
+    local fill = Paint(slider, COLOR.accent, 1, "ARTWORK")
+    fill:SetPoint("LEFT", track, "LEFT", 0, 0)
+    fill:SetPoint("RIGHT", thumb, "CENTER", 0, 0)
+    fill:SetHeight(4)
+    fill:SetAlpha(FILL_ALPHA)
+    local ring = Paint(slider, COLOR.accent, 1, "ARTWORK")
+    ring:SetPoint("TOPLEFT", thumb, "TOPLEFT", -3, 3)
+    ring:SetPoint("BOTTOMRIGHT", thumb, "BOTTOMRIGHT", 3, -3)
+    ring:SetAlpha(RING_ALPHA)
+    ring:Hide()
+    local value = CreateFrame("Button", nil, holder)
+    value:SetPoint("RIGHT", holder, "RIGHT", 0, 0)
+    value:SetSize(52, 20)
+    local readout = Text(value, 11, COLOR.muted, "RIGHT")
+    readout:SetAllPoints(value)
+    local box = CreateFrame("EditBox", nil, holder)
+    box:SetAutoFocus(false)
+    box:SetFont(FONT, 11, "")
+    box:SetJustifyH("RIGHT")
+    box:SetTextInsets(4, 4, 2, 2)
+    box:SetMultiLine(false)
+    box:SetAllPoints(value)
+    local boxFill = Paint(box, COLOR.line)
+    boxFill:SetAllPoints(box)
+    box:Hide()
+    local control = { frame = holder, slider = slider, readout = readout, valueButton = value, box = box, ring = ring, fill = fill }
+
+    local function commit(snapped)
+        control.current = snapped
         readout:SetText(Format(row, snapped))
         onChange(snapped)
+    end
+
+    local function hold(on)
+        control.dragging = on
+        ring:SetShown(on)
+        fill:SetAlpha(on and FILL_HELD or FILL_ALPHA)
+    end
+
+    slider:SetScript("OnValueChanged", function(_, raw)
+        if control.updating then return end
+        local snapped = Snap(row, raw)
+        readout:SetText(Format(row, snapped))
+        if control.dragging then
+            control.pending = snapped
+        else
+            commit(snapped)
+        end
     end)
-    function control:Set(value)
+    slider:SetScript("OnMouseDown", function(_, button)
+        if button and button ~= "LeftButton" then return end
+        hold(true)
+    end)
+    local function release()
+        if not control.dragging then return end
+        hold(false)
+        local pending = control.pending
+        control.pending = nil
+        if pending ~= nil and pending ~= control.current then commit(pending) end
+    end
+    slider:SetScript("OnMouseUp", release)
+    slider:SetScript("OnHide", release)
+
+    local function nudge(_, delta)
+        if control.dragging then return end
+        local current = control.current or row.min
+        local snapped = Snap(row, current + (delta > 0 and row.step or -row.step))
+        if snapped == current then return end
+        control:Set(snapped)
+        commit(snapped)
+    end
+    slider:EnableMouseWheel(true)
+    slider:SetScript("OnMouseWheel", nudge)
+    value:EnableMouseWheel(true)
+    value:SetScript("OnMouseWheel", nudge)
+
+    local function closeBox()
+        box:Hide()
+        value:Show()
+    end
+    local function applyBox()
+        if not box:IsShown() then return end
+        local number = ParseNumber(box:GetText())
+        if number == nil then
+            SA_MenuFX.Shake(box)
+            box:SetText(string.format("%." .. Digits(row.step) .. "f", control.current or row.min))
+            box:HighlightText()
+            return false
+        end
+        local snapped = Snap(row, number)
+        local changed = snapped ~= control.current
+        closeBox()
+        control:Set(snapped)
+        if changed then commit(snapped) end
+        return true
+    end
+    value:EnableMouse(true)
+    value:SetScript("OnMouseUp", function(_, button)
+        if button and button ~= "LeftButton" then return end
+        value:Hide()
+        box:Show()
+        box:SetText(string.format("%." .. Digits(row.step) .. "f", control.current or row.min))
+        box:SetFocus()
+        box:HighlightText()
+    end)
+    value:SetScript("OnEnter", function() readout:SetTextColor(COLOR.text[1], COLOR.text[2], COLOR.text[3]) end)
+    value:SetScript("OnLeave", function() readout:SetTextColor(COLOR.muted[1], COLOR.muted[2], COLOR.muted[3]) end)
+    box:SetScript("OnEnterPressed", function(self)
+        if applyBox() then self:ClearFocus() end
+    end)
+    box:SetScript("OnEscapePressed", function(self)
+        closeBox()
+        self:ClearFocus()
+    end)
+    box:SetScript("OnEditFocusLost", function()
+        if box:IsShown() and applyBox() == false then closeBox() end
+    end)
+
+    function control:Set(current)
+        self.current = current
+        if self.dragging then return end
         self.updating = true
-        slider:SetValue(value)
-        readout:SetText(Format(row, value))
+        slider:SetValue(current)
+        readout:SetText(Format(row, current))
         self.updating = false
     end
     return control
@@ -727,7 +845,7 @@ function Methods:Change(key, value)
     for index = 1, #self.rows do
         local entry = self.rows[index]
         if entry.spec.key == key then
-            SA_MenuFX.Flash(entry.flash)
+            if entry.spec.kind ~= "range" then SA_MenuFX.Flash(entry.flash) end
             break
         end
     end
@@ -1315,10 +1433,15 @@ local function NewView(parent)
     scroll:SetScript("OnMouseWheel", function(_, delta)
         view:ScrollTo(scroll:GetVerticalScroll() - delta * SCROLL_STEP)
     end)
+    function view:LayWidth(usable)
+        self.laidWidth = usable
+        child:SetWidth(usable)
+        if self.onWidth then self.onWidth(usable) end
+    end
+
     scroll:SetScript("OnSizeChanged", function(_, width)
         local usable = math.max(1, width - 12)
-        child:SetWidth(usable)
-        if view.onWidth then view.onWidth(usable) end
+        if usable ~= view.laidWidth then view:LayWidth(usable) end
         view:UpdateScroll()
     end)
     return view
@@ -1538,12 +1661,25 @@ local function FlattenSlider(bar)
 end
 
 local flattened = setmetatable({}, { __mode = "k" })
+local FitNow
 
-local function FitNow(widget)
+local function RefitOnResize(scroll)
+    local widget = scroll.saFitWidget
+    if widget and widget.page then FitNow(widget) end
+end
+
+FitNow = function(widget)
     local frame = widget.frame
     if not frame then return end
     local content = frame:GetParent()
     local scroll = content and content.GetParent and content:GetParent()
+    if scroll and scroll.HookScript then
+        scroll.saFitWidget = widget
+        if not scroll.saFitHooked then
+            scroll.saFitHooked = true
+            scroll:HookScript("OnSizeChanged", RefitOnResize)
+        end
+    end
     local height = scroll and scroll.GetHeight and scroll:GetHeight()
     local target = PAGE_HEIGHT
     if type(height) == "number" and height > 200 then target = math.max(300, math.floor(height) - 26) end

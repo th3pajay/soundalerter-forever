@@ -242,7 +242,8 @@ function Model.IdleAlpha(enabled, idleFor, delay, target)
     if not enabled or idleFor < delay then return 1 end
     local progress = (idleFor - delay) / Model.FADE_TIME
     if progress >= 1 then return target end
-    return 1 - (1 - target) * progress
+    local eased = 1 - (1 - progress) * (1 - progress)
+    return 1 - (1 - target) * eased
 end
 
 function Model.ReadyTarget(enabled, duration, faded, shown, collapsed, waiting)

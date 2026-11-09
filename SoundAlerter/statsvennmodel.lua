@@ -239,10 +239,35 @@ function Venn.Layout(entries, geometry, options)
     return { items = items, shown = shown, pool = total, groupCounts = groupCounts, zoneCounts = zoneCounts }
 end
 
-function Venn.NoteText(layout)
-    if layout.pool == 0 then return "" end
-    if layout.shown < layout.pool then
-        return string.format("Showing %d of %d spells - all-time", layout.shown, layout.pool)
+Venn.CATEGORY_ORDER = {
+    { "friendCCs", "CC" },
+    { "enemyDebuffs", "CC" },
+    { "friendCCenemy", "CC" },
+    { "friendCCSuccess", "CC" },
+    { "auraApplied", "Defensive" },
+    { "interruptFriend", "Interrupt" },
+    { "enemyDebuffdown", "Debuff Removal" },
+    { "enemyDebuffdownAP", "Debuff Removal" },
+    { "auraRemoved", "Buff Removal" },
+    { "castStart", "Cast" },
+    { "castSuccess", "Instant" },
+    { "selfDebuff", "Debuff on Self" },
+}
+
+function Venn.CategoryOf(spells, spellID)
+    if type(spells) ~= "table" then return "Other" end
+    for _, rule in ipairs(Venn.CATEGORY_ORDER) do
+        local list = spells[rule[1]]
+        if list and list[spellID] then return rule[2] end
     end
-    return string.format("%d spells - all-time", layout.pool)
+    return "Other"
+end
+
+function Venn.NoteText(layout, scope)
+    if layout.pool == 0 then return "" end
+    scope = scope or "all-time"
+    if layout.shown < layout.pool then
+        return string.format("Showing %d of %d spells - %s", layout.shown, layout.pool, scope)
+    end
+    return string.format("%d spells - %s", layout.pool, scope)
 end

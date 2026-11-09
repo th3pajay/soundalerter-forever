@@ -1,7 +1,22 @@
 <Bindings>
-	<Binding name="CLICK SA_TrinketButton1:LeftButton" header="SOUNDALERTER" category="ADDONS"/>
-	<Binding name="CLICK SA_TrinketButton2:LeftButton" category="ADDONS"/>
-	<Binding name="CLICK SA_TrinketSetButton:LeftButton" category="ADDONS"/>
-	<Binding name="CLICK SA_TrinketGearButton:LeftButton" category="ADDONS"/>
-	<Binding name="CLICK SA_TrinketWeaponButton:Keybind" category="ADDONS"/>
+	<Binding name="CLICK SA_TrinketButton1:LeftButton" header="SOUNDALERTER_TRINKET_MENU" category="SoundAlerter"/>
+	<Binding name="CLICK SA_TrinketButton2:LeftButton" category="SoundAlerter"/>
+	<Binding name="CLICK SA_TrinketSetButton:LeftButton" category="SoundAlerter"/>
+	<Binding name="CLICK SA_TrinketGearButton:LeftButton" category="SoundAlerter"/>
+	<Binding name="CLICK SA_TrinketWeaponButton:Keybind" category="SoundAlerter"/>
+	<Binding name="SOUNDALERTER_NEXTSET" category="SoundAlerter">SA_Actions.Run("nextset")</Binding>
+	<Binding name="SOUNDALERTER_PREVSET" category="SoundAlerter">SA_Actions.Run("prevset")</Binding>
+	<Binding name="SOUNDALERTER_OPTIONS" header="SOUNDALERTER_WINDOWS" category="SoundAlerter">SA_Actions.Run("options")</Binding>
+	<Binding name="SOUNDALERTER_FINDER" category="SoundAlerter">SA_Actions.Run("finder")</Binding>
+	<Binding name="SOUNDALERTER_STATS" category="SoundAlerter">SA_Actions.Run("stats")</Binding>
+	<Binding name="SOUNDALERTER_SETUP" category="SoundAlerter">SA_Actions.Run("setup")</Binding>
+	<Binding name="SOUNDALERTER_SNOOZE" header="SOUNDALERTER_ALERTS" category="SoundAlerter">SA_Actions.Run("snooze")</Binding>
+	<Binding name="SOUNDALERTER_PROXIMITY" category="SoundAlerter">SA_Actions.Run("proximity")</Binding>
+	<Binding name="SOUNDALERTER_BATTLEGROUND" category="SoundAlerter">SA_Actions.Run("battleground")</Binding>
+	<Binding name="SOUNDALERTER_CHAT" category="SoundAlerter">SA_Actions.Run("chat")</Binding>
+	<Binding name="SOUNDALERTER_NOTICES" category="SoundAlerter">SA_Actions.Run("notices")</Binding>
+	<Binding name="SOUNDALERTER_SIGHTINGS" category="SoundAlerter">SA_Actions.Run("sightings")</Binding>
+	<Binding name="SOUNDALERTER_TEST" category="SoundAlerter">SA_Actions.Run("test")</Binding>
+	<Binding name="SOUNDALERTER_LOCKBARS" header="SOUNDALERTER_LAYOUT_AND_PROFILES" category="SoundAlerter">SA_Actions.Run("lockbars")</Binding>
+	<Binding name="SOUNDALERTER_PROFILE" category="SoundAlerter">SA_Actions.Run("profile")</Binding>
 </Bindings>

@@ -110,7 +110,8 @@ local function ToastOnUpdate(toast)
     config.tickBorder(toast, now)
 
     if elapsed < FADE_IN_DURATION then
-        local progress = elapsed / FADE_IN_DURATION
+        local linear = elapsed / FADE_IN_DURATION
+        local progress = 1 - (1 - linear) * (1 - linear)
         toast:SetAlpha(progress)
         if not locked then
             toast:SetScale(1.15 - (0.15 * progress))
@@ -131,7 +132,8 @@ local function ToastOnUpdate(toast)
         end
         UpdateCountdownSegments(toast, elapsed - FADE_IN_DURATION)
     elseif elapsed < (FADE_IN_DURATION + toast.displayDuration + FADE_OUT_DURATION) then
-        local fadeProgress = (elapsed - FADE_IN_DURATION - toast.displayDuration) / FADE_OUT_DURATION
+        local linear = (elapsed - FADE_IN_DURATION - toast.displayDuration) / FADE_OUT_DURATION
+        local fadeProgress = linear * linear
         toast:SetAlpha(1 - fadeProgress)
         if secureButton then
             secureButton:SetAlpha(1 - fadeProgress)

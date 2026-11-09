@@ -88,11 +88,13 @@ function Game.ReadSpellCooldown(spellID, reading)
     if issecretvalue(info.startTime) or issecretvalue(info.duration) then
         reading.kind = "secret"
         reading.isActive = info.isActive
+        reading.isOnGCD = info.isOnGCD
         reading.start = nil
         reading.duration = nil
     else
         reading.kind = "plain"
         reading.isActive = nil
+        reading.isOnGCD = nil
         reading.start = info.startTime
         reading.duration = info.duration
     end

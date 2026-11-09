@@ -74,7 +74,9 @@ end
 
 local PANEL_WIDTH = 260
 local TAB_VIEW_TOP = 28
-local TABS = { { "now", "Now" }, { "trends", "Trends" }, { "rivals", "Rivals" }, { "visuals", "Visuals" } }
+local TABS = { { "now", "Now" }, { "trends", "Trends" }, { "rivals", "Rivals" }, { "visuals", "Visuals" }, { "global", "Global" } }
+local TAB_WIDTH, TAB_STEP = 50, 52
+local GLOBAL_REFRESH = 15
 
 local function classHex(class)
     local r, g, b = SA_StatsFormat.ClassColor(class)
@@ -215,6 +217,28 @@ local DISC_ALPHA, DISC_HOT = 0.14, 0.3
 local RING_ALPHA, RING_HOT = 0.55, 1
 local NO_ENTRIES = {}
 
+local SOURCES = {
+    visuals = {
+        unit = "alerts",
+        entries = function()
+            local active = statistics()
+            return active and active:GetVennData() or NO_ENTRIES
+        end,
+        note = function(_, layout) return SA_StatsVenn.NoteText(layout) end,
+        empty = function() return "No spells with a recorded zone yet. Play a match and they appear here." end,
+    },
+}
+
+local function globalEmptyText(players)
+    if not (SoundAlerter.GlobalStatsActive and SoundAlerter:GlobalStatsActive()) then
+        return "Global sightings is off. Turn it on under Proximity Alerts to share and see global statistics."
+    end
+    if (players or 0) == 0 then
+        return "No reports yet. SoundAlerter players on your realm and faction report every 15 minutes."
+    end
+    return "Not enough reports yet. A spell shows once enough players saw it to tell it from the decoys."
+end
+
 local function spellTexture(spellID)
     local api = C_Spell and C_Spell.GetSpellTexture
     return api and api(spellID) or FALLBACK_ICON
@@ -256,10 +280,11 @@ local function showIconTip(button)
         local color = Venn.GROUP_COLOR[entry.group]
         GameTooltip:SetText(entry.name, color[1], color[2], color[3])
         GameTooltip:AddLine(string.format("%s   ID %d", entry.category, entry.id), 0.6, 0.65, 0.72)
-        GameTooltip:AddLine(SA_StatsFormat.Number(entry.total) .. " alerts", 1, 1, 1)
+        local unit = button.owner.source.unit
+        GameTooltip:AddLine(SA_StatsFormat.Number(entry.total) .. " " .. unit, 1, 1, 1)
         local byZone = entry.byZone or {}
         GameTooltip:AddLine(string.format("Arena %d   Battlegrounds %d   World %d", byZone.arena or 0, byZone.battleground or 0, byZone.worldPvP or 0), 0.8, 0.8, 0.8)
-        local class = Venn.TopKey(entry.byClass)
+        local class = entry.byClass and Venn.TopKey(entry.byClass)
         if class then GameTooltip:AddLine("Mostly " .. SA_StatsFormat.ClassName(class), 0.8, 0.8, 0.8) end
         GameTooltip:AddLine("Click: open in Spell Finder", 1, 0.49, 0.04)
     end
@@ -326,11 +351,11 @@ end
 
 local bindVisuals
 
-local function buildVisuals(view)
+local function buildVisuals(view, source)
     local Kit = SoundAlerter.Page.Kit
     local Venn = SA_StatsVenn
     local geometry = Venn.Geometry(PANEL_WIDTH, Venn.SLOT, Venn.MARGIN)
-    local widgets = { geometry = geometry, off = {}, byKey = {}, free = {}, seen = {}, made = 0, zones = {}, legend = {} }
+    local widgets = { geometry = geometry, source = source, off = {}, byKey = {}, free = {}, seen = {}, made = 0, zones = {}, legend = {} }
     local canvas = CreateFrame("Frame", nil, view)
     canvas:SetSize(PANEL_WIDTH, geometry.height)
     canvas:SetPoint("TOPLEFT", view, "TOPLEFT", 0, 0)
@@ -452,19 +477,20 @@ local function showCounts(widgets, layout)
         put(legend.label, group.short .. " " .. (layout.groupCounts[group.key] or 0))
         legend.button:SetAlpha(widgets.off[group.key] and 0.38 or 1)
     end
-    put(widgets.note, Venn.NoteText(layout))
+    local source = widgets.source
+    put(widgets.note, source.note(source, layout))
     if layout.pool > 0 then
         put(widgets.empty, "")
     elseif next(widgets.off) and next(layout.groupCounts) then
         put(widgets.empty, "Every spell type is switched off. Click a legend entry to show it again.")
     else
-        put(widgets.empty, "No spells with a recorded zone yet. Play a match and they appear here.")
+        put(widgets.empty, source.empty(source))
     end
 end
 
 function bindVisuals(widgets, fresh)
-    local active = statistics()
-    local entries = active and active:GetVennData() or NO_ENTRIES
+    local source = widgets.source
+    local entries = source.entries(source)
     if not fresh and not widgets.stale and widgets.entries == entries then return end
     widgets.entries, widgets.stale = entries, false
 
@@ -480,6 +506,315 @@ function bindVisuals(widgets, fresh)
     showCounts(widgets, layout)
 end
 
+local BAR_ROWS, ROW_HEIGHT, LIST_TOP = 13, 16, 16
+local BAR_LEFT, BAR_WIDTH, NUM_WIDTH = 110, 120, 24
+local WHEEL_STEP = 2
+local ZONE_ORDER = { "arena", "battleground", "worldPvP" }
+local SORT_TABS = { { "total", "Total" }, { "arena", "Arena" }, { "battleground", "BGs" }, { "worldPvP", "World" } }
+local DIM_ALPHA = 0.35
+local bindBars
+
+local function zoneColor(zoneKey)
+    for _, zone in ipairs(SA_StatsVenn.ZONES) do
+        if zone.key == zoneKey then return zone.color end
+    end
+    return { 1, 1, 1 }
+end
+
+local function showRowTip(row)
+    local entry = row.entry
+    if not entry then return end
+    local color = SA_StatsVenn.GROUP_COLOR[entry.group]
+    local zones = entry.byZone
+    GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+    GameTooltip:SetText(entry.name, color[1], color[2], color[3])
+    GameTooltip:AddLine(string.format("%s   ID %d", entry.category, entry.id), 0.6, 0.65, 0.72)
+    GameTooltip:AddLine(SA_StatsFormat.Number(entry.total) .. " players", 1, 1, 1)
+    GameTooltip:AddLine(string.format("Arena %d   Battlegrounds %d   World %d", zones.arena or 0, zones.battleground or 0, zones.worldPvP or 0), 0.8, 0.8, 0.8)
+    GameTooltip:AddLine("Click: open in Spell Finder", 1, 0.49, 0.04)
+    GameTooltip:Show()
+end
+
+local function newBarRow(widgets, index)
+    local Kit = SoundAlerter.Page.Kit
+    local row = CreateFrame("Button", nil, widgets.list)
+    row:SetSize(PANEL_WIDTH, ROW_HEIGHT)
+    row:SetPoint("TOPLEFT", widgets.list, "TOPLEFT", 0, -(index - 1) * ROW_HEIGHT)
+    local art = row:CreateTexture(nil, "ARTWORK")
+    art:SetSize(13, 13)
+    art:SetPoint("LEFT", row, "LEFT", 2, 0)
+    if row.CreateMaskTexture and art.AddMaskTexture then
+        local mask = row:CreateMaskTexture()
+        mask:SetTexture(DISC_TEXTURE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        mask:SetAllPoints(art)
+        art:AddMaskTexture(mask)
+    end
+    art:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    local ring = row:CreateTexture(nil, "OVERLAY")
+    ring:SetTexture(ICON_RING_TEXTURE)
+    ring:SetAllPoints(art)
+    local name = Kit.Text(row, 10, Kit.COLOR.text)
+    name:SetPoint("LEFT", row, "LEFT", 19, 0)
+    name:SetWidth(BAR_LEFT - 22)
+    local track = Kit.Paint(row, Kit.COLOR.card, 1, "BACKGROUND")
+    track:SetSize(BAR_WIDTH, 8)
+    track:SetPoint("LEFT", row, "LEFT", BAR_LEFT, 0)
+    local segments = {}
+    for zoneIndex, zoneKey in ipairs(ZONE_ORDER) do
+        local segment = Kit.Paint(row, zoneColor(zoneKey), 1, "ARTWORK")
+        segment:SetHeight(8)
+        segment:Hide()
+        segments[zoneIndex] = segment
+    end
+    local number = Kit.Text(row, 9, Kit.COLOR.muted, "RIGHT")
+    number:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+    number:SetWidth(NUM_WIDTH)
+    row.art, row.ring, row.name, row.segments, row.number = art, ring, name, segments, number
+    row.widths, row.lefts, row.alphas, row.entry = {}, {}, {}, false
+    row:SetScript("OnEnter", showRowTip)
+    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    row:SetScript("OnClick", function(self)
+        if self.entry then SoundAlerter:OpenSpellFinderFor(self.entry.id) end
+    end)
+    row:Hide()
+    return row
+end
+
+local function drawBarRow(widgets, row, entry)
+    if row.entry ~= entry then
+        row.entry = entry
+        local color = SA_StatsVenn.GROUP_COLOR[entry.group]
+        row.art:SetTexture(spellTexture(entry.id))
+        row.ring:SetVertexColor(color[1], color[2], color[3], 1)
+        row.name:SetText(entry.name)
+    end
+    local zones, peak, sort = entry.byZone, widgets.peak, widgets.sort
+    local x = 0
+    for zoneIndex, zoneKey in ipairs(ZONE_ORDER) do
+        local segment = row.segments[zoneIndex]
+        local value = zones[zoneKey] or 0
+        local width = peak > 0 and math.floor(value / peak * BAR_WIDTH + 0.5) or 0
+        if width < 1 then
+            if row.widths[zoneIndex] ~= 0 then
+                row.widths[zoneIndex] = 0
+                segment:Hide()
+            end
+        else
+            if row.widths[zoneIndex] ~= width or row.lefts[zoneIndex] ~= x then
+                row.widths[zoneIndex], row.lefts[zoneIndex] = width, x
+                segment:ClearAllPoints()
+                segment:SetPoint("LEFT", row, "LEFT", BAR_LEFT + x, 0)
+                segment:SetWidth(width)
+                segment:Show()
+            end
+            local alpha = (sort == "total" or sort == zoneKey) and 1 or DIM_ALPHA
+            if row.alphas[zoneIndex] ~= alpha then
+                row.alphas[zoneIndex] = alpha
+                segment:SetAlpha(alpha)
+            end
+            x = x + width
+        end
+    end
+    put(row.number, tostring(sort == "total" and entry.total or (zones[sort] or 0)))
+    row:Show()
+end
+
+local function drawBars(widgets)
+    local rows = widgets.rows
+    for index = 1, BAR_ROWS do
+        local row = widgets.rowFrames[index]
+        local entry = rows[widgets.offset + index]
+        if entry then
+            drawBarRow(widgets, row, entry)
+        elseif row.entry then
+            row.entry = false
+            row:Hide()
+        end
+    end
+    local count = #rows
+    if count == 0 then
+        put(widgets.note, "")
+        put(widgets.empty, (next(widgets.off) and #widgets.entries > 0) and "Every spell type is switched off. Click a legend entry to show it again." or globalEmptyText(widgets.players))
+    else
+        put(widgets.empty, "")
+        local last = math.min(count, widgets.offset + BAR_ROWS)
+        put(widgets.note, string.format("%d-%d of %d spells - 7 days, %d players", widgets.offset + 1, last, count, widgets.players or 0))
+    end
+    if widgets.chrome then return end
+    widgets.chrome = true
+    for _, tab in ipairs(widgets.sortTabs) do
+        local active = tab.key == widgets.sort
+        tab.label:SetAlpha(active and 1 or 0.55)
+        tab.underline:SetShown(active)
+    end
+    for index, group in ipairs(SA_StatsVenn.GROUPS) do
+        local legend = widgets.legend[index]
+        put(legend.label, group.short .. " " .. (widgets.groupCounts[group.key] or 0))
+        legend.button:SetAlpha(widgets.off[group.key] and 0.38 or 1)
+    end
+    widgets.exportButton:SetShown(#widgets.entries > 0)
+end
+
+local function regroup(widgets)
+    local counts = widgets.groupCounts
+    for key in pairs(counts) do counts[key] = nil end
+    for _, entry in ipairs(widgets.entries) do counts[entry.group] = (counts[entry.group] or 0) + 1 end
+end
+
+local function reflow(widgets)
+    widgets.chrome = false
+    local _, peak = SA_GlobalStatsModel.Rows(widgets.entries, widgets.sort, widgets.off, widgets.rows)
+    widgets.peak = peak
+    widgets.offset = SA_GlobalStatsModel.ClampOffset(widgets.offset, #widgets.rows, BAR_ROWS)
+    drawBars(widgets)
+end
+
+local function openExport(widgets)
+    local text = SoundAlerter.GetGlobalExport and SoundAlerter:GetGlobalExport()
+    if not text then return end
+    local box = widgets.exportBox
+    box.text = text
+    box.edit:SetText(text)
+    box:Show()
+    box.edit:SetFocus()
+    box.edit:HighlightText()
+end
+
+local function buildExportBox(widgets, view)
+    local Kit = SoundAlerter.Page.Kit
+    local box = CreateFrame("Frame", nil, view)
+    box:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -LIST_TOP)
+    box:SetSize(PANEL_WIDTH, BAR_ROWS * ROW_HEIGHT)
+    box:SetFrameLevel(view:GetFrameLevel() + 10)
+    box:EnableMouse(true)
+    local fill = Kit.Paint(box, Kit.COLOR.card, 0.97, "BACKGROUND")
+    fill:SetAllPoints(box)
+    local title = Kit.Text(box, 11, Kit.COLOR.text)
+    title:SetPoint("TOPLEFT", box, "TOPLEFT", 8, -8)
+    title:SetText("Global statistics export")
+    local hint = Kit.Text(box, 10, Kit.COLOR.muted)
+    hint:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
+    hint:SetWidth(PANEL_WIDTH - 16)
+    hint:SetWordWrap(true)
+    hint:SetText("Press Ctrl+C to copy, then paste it on the website. Realm totals only, no player names. Esc closes.")
+    local edit = CreateFrame("EditBox", nil, box)
+    edit:SetPoint("TOPLEFT", box, "TOPLEFT", 8, -64)
+    edit:SetSize(PANEL_WIDTH - 16, 24)
+    edit:SetAutoFocus(false)
+    edit:SetFont(Kit.FONT, 11, "")
+    edit:SetTextInsets(6, 6, 3, 3)
+    local field = Kit.Paint(edit, Kit.COLOR.line, 1, "BACKGROUND")
+    field:SetAllPoints(edit)
+    edit:SetScript("OnEscapePressed", function() box:Hide() end)
+    edit:SetScript("OnTextChanged", function(self, userInput)
+        if userInput and box.text then
+            self:SetText(box.text)
+            self:HighlightText()
+        end
+    end)
+    edit:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+    local close = Kit.MakeButton(box, "Close", function() box:Hide() end).frame
+    close:SetSize(64, 20)
+    close:SetPoint("TOPRIGHT", edit, "BOTTOMRIGHT", 0, -8)
+    box.edit = edit
+    box:Hide()
+    widgets.exportBox = box
+end
+
+local function buildBars(view)
+    local Kit = SoundAlerter.Page.Kit
+    local widgets = { sort = "total", off = {}, rows = {}, rowFrames = {}, offset = 0, peak = 0, players = 0, entries = NO_ENTRIES, groupCounts = {}, sortTabs = {}, legend = {} }
+    for index, tab in ipairs(SORT_TABS) do
+        local button = CreateFrame("Button", nil, view)
+        button:SetSize(46, 14)
+        button:SetPoint("TOPLEFT", view, "TOPLEFT", (index - 1) * 48, 0)
+        local color = tab[1] == "total" and Kit.COLOR.text or zoneColor(tab[1])
+        local label = Kit.Text(button, 10, color, "LEFT")
+        label:SetPoint("LEFT", button, "LEFT", 2, 0)
+        label:SetText(tab[2])
+        local underline = Kit.Paint(button, color, 1, "OVERLAY")
+        underline:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 2, 0)
+        underline:SetSize(30, 1)
+        underline:Hide()
+        button:SetScript("OnClick", function()
+            if widgets.sort == tab[1] then return end
+            widgets.sort, widgets.offset = tab[1], 0
+            reflow(widgets)
+        end)
+        widgets.sortTabs[index] = { key = tab[1], label = label, underline = underline, button = button }
+    end
+    local list = CreateFrame("Frame", nil, view)
+    list:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -LIST_TOP)
+    list:SetSize(PANEL_WIDTH, BAR_ROWS * ROW_HEIGHT)
+    list:EnableMouseWheel(true)
+    list:SetScript("OnMouseWheel", function(_, delta)
+        local offset = SA_GlobalStatsModel.ClampOffset(widgets.offset - delta * WHEEL_STEP, #widgets.rows, BAR_ROWS)
+        if offset == widgets.offset then return end
+        widgets.offset = offset
+        drawBars(widgets)
+    end)
+    widgets.list = list
+    for index = 1, BAR_ROWS do widgets.rowFrames[index] = newBarRow(widgets, index) end
+    local legendTop = LIST_TOP + BAR_ROWS * ROW_HEIGHT + 4
+    for index, group in ipairs(SA_StatsVenn.GROUPS) do
+        local button = CreateFrame("Button", nil, view)
+        button:SetSize(LEGEND_WIDTH, 16)
+        button:SetPoint("TOPLEFT", view, "TOPLEFT", (index - 1) * (LEGEND_WIDTH + LEGEND_GAP), -legendTop)
+        local dot = button:CreateTexture(nil, "ARTWORK")
+        dot:SetTexture(DISC_TEXTURE)
+        dot:SetSize(8, 8)
+        dot:SetPoint("LEFT", button, "LEFT", 2, 0)
+        dot:SetVertexColor(group.color[1], group.color[2], group.color[3], 1)
+        local label = Kit.Text(button, 10, Kit.COLOR.muted)
+        label:SetPoint("LEFT", dot, "RIGHT", 3, 0)
+        button:SetScript("OnClick", function()
+            widgets.off[group.key] = not widgets.off[group.key] or nil
+            reflow(widgets)
+        end)
+        widgets.legend[index] = { button = button, label = label }
+    end
+    widgets.note = Kit.Text(view, 10, Kit.COLOR.muted)
+    widgets.note:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -(legendTop + 22))
+    widgets.note:SetWidth(PANEL_WIDTH - 60)
+    widgets.exportButton = Kit.MakeButton(view, "Export", function() openExport(widgets) end).frame
+    widgets.exportButton:SetSize(54, 18)
+    widgets.exportButton:SetPoint("TOPRIGHT", view, "TOPRIGHT", 0, -(legendTop + 19))
+    widgets.empty = Kit.Text(view, 11, Kit.COLOR.muted, "CENTER")
+    widgets.empty:SetPoint("CENTER", list, "CENTER", 0, 0)
+    widgets.empty:SetWidth(PANEL_WIDTH - 40)
+    widgets.empty:SetWordWrap(true)
+    buildExportBox(widgets, view)
+    local function startRefresh()
+        if widgets.ticker then widgets.ticker:Cancel() end
+        widgets.ticker = C_Timer.NewTicker(GLOBAL_REFRESH, function() bindBars(widgets, false) end)
+    end
+    view:SetScript("OnShow", startRefresh)
+    view:SetScript("OnHide", function()
+        if widgets.ticker then widgets.ticker:Cancel() end
+        widgets.ticker = nil
+        widgets.exportBox:Hide()
+    end)
+    if view:IsShown() then startRefresh() end
+    return widgets
+end
+
+function bindBars(widgets, fresh)
+    local entries, players = NO_ENTRIES, 0
+    if SoundAlerter.GetGlobalVennData then
+        local got, count = SoundAlerter:GetGlobalVennData()
+        entries, players = got or NO_ENTRIES, count or 0
+    end
+    if not fresh and widgets.entries == entries and widgets.players == players then return end
+    widgets.entries, widgets.players = entries, players
+    regroup(widgets)
+    reflow(widgets)
+end
+
+local VIEWS = {
+    visuals = { build = function(view) return buildVisuals(view, SOURCES.visuals) end, bind = function(widgets, fresh) bindVisuals(widgets, fresh) end },
+    global = { build = buildBars, bind = function(widgets, fresh) bindBars(widgets, fresh) end },
+}
+
 local function selectTab(state, key)
     local Kit = SoundAlerter.Page.Kit
     local changed = state.tab ~= key
@@ -492,16 +827,18 @@ local function selectTab(state, key)
         button.label:SetTextColor(color[1], color[2], color[3])
         button.underline:SetShown(active)
     end
-    if key == "visuals" and state.model then
-        local visuals = state.widgets.visuals
-        if not visuals then
-            visuals = buildVisuals(state.views.visuals)
-            state.widgets.visuals = visuals
-            state.visualsDirty = true
+    local spec = VIEWS[key]
+    if spec and state.model then
+        local widgets = state.widgets[key]
+        local dirtyKey = key .. "Dirty"
+        if not widgets then
+            widgets = spec.build(state.views[key])
+            state.widgets[key] = widgets
+            state[dirtyKey] = true
         end
-        if changed or state.visualsDirty then
-            state.visualsDirty = false
-            bindVisuals(visuals, changed)
+        if changed or state[dirtyKey] then
+            state[dirtyKey] = false
+            spec.bind(widgets, changed)
         end
     end
 end
@@ -612,8 +949,8 @@ function Panel.build(stage)
     local state = { tab = "now", views = {}, buttons = {}, widgets = {} }
     for index, tab in ipairs(TABS) do
         local button = CreateFrame("Button", nil, stage)
-        button:SetSize(62, 22)
-        button:SetPoint("TOPLEFT", stage, "TOPLEFT", (index - 1) * 64, 0)
+        button:SetSize(TAB_WIDTH, 22)
+        button:SetPoint("TOPLEFT", stage, "TOPLEFT", (index - 1) * TAB_STEP, 0)
         local label = Kit.Text(button, 12, Kit.COLOR.muted, "CENTER")
         label:SetAllPoints(button)
         label:SetText(tab[2])
@@ -651,6 +988,7 @@ function Panel.update(state, settings)
         bindTrends(state.widgets.trends, model.trends)
         bindRivals(state.widgets.rivals, model.rivals)
         state.visualsDirty = true
+        state.globalDirty = true
     end
     selectTab(state, state.tab)
 end

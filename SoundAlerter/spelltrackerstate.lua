@@ -298,7 +298,7 @@ function TrackerState:ReadCooldown(index, reading, now, showReady)
 
     if reading.kind == "secret" then
         readout.numbers = "secret"
-        readout.ready = (showReady and not reading.isActive) and true or false
+        readout.ready = (showReady and (not reading.isActive or reading.isOnGCD == true)) and true or false
         return readout
     end
 

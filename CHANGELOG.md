@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.3.01
+
+## Smooth rider
+
+Global statistics
+- New Global tab under Statistics: how many SoundAlerter players on your realm and faction saw each spell in arenas, battlegrounds and world PvP over the last 7 days. Scroll, sort by zone, filter by type, hover for details, click to open in Spell Finder.
+- Export gives one short line (realm totals, no names). It is also kept in the saved file at logout for a companion program to publish. The addon itself sends nothing anywhere.
+- Experimental, not live yet: a realm stats website for these exports is being built.
+- Follows the Global sightings switch and its opt-out. Reports carry only spell and zone type, mixed with decoys; a spell shows once enough players saw it.
+
+Global sightings
+- Enemy markers on the world map are now their own setting, off by default ("Show enemies on the world map"). The zone and world panels stay on.
+- Sightings, statistics, the update notice and party sharing now share one messaging system: one send limit per channel with sightings first, one list of blocked senders, and `/sa global mute` also covers update announcements.
+- `/sa global` shows message counts per type.
+- Long statistics reports now send in full.
+
+Update notice
+- Shows only after two different players have proven the same newer release, so one test copy can never announce an update, and it respects the channel's send limits.
+
+Combo points
+- Points ignite with a small spring when gained, drain when lost and spring in a wave at five, with rings on Normal and sparks on High, all on the game's own animation engine.
+- New Fade out setting (Style's own, Sweep out or Collapse to centre) and an Empty colour.
+- Combo settings are regrouped into Combo points and Combo animation; Lock position stays first.
+
+Key bindings
+- SoundAlerter has its own section in the game's Key Bindings list, with Trinket Menu, Windows, Alerts, and Layout and profiles headers. Nothing is bound by default.
+- New: select the next or previous trinket set, open options, Spell Finder, Statistics or the setup wizard, snooze, switch proximity, battleground, chat alerts, notices or global sightings, play a test voice, lock bars and switch profile.
+- Keys already set on the trinkets keep working and show on the Trinket Menu buttons. Lock bars and switch profile wait for combat to end; press again to cancel.
+- The minimap button offers the same actions.
+
+Fixes and polish
+- Spell Tracker: Ready! no longer vanishes for a second after every ability in combat.
+- Sliders: no orange flash while dragging, a ring shows the held handle, click the value to type an exact number, and the mouse wheel steps.
+- The options page follows the window while you drag its edge.
+- Energy bar out of Cat Form: shows a dimmed estimate of the energy a shift would give with Furor, instead of a full bar.
+- Fixed a Lua error when changing the resource bar scale or lock with rage fade on.
+- Removed the circling dot at High texture quality that looked like a second swing timer.
+- Smoother Trinket Menu and toast fades.
+- Sharper edges on every drawn shape, same look.
+
+How it works
+
+![How the sharper textures are drawn](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/sdf-edges.png)
+
+- Each shape is a formula giving the exact distance to its edge (Inigo Quilez's signed distance fields), sampled 16 times per pixel. Worst edge error fell from 0.37 to 0.03. Done when textures are made, so it costs nothing in play.
+
+![How Global statistics travel from the game to the Global tab](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/global-stats.png)
+
+- Statistics count players, not alerts. Each report adds two weekly decoys picked with SHA-256 from a key that never leaves your computer; the tab subtracts the expected decoys and shows a spell only at three standard deviations above them and with two or more players.
+- Players are stored as short SHA-256 fingerprints of their names, not the names.
+- The export is a compact checksummed binary line, about 10 characters per spell.
+
+![How the update notice proves a real release](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/update-notice.png)
+
+- Each release reveals one more link of a SHA-256 hash chain: anyone can check it by hashing once, nobody can make the next one. A copy needs that proof from two different players.
+
 ## 0.3.00
 
 ## Really?.. Venn diagrams?

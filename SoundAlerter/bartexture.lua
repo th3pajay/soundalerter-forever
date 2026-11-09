@@ -7,9 +7,6 @@ local WAVE_INTERVAL = 0.05
 local WAVE_COLUMN_PIXELS = { 6, 5, 4 }
 local WAVE_LAYER_ALPHA = { 0.35, 0.6, 1 }
 local LOW_INTERVAL = 0.06
-local GLINT_SPEED = 70
-local GLINT_TRAIL = 6
-local GLINT_STEP = 3
 local PIXEL = "Interface\\Buttons\\WHITE8X8"
 local QUALITIES = { low = true, normal = true, high = true }
 local BEVEL_LIGHT = { 0.62, 0.86, 1, 0.85 }
@@ -463,59 +460,6 @@ local function setBevel(bar, state, shown)
 	end
 end
 
-local function perimeterPoint(width, height, distance)
-	distance = distance % (2 * (width + height))
-	if distance < width then return distance, 0 end
-	distance = distance - width
-	if distance < height then return width, distance end
-	distance = distance - height
-	if distance < width then return width - distance, height end
-	return 0, height - (distance - width)
-end
-
-local function ensureGlint(state)
-	if state.glint then return state.glint end
-
-	local glint = {}
-	for index = 1, GLINT_TRAIL do
-		local texture = state.overlay:CreateTexture(nil, "OVERLAY", nil, 2)
-		texture:SetTexture(PIXEL)
-		texture:SetSize(2, 2)
-		texture:SetVertexColor(1, 1, 1, 0.9 * (1 - (index - 1) / GLINT_TRAIL))
-		glint[index] = texture
-	end
-	state.glint = glint
-	state.glintAt = 0
-	return glint
-end
-
-local function hideGlint(state)
-	if not state.glintShown then return end
-
-	for _, texture in ipairs(state.glint) do
-		texture:Hide()
-	end
-	state.glintShown = false
-end
-
-local function updateGlint(bar, state, dt, width, height)
-	if state.quality ~= "high" then
-		hideGlint(state)
-		return
-	end
-
-	local glint = ensureGlint(state)
-	state.glintAt = (state.glintAt + GLINT_SPEED * dt) % (2 * (width + height))
-	for index = 1, GLINT_TRAIL do
-		local x, y = perimeterPoint(width, height, state.glintAt - (index - 1) * GLINT_STEP)
-		local texture = glint[index]
-		texture:ClearAllPoints()
-		texture:SetPoint("CENTER", bar, "TOPLEFT", x, -y)
-		texture:Show()
-	end
-	state.glintShown = true
-end
-
 local function waveColumn(state, layer, index)
 	local columns = state.columns[layer]
 	local column = columns[index]
@@ -575,6 +519,9 @@ local function updateWaves(bar, state, dt, width, height, fill)
 	local ppu = SoundAlerter.BarUtils:PixelsPerUnit(bar)
 	local minTop = 1 / ppu
 	local r, g, b = bar:GetStatusBarColor()
+	if issecretvalue(state.r) or issecretvalue(state.g) or issecretvalue(state.b) then
+		state.r, state.g, state.b = nil, nil, nil
+	end
 	if issecretvalue(r) or issecretvalue(g) or issecretvalue(b) then
 		local age = (state.secretAge or 1) + dt
 		if age >= 1 then
@@ -653,10 +600,6 @@ function BarTexture:Update(bar, dt)
 
 	local width, height = bar:GetSize()
 	local fill = bar:GetStatusBarTexture()
-
-	if width > 0 and height > 0 then
-		updateGlint(bar, state, dt, width, height)
-	end
 
 	local orientation = bar:GetOrientation()
 	local vertical = orientation == "VERTICAL"
@@ -742,7 +685,6 @@ function BarTexture:SetAnimation(bar, style, quality)
 		state.style, state.quality = nil, nil
 		hideColumns(state, bar:GetStatusBarTexture())
 		setBevel(bar, state, false)
-		hideGlint(state)
 		dropText(bar, state)
 	end
 end

@@ -187,6 +187,7 @@ function SoundAlerter:OnInitialize()
     SA_ProfileCleanup.Run(SoundAlerterDB)
     SA_QuickStart.Seed(self.db1.global, existingInstall)
     SA_QuickStart.SeedSightingsNotice(self.db1.global, existingInstall)
+    SA_QuickStart.SeedStatsNotice(self.db1.global, existingInstall)
     sadb = self.db1.profile
 
     self.db1.RegisterCallback(self, "OnProfileChanged", "ChangeProfile")
@@ -621,6 +622,7 @@ end
 function SoundAlerter:PLAYER_LOGOUT()
     self:RemoveAllAuraSounds()
     self:RestoreTotemPlates()
+    if self.SaveGlobalExport then pcall(self.SaveGlobalExport, self) end
 
     if sadb.statistics and sadb.statistics.enabled then
         local Statistics = self:GetModule("Statistics")
@@ -736,6 +738,7 @@ function SoundAlerter:HandleCommand(input)
         self:AuraSoundCommand(rest)
     elseif command == "global" then
         self:GlobalSightCommand(rest)
+        if (rest or "") == "" and self.GlobalStatsStatus then self:Print(self:GlobalStatsStatus()) end
     elseif command == "snooze" then
         self:Snooze(tonumber(rest))
     elseif command == "unsnooze" then

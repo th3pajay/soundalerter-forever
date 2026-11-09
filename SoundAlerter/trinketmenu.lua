@@ -17,11 +17,11 @@ local SET_NAME = "SA_TrinketSetButton"
 local GEAR_NAME = "SA_TrinketGearButton"
 local WEAPON_NAME = "SA_TrinketWeaponButton"
 local BINDINGS = {
-    weapon = "CLICK SA_TrinketWeaponButton:Keybind",
-    [13] = "CLICK SA_TrinketButton1:LeftButton",
-    [14] = "CLICK SA_TrinketButton2:LeftButton",
-    set = "CLICK SA_TrinketSetButton:LeftButton",
-    gear = "CLICK SA_TrinketGearButton:LeftButton",
+    weapon = SA_Actions.Binding("trinketweapon"),
+    [13] = SA_Actions.Binding("trinkettop"),
+    [14] = SA_Actions.Binding("trinketbottom"),
+    set = SA_Actions.Binding("trinketset"),
+    gear = SA_Actions.Binding("trinketgear"),
 }
 
 local DEFAULT_X, DEFAULT_Y = -300, -120
@@ -128,13 +128,6 @@ local LIFT = {
 local SPARK_COLOR = Lighten(TRINKET_COLOR, 0.55)
 local RIPPLE_COLOR = Lighten(SET_COLOR, 0.55)
 
-BINDING_HEADER_SOUNDALERTER = "SoundAlerter"
-_G["BINDING_NAME_" .. BINDINGS[13]] = "Use top trinket"
-_G["BINDING_NAME_" .. BINDINGS[14]] = "Use bottom trinket"
-_G["BINDING_NAME_" .. BINDINGS.set] = "Equip selected trinket set"
-_G["BINDING_NAME_" .. BINDINGS.gear] = "Switch main and alternate gear set"
-_G["BINDING_NAME_" .. BINDINGS.weapon] = "Switch DPS and healing weapons"
-
 local function Fighting()
     return InCombatLockdown() or Plain(UnitAffectingCombat("player")) == true
 end
@@ -147,12 +140,6 @@ local function ItemIcon(id)
     if not id then return nil end
     local _, icon = COMPAT.ItemBasics(id)
     return icon
-end
-
-local function KeyText(binding)
-    local key = GetBindingKey(binding)
-    if not key then return "" end
-    return (key:gsub("SHIFT%-", "s"):gsub("CTRL%-", "c"):gsub("ALT%-", "a"))
 end
 
 function TrinketMenu:Run(key, fn)
@@ -1446,10 +1433,12 @@ end
 local fadeElapsed = 0
 
 local function FadeStep(driver, elapsed)
-    fadeElapsed = fadeElapsed + elapsed
-    if fadeElapsed < FADE_TICK then return end
-    fadeElapsed = 0
     local menu, now = TrinketMenu, GetTime()
+    if now - menu.idleSince < menu.db.fadeDelay then
+        fadeElapsed = fadeElapsed + elapsed
+        if fadeElapsed < FADE_TICK then return end
+        fadeElapsed = 0
+    end
     if menu.bar:IsMouseOver() or menu.flyout:IsShown() then menu.idleSince = now end
     local target = menu.db.fadeAlpha
     local alpha = Model.IdleAlpha(true, now - menu.idleSince, menu.db.fadeDelay, target)
@@ -1607,7 +1596,12 @@ end
 function TrinketMenu:PaintHotkeys()
     if not self.bar then return end
     for key, button in pairs(self.buttons) do
-        button.face.hotkey:SetText(KeyText(BINDINGS[key]))
+        local face = button.face
+        local text = SA_Actions.ShortKey(GetBindingKey(BINDINGS[key]))
+        if face.hotkeyText ~= text then
+            face.hotkeyText = text
+            face.hotkey:SetText(text)
+        end
     end
 end
 

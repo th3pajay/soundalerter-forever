@@ -196,7 +196,7 @@ function Spark:Refresh()
         unlisten()
     end
     for _, spark in pairs(self.sparks) do
-        if not want or not db[spark.barKey .. "Enabled"] then stop(spark) end
+        if not (want and db[spark.barKey .. "Enabled"]) then stop(spark) end
     end
 end
 

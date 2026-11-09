@@ -17,6 +17,10 @@ Check.FIRST_JITTER = 15
 Check.REPEAT = 3600
 Check.REPEAT_JITTER = 300
 Check.QUIET = 3000
+Check.WITNESSES = 2
+Check.MAX_WITNESSED = 8
+Check.WITNESS_AGE = 14 * 86400
+Check.MAX_WITNESS_KEYS = 200
 
 local band, bor, bxor, bnot, lshift, rshift = bit.band, bit.bor, bit.bxor, bit.bnot, bit.lshift, bit.rshift
 local string_byte, string_char, string_format, string_rep, string_sub = string.byte, string.char, string.format, string.rep, string.sub
@@ -101,24 +105,91 @@ function Check.Works()
 end
 
 function Check.NewState(release, token)
-    return { best = { release = release, token = token }, failed = {}, failedCount = 0, nextCheck = 0 }
+    return { best = { release = release, token = token }, failed = {}, failedCount = 0, nextCheck = 0, witnessed = {}, witnessedCount = 0, witnessDirty = false }
 end
 
-function Check.Consider(state, release, token, now)
+function Check.WitnessKey(name)
+    if type(name) ~= "string" or name == "" then return nil end
+    return string_sub(Check.Sha256("SAV1" .. name), 1, 12)
+end
+
+local function dropWitnessed(state, key)
+    if state.witnessed[key] then
+        state.witnessed[key] = nil
+        state.witnessedCount = state.witnessedCount - 1
+        state.witnessDirty = true
+    end
+end
+
+local function witnessEntry(state, release, token)
+    local key = release .. "|" .. token
+    local entry = state.witnessed[key]
+    if entry then return entry end
+    if state.witnessedCount >= Check.MAX_WITNESSED then
+        local lowestKey, lowest = nil, math.huge
+        for other, item in pairs(state.witnessed) do
+            if item.release < lowest then lowestKey, lowest = other, item.release end
+        end
+        if lowestKey then dropWitnessed(state, lowestKey) end
+    end
+    entry = { release = release, token = token, names = {}, count = 0, proven = false }
+    state.witnessed[key] = entry
+    state.witnessedCount = state.witnessedCount + 1
+    return entry
+end
+
+function Check.Remember(state, release, token, names, at)
+    if type(release) ~= "number" or release <= state.best.release or release - state.best.release > Check.MAX_STEPS then return false end
+    if type(token) ~= "string" or #token ~= 32 or type(names) ~= "table" then return false end
+    local entry = witnessEntry(state, release, token)
+    entry.at = at
+    for name in pairs(names) do
+        if type(name) == "string" and not entry.names[name] and entry.count < Check.WITNESSES then
+            entry.names[name] = true
+            entry.count = entry.count + 1
+        end
+    end
+    return true
+end
+
+function Check.Consider(state, release, token, now, witness)
     local best = state.best
     if release <= best.release or release - best.release > Check.MAX_STEPS then return false end
-    if state.failed[token] or now < state.nextCheck then return false end
-    state.nextCheck = now + Check.GAP
-    if Check.Proves(token, release - best.release, best.token) then
-        best.release, best.token = release, token
-        return true
+    if state.failed[token] or type(witness) ~= "string" or witness == "" then return false end
+    local entry = state.witnessed[release .. "|" .. token]
+    if entry and entry.names[witness] then return false end
+    if not (entry and entry.proven) then
+        if now < state.nextCheck then return false end
+        state.nextCheck = now + Check.GAP
+        if not Check.Proves(token, release - best.release, best.token) then
+            if entry then dropWitnessed(state, release .. "|" .. token) end
+            if state.failedCount >= Check.MAX_FAILED then
+                state.failed, state.failedCount = {}, 0
+            end
+            state.failed[token] = true
+            state.failedCount = state.failedCount + 1
+            return false
+        end
+        entry = witnessEntry(state, release, token)
+        entry.proven = true
     end
-    if state.failedCount >= Check.MAX_FAILED then
-        state.failed, state.failedCount = {}, 0
+    entry.names[witness] = true
+    entry.count = entry.count + 1
+    state.witnessDirty = true
+    if entry.count < Check.WITNESSES then return false end
+    best.release, best.token = release, token
+    for key, item in pairs(state.witnessed) do
+        if item.release <= release then dropWitnessed(state, key) end
     end
-    state.failed[token] = true
-    state.failedCount = state.failedCount + 1
-    return false
+    return true
+end
+
+function Check.Waiting(state)
+    local count = 0
+    for _, item in pairs(state.witnessed) do
+        if item.count > 0 then count = count + 1 end
+    end
+    return count
 end
 
 local Updates = {}
@@ -126,20 +197,19 @@ SoundAlerter.UpdateCheck = Updates
 
 local frame
 local state
-local listening, prefixRegistered, told, pendingNotice = false, false, false, false
+local listening, told, pendingNotice = false, false, false
+local CHATS = { realm = true, GUILD = true, PARTY = true, RAID = true, INSTANCE_CHAT = true }
+local RECEIVE_PER_SECOND = 4
 local schedule = 0
 local lastGroupSize, nextGroupSend = 0, 0
 local heard = {}
-local ownRelease
+local ownRelease, ownName
+local witnessKeys, witnessKeyCount = {}, 0
 
 local function global()
     return SoundAlerter.db1 and SoundAlerter.db1.global
 end
 
-local function send(text, distribution, target)
-    local _, sender = SA_PartyShare.Api()
-    if sender then pcall(sender, Check.PREFIX, text, distribution, target) end
-end
 
 local function canAnnounce()
     local kind = SoundAlerter.cachedInstanceType
@@ -152,21 +222,24 @@ local function groupChannel()
     return nil
 end
 
-local function sendUnlessHeard(text, distribution, target, now)
+local function sendUnlessHeard(text, distribution, now)
     local at = heard[distribution]
     if at and now - at < Check.QUIET then return end
-    send(text, distribution, target)
+    if distribution == "CHANNEL" then
+        SA_Messaging.SendRealm(Check.PREFIX, text, false)
+    else
+        SA_Messaging.SendGroup(Check.PREFIX, text, distribution)
+    end
 end
 
 local function announce()
     if not canAnnounce() then return end
     local text = Check.Encode(state.best.release, state.best.token)
     local now = GetTime()
-    if IsInGuild() then sendUnlessHeard(text, "GUILD", nil, now) end
+    if IsInGuild() then sendUnlessHeard(text, "GUILD", now) end
     local group = groupChannel()
-    if group then sendUnlessHeard(text, group, nil, now) end
-    local channel = SoundAlerter:GlobalSightChannelId()
-    if channel then sendUnlessHeard(text, "CHANNEL", channel, now) end
+    if group then sendUnlessHeard(text, group, now) end
+    if SA_Messaging.RealmReady() then sendUnlessHeard(text, "CHANNEL", now) end
 end
 
 local function notify()
@@ -190,19 +263,54 @@ local function save()
     if saved then saved.updateSeen = { release = state.best.release, token = state.best.token } end
 end
 
-local function onMessage(prefix, text, distribution)
-    if Plain(prefix) ~= Check.PREFIX or InCombatLockdown() then return end
-    local release, token = Check.Decode(Plain(text))
-    if not release then return end
-    local now = GetTime()
-    distribution = Plain(distribution)
-    if Check.Consider(state, release, token, now) then
-        save()
-        notify()
-        heard[distribution or ""] = now
-    elseif release == state.best.release and token == state.best.token then
-        heard[distribution or ""] = now
+local function saveWitnesses()
+    state.witnessDirty = false
+    local saved = global()
+    if not saved then return end
+    local list = {}
+    local stamp = GetServerTime()
+    for _, item in pairs(state.witnessed) do
+        if item.count > 0 then
+            item.at = item.at or stamp
+            local names = {}
+            for name in pairs(item.names) do names[name] = true end
+            list[#list + 1] = { release = item.release, token = item.token, names = names, at = item.at }
+        end
     end
+    saved.updateWitnessed = #list > 0 and list or nil
+end
+
+local function mainName(sender)
+    sender = Plain(sender)
+    if type(sender) ~= "string" then return nil end
+    return SA_Messaging.MainName(sender) or sender
+end
+
+local function onMessage(text, sender, distribution, now)
+    local release, token = Check.Decode(text)
+    if not release then return false end
+    if release == state.best.release and token == state.best.token then
+        heard[distribution] = now
+        return true
+    end
+    if release <= state.best.release then return true end
+    local name = mainName(sender)
+    if not name or name == ownName then return true end
+    local witness = witnessKeys[name]
+    if not witness then
+        witness = Check.WitnessKey(name)
+        if witnessKeyCount >= Check.MAX_WITNESS_KEYS then witnessKeys, witnessKeyCount = {}, 0 end
+        witnessKeys[name], witnessKeyCount = witness, witnessKeyCount + 1
+    end
+    if Check.Consider(state, release, token, now, witness) then
+        save()
+        saveWitnesses()
+        notify()
+        heard[distribution] = now
+    elseif state.witnessDirty then
+        saveWitnesses()
+    end
+    return true
 end
 
 local function onRoster()
@@ -213,7 +321,7 @@ local function onRoster()
     if not grew or now < nextGroupSend or not canAnnounce() then return end
     nextGroupSend = now + Check.GROUP_GAP
     local group = groupChannel()
-    if group then send(Check.Encode(state.best.release, state.best.token), group) end
+    if group then SA_Messaging.SendGroup(Check.PREFIX, Check.Encode(state.best.release, state.best.token), group) end
 end
 
 local function restoreSaved(stamp)
@@ -229,21 +337,32 @@ local function restoreSaved(stamp)
     end
 end
 
+local function restoreWitnesses()
+    local saved = global()
+    local list = saved and saved.updateWitnessed
+    if type(list) ~= "table" then return end
+    local oldest = GetServerTime() - Check.WITNESS_AGE
+    for _, item in ipairs(list) do
+        if type(item) == "table" and type(item.at) == "number" and item.at >= oldest then
+            Check.Remember(state, item.release, item.token, item.names, item.at)
+        end
+    end
+    saveWitnesses()
+end
+
 local function start(stamp)
-    local register = SA_PartyShare.Api()
-    if not prefixRegistered then prefixRegistered = pcall(register, Check.PREFIX) end
     if not frame then
         frame = CreateFrame("Frame")
-        frame:SetScript("OnEvent", function(_, event, ...)
-            if event == "CHAT_MSG_ADDON" then onMessage(...) else onRoster() end
-        end)
+        frame:SetScript("OnEvent", onRoster)
     end
-    pcall(frame.RegisterEvent, frame, "CHAT_MSG_ADDON")
     pcall(frame.RegisterEvent, frame, "GROUP_ROSTER_UPDATE")
     ownRelease = stamp.release
+    ownName = mainName(UnitName and UnitName("player"))
     state = Check.NewState(stamp.release, stamp.token)
     restoreSaved(stamp)
+    restoreWitnesses()
     lastGroupSize = GetNumGroupMembers()
+    SA_Messaging.Listen(Check.PREFIX, { chats = CHATS, receive = RECEIVE_PER_SECOND, inCombat = false, handler = onMessage })
     listening = true
     schedule = schedule + 1
     local current = schedule
@@ -251,7 +370,7 @@ local function start(stamp)
 end
 
 local function stop()
-    pcall(frame.UnregisterEvent, frame, "CHAT_MSG_ADDON")
+    SA_Messaging.Stop(Check.PREFIX)
     pcall(frame.UnregisterEvent, frame, "GROUP_ROSTER_UPDATE")
     schedule = schedule + 1
     state = nil
@@ -262,7 +381,7 @@ end
 function Updates:Refresh()
     local profile = SoundAlerter.db1 and SoundAlerter.db1.profile
     local stamp = SA_ReleaseStamp
-    local want = profile and profile.updateNotice and stamp and SA_PartyShare.Supported() and Check.Works()
+    local want = profile and profile.updateNotice and stamp and SA_Messaging.Supported() and Check.Works()
     if want and not listening then
         start(stamp)
     elseif listening and not want then
@@ -272,7 +391,7 @@ end
 
 function Updates:Reset()
     if listening then stop() end
-    told, pendingNotice, prefixRegistered, nextGroupSend = false, false, false, 0
+    told, pendingNotice, nextGroupSend = false, false, 0
     Check.works = nil
 end
 
@@ -281,5 +400,5 @@ function Updates:Status()
         SoundAlerter:Print("Update notice is off.")
         return
     end
-    SoundAlerter:Print(string_format("Update notice: your copy is release %d, newest proven release %d, told this session: %s.", ownRelease, state.best.release, tostring(told)))
+    SoundAlerter:Print(string_format("Update notice: your copy is release %d, newest proven release %d, told this session: %s, newer releases waiting for a second player: %d.", ownRelease, state.best.release, tostring(told), Check.Waiting(state)))
 end

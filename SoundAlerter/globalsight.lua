@@ -17,7 +17,6 @@ local BANDS = { C = true, N = true, M = true, D = true }
 local SOURCES = { P = true, T = true, F = true, A = true }
 
 SA_GlobalSight.PREFIX = "SoundAlerterG"
-SA_GlobalSight.MAX_FALLBACK = 3
 SA_GlobalSight.SELF = "@self"
 SA_GlobalSight.BAND_CODE = { Close = "C", Nearby = "N", Medium = "M", Detected = "D", Spotted = "D" }
 
@@ -65,46 +64,8 @@ function SA_GlobalSight.Day(serverTime)
     return math_floor(serverTime / 86400)
 end
 
-function SA_GlobalSight.ChannelName(faction, day, index)
-    local name = "sags" .. (faction == "Horde" and "h" or "a") .. day
-    if index and index > 0 then name = name .. string.char(96 + index) end
-    return name
-end
-
-function SA_GlobalSight.IsChannelName(text)
-    return type(text) == "string" and string_find(text:lower(), "^sags[ah]%d+%l?$") ~= nil
-end
-
 function SA_GlobalSight.Confirmed(record)
     return record.selfSeen or (record.reporterCount or 0) >= 2
-end
-
-local OFFENSE_SPAN, INVALID_LIMIT, RATE_LIMIT = 60, 5, 3
-
-function SA_GlobalSight.Offend(offenses, sender, kind, now)
-    local entry = offenses[sender]
-    if not entry or now - entry.start > OFFENSE_SPAN then
-        entry = entry or {}
-        entry.start, entry.invalid, entry.limited = now, 0, 0
-        offenses[sender] = entry
-    end
-    entry[kind] = entry[kind] + 1
-    if entry.invalid >= INVALID_LIMIT then return "invalid messages" end
-    if entry.limited >= RATE_LIMIT then return "flooding" end
-    return nil
-end
-
-function SA_GlobalSight.MainName(sender)
-    if type(sender) ~= "string" then return nil end
-    return sender:match("^([^%s%-]+)")
-end
-
-function SA_GlobalSight.Oldest(stamps)
-    local oldestKey, oldest
-    for key, at in pairs(stamps) do
-        if type(at) == "number" and (not oldest or at < oldest) then oldestKey, oldest = key, at end
-    end
-    return oldestKey
 end
 
 function SA_GlobalSight.NewTag()
@@ -325,45 +286,21 @@ function SA_GlobalSight.Take(bucket, now)
     return true
 end
 
-function SA_GlobalSight.SenderAllow(windows, sender, now, limit, span)
-    local entry = windows[sender]
-    if not entry then
-        entry = { start = now, count = 0 }
-        windows[sender] = entry
-    elseif now - entry.start >= span then
-        entry.start, entry.count = now, 0
-    end
-    if entry.count >= limit then return false end
-    entry.count = entry.count + 1
-    return true
-end
-
-function SA_GlobalSight.SweepSenders(windows, now, age)
-    for sender, entry in pairs(windows) do
-        if now - entry.start > age then windows[sender] = nil end
-    end
-end
 end
 
 do
 local SoundAlerter = SoundAlerter
 local G = SA_GlobalSight
+local Messaging = SA_Messaging
 local Plain = SA_COMPAT.Plain
 
 local PREFIX = G.PREFIX
-local JOIN_ATTEMPTS = 2
-local MAX_IGNORED = 200
-local MAX_MUTED = 200
-local THROTTLE_HOLD = 5
 local TICK = 1
 local RECORD_AGE = 600
 local WATCHER_AGE = 120
 local PRESENCE_INTERVAL = 60
 local PRESENCE_JITTER = 5
 local RESEND_AFTER = 90
-local JOIN_RETRY = 10
-local JOIN_RETRY_LONG = 300
-local JOIN_SETTLE = 15
 local MAX_RECORDS = 500
 local MAX_REPORTERS = 10
 local MAX_WATCHERS = 50
@@ -377,112 +314,22 @@ for i = 1, 4 do GROUP_TARGETS[#GROUP_TARGETS + 1] = "party" .. i .. "target" end
 local RAID_TARGETS = {}
 for i = 1, 40 do RAID_TARGETS[#RAID_TARGETS + 1] = "raid" .. i .. "target" end
 
-local frame = CreateFrame("Frame")
 local tag = G.NewTag()
-local store, sentState, senderWindows, bucket, receiveBudget
-local channel, channelIndex, channelDay, joinAttempts = nil, 0, nil, 0
-local wantedName, wantedDay, wantedIndex, wantedFaction
-local offenses, ignored, ignoredAt, ignoredCount = {}, {}, {}, 0
-local holdUntil = 0
-local breaker = SA_PartyShare.NewBreaker()
-local active, joined, filtered, prefixRegistered = false, false, false, false
+local store, sentState, bucket
+local active = false
 local ticker
-local nextSweep, nextPresence, nextJoin = 0, 0, 0
+local nextSweep, nextPresence = 0, 0
 local decoded, own, best = {}, {}, {}
 local seen = {}
 local counters = {}
 local profilerClock = debugprofilestop
 
 local function ResetCounters()
-    counters.received, counters.merged, counters.presence, counters.own = 0, 0, 0, 0
-    counters.rejected, counters.overBudget, counters.overSender, counters.conflicts = 0, 0, 0, 0
-    counters.sent, counters.sentPresence, counters.sendFailed, counters.swept = 0, 0, 0, 0
+    counters.merged, counters.presence, counters.own, counters.conflicts = 0, 0, 0, 0
+    counters.sent, counters.sentPresence, counters.swept = 0, 0, 0
     counters.decodeTotal, counters.decodeMax, counters.decodeCount = 0, 0, 0
-    counters.ignored, counters.fallbacks, counters.throttled = 0, 0, 0
 end
 ResetCounters()
-
-local function ChannelId(name)
-    name = name or channel
-    if not name then return nil end
-    local ok, id = pcall(GetChannelName, name)
-    id = ok and Plain(id)
-    if type(id) == "number" and id > 0 then return id end
-    return nil
-end
-
-local function HideChannel()
-    if not ChatFrame_RemoveChannel then return end
-    for i = 1, NUM_CHAT_WINDOWS or 10 do
-        local chat = _G["ChatFrame" .. i]
-        if chat then pcall(ChatFrame_RemoveChannel, chat, channel) end
-    end
-end
-
-local function NoticeFilter(_, _, _, _, _, channelName, _, _, _, _, channelBaseName)
-    local base = Plain(channelBaseName) or Plain(channelName)
-    if type(base) ~= "string" then return false end
-    return G.IsChannelName(base:match("([^%s%.]+)$"))
-end
-
-local function Leave(name)
-    if name and ChannelId(name) and LeaveChannelByName then pcall(LeaveChannelByName, name) end
-end
-
-local function WantedChannel()
-    local day = G.Day(GetServerTime())
-    if day ~= channelDay then
-        channelDay, channelIndex, joinAttempts = day, 0, 0
-    end
-    local faction = UnitFactionGroup and UnitFactionGroup("player")
-    faction = Plain(faction)
-    if day ~= wantedDay or channelIndex ~= wantedIndex or faction ~= wantedFaction then
-        wantedDay, wantedIndex, wantedFaction = day, channelIndex, faction
-        wantedName = G.ChannelName(faction, day, channelIndex)
-    end
-    return wantedName
-end
-
-local function SetFilter(on)
-    if on == filtered or not ChatFrame_AddMessageEventFilter then return end
-    local change = on and ChatFrame_AddMessageEventFilter or ChatFrame_RemoveMessageEventFilter
-    if not change then return end
-    for _, event in ipairs({ "CHAT_MSG_CHANNEL_NOTICE", "CHAT_MSG_CHANNEL_NOTICE_USER", "CHAT_MSG_CHANNEL" }) do
-        change(event, NoticeFilter)
-    end
-    filtered = on
-end
-
-local function EnsureChannel(now)
-    local wanted = WantedChannel()
-    if wanted ~= channel then
-        if channel then
-            Leave(channel)
-            nextJoin = 0
-        end
-        channel, joined, joinAttempts = wanted, false, 0
-    end
-    if ChannelId() then
-        if not joined then
-            joined = true
-            joinAttempts = 0
-            HideChannel()
-        end
-        return true
-    end
-    joined = false
-    if now < nextJoin then return false end
-    if joinAttempts >= JOIN_ATTEMPTS and channelIndex < G.MAX_FALLBACK then
-        channelIndex = channelIndex + 1
-        counters.fallbacks = counters.fallbacks + 1
-        channel, joinAttempts = WantedChannel(), 0
-    end
-    joinAttempts = joinAttempts + 1
-    nextJoin = now + (joinAttempts > JOIN_ATTEMPTS and JOIN_RETRY_LONG or JOIN_RETRY)
-    local join = JoinTemporaryChannel or JoinChannelByName
-    if join then pcall(join, channel) end
-    return false
-end
 
 local function Eligible()
     local resting = IsResting and IsResting()
@@ -498,24 +345,6 @@ local function PlayerCell()
     local cx, cy = G.Cell(Plain(x)), G.Cell(Plain(y))
     if not cx or not cy then return nil end
     return mapID, cx, cy
-end
-
-local function Send(text)
-    local id = ChannelId()
-    if not id then return false end
-    local _, send = SA_PartyShare.Api()
-    local successValue = Enum and Enum.SendAddonMessageResult and Enum.SendAddonMessageResult.Success
-    local ok, result = pcall(send, PREFIX, text, "CHANNEL", id)
-    local success = ok and SA_PartyShare.Succeeded(result, successValue)
-    local now = GetTime()
-    if not success then counters.sendFailed = counters.sendFailed + 1 end
-    if ok and SA_PartyShare.Throttled(result) then
-        counters.throttled = counters.throttled + 1
-        holdUntil = now + THROTTLE_HOLD
-    elseif SA_PartyShare.Record(breaker, success, now) and breaker.trips == 1 then
-        SoundAlerter:Print("Global sightings paused after repeated send failures; they retry every minute.")
-    end
-    return success
 end
 
 local tickResolved, tickMap, tickCx, tickCy = false, nil, nil, nil
@@ -563,7 +392,7 @@ local function SendBest(now, mapID, cx, cy)
     local level = best.level
     if type(level) ~= "number" or level < 0 then level = -1 end
     local text = G.EncodeSight(tag, best.guid, best.name, best.class, level, best.race, mapID, cx, cy, band, best.source, GetServerTime())
-    if not text or not Send(text) then return end
+    if not text or not Messaging.SendRealm(PREFIX, text, true) then return end
     counters.sent = counters.sent + 1
     local state = sentState[best.guid]
     if not state then
@@ -577,7 +406,7 @@ local function SendPresence(now, mapID)
     if now < nextPresence or not G.Take(bucket, now) then return end
     nextPresence = now + PRESENCE_INTERVAL + math.random(-PRESENCE_JITTER, PRESENCE_JITTER)
     local text = G.EncodePresence(tag, mapID, GetServerTime())
-    if text and Send(text) then
+    if text and Messaging.SendRealm(PREFIX, text, true) then
         counters.sentPresence = counters.sentPresence + 1
         G.Presence(store, G.SELF, mapID, now)
     end
@@ -585,10 +414,6 @@ end
 
 local function Sweep(now)
     counters.swept = counters.swept + G.Sweep(store, now, RECORD_AGE, WATCHER_AGE)
-    G.SweepSenders(senderWindows, now, 10)
-    for sender, entry in pairs(offenses) do
-        if now - entry.start > 120 then offenses[sender] = nil end
-    end
     for guid, state in pairs(sentState) do
         if now - state.at > RECORD_AGE then sentState[guid] = nil end
     end
@@ -601,7 +426,7 @@ local function Tick()
         nextSweep = now + sweepInterval
         Sweep(now)
     end
-    if not EnsureChannel(now) or not Eligible() or now < holdUntil or SA_PartyShare.Open(breaker, now) then return end
+    if not Messaging.RealmReady() or not Eligible() then return end
     tickResolved = false
     for guid in pairs(seen) do seen[guid] = nil end
     best.priority = 0
@@ -623,67 +448,11 @@ local function Tick()
     end
 end
 
-local function Muted()
-    local global = SoundAlerter.db1 and SoundAlerter.db1.global
-    if not global then return {} end
-    global.globalMuted = global.globalMuted or {}
-    return global.globalMuted
+local function ReceiveLimit(text)
+    return text:byte(3) == PRESENCE_BYTE and presencePerSecond or receivePerSecond
 end
 
-local function Ignore(sender, reason, now)
-    if ignored[sender] then return end
-    if ignoredCount >= MAX_IGNORED then
-        local oldest = SA_GlobalSight.Oldest(ignoredAt)
-        if not oldest then return end
-        ignored[oldest], ignoredAt[oldest] = nil, nil
-        ignoredCount = ignoredCount - 1
-    end
-    ignored[sender], ignoredAt[sender] = reason, now
-    ignoredCount = ignoredCount + 1
-end
-
-local function Mute(name)
-    local muted = Muted()
-    if muted[name] then return end
-    local count = 0
-    for _ in pairs(muted) do count = count + 1 end
-    if count >= MAX_MUTED then
-        local oldest = SA_GlobalSight.Oldest(muted)
-        if oldest then muted[oldest] = nil end
-    end
-    muted[name] = GetServerTime()
-end
-
-local function IsIgnored(sender)
-    local main = G.MainName(sender)
-    if ignored[sender] or (main ~= nil and ignored[main] ~= nil) then return true end
-    local muted = Muted()
-    return muted[sender] ~= nil or (main ~= nil and muted[main] ~= nil)
-end
-
-local function OnAddon(prefix, text, distribution, sender, _, _, _, channelName)
-    if Plain(prefix) ~= PREFIX or Plain(distribution) ~= "CHANNEL" then return end
-    channelName = Plain(channelName)
-    if type(channelName) ~= "string" or not channel or (channelName ~= channel and channelName:lower() ~= channel) then return end
-    text, sender = Plain(text), Plain(sender)
-    if type(text) ~= "string" or type(sender) ~= "string" then return end
-    counters.received = counters.received + 1
-    if IsIgnored(sender) then
-        counters.ignored = counters.ignored + 1
-        return
-    end
-    local now = GetTime()
-    local limit = text:byte(3) == PRESENCE_BYTE and presencePerSecond or receivePerSecond
-    if not SA_PartyShare.Allow(receiveBudget, now, limit) then
-        counters.overBudget = counters.overBudget + 1
-        return
-    end
-    if not G.SenderAllow(senderWindows, sender, now, SENDER_LIMIT, SENDER_SPAN) then
-        counters.overSender = counters.overSender + 1
-        local reason = G.Offend(offenses, sender, "limited", now)
-        if reason then Ignore(sender, reason, now) end
-        return
-    end
+local function OnMessage(text, sender, _, now)
     local started = profilerClock and profilerClock()
     local message = G.Decode(text, GetServerTime(), decoded)
     if started then
@@ -692,53 +461,39 @@ local function OnAddon(prefix, text, distribution, sender, _, _, _, channelName)
         counters.decodeCount = counters.decodeCount + 1
         if spent > counters.decodeMax then counters.decodeMax = spent end
     end
-    if not message then
-        counters.rejected = counters.rejected + 1
-        local reason = G.Offend(offenses, sender, "invalid", now)
-        if reason then Ignore(sender, reason, now) end
-        return
-    end
+    if not message then return false end
     if message.tag == tag then
         counters.own = counters.own + 1
-        return
+        return true
     end
     if message.kind == "H" then
         if G.Presence(store, sender, message.mapID, now) then counters.presence = counters.presence + 1 end
-        return
+        return true
     end
     if not G.Merge(store, message, sender, now, false) then
         counters.conflicts = counters.conflicts + 1
-        local reason = G.Offend(offenses, sender, "invalid", now)
-        if reason then Ignore(sender, reason, now) end
-        return
+        return false
     end
     counters.merged = counters.merged + 1
+    return true
 end
-
-frame:SetScript("OnEvent", function(_, event, ...)
-    if event == "CHAT_MSG_ADDON" then
-        OnAddon(...)
-    elseif event == "PLAYER_ENTERING_WORLD" then
-        nextJoin = GetTime() + JOIN_SETTLE
-        joined = false
-    end
-end)
 
 local function Start()
     if active then return end
-    local register = SA_PartyShare.Api()
-    if not prefixRegistered and register then prefixRegistered = pcall(register, PREFIX) end
     store = G.NewStore(MAX_RECORDS, MAX_REPORTERS, MAX_WATCHERS)
-    sentState, senderWindows = {}, {}
+    sentState = {}
     bucket = G.NewBucket(BUCKET_SIZE, BUCKET_RATE)
-    receiveBudget = SA_PartyShare.NewBudget()
-    breaker = SA_PartyShare.NewBreaker()
-    nextSweep, nextJoin, holdUntil = GetTime() + sweepInterval, GetTime() + JOIN_SETTLE, 0
+    nextSweep = GetTime() + sweepInterval
     nextPresence = GetTime() + math.random(5, 15)
     ResetCounters()
-    SetFilter(true)
-    frame:RegisterEvent("CHAT_MSG_ADDON")
-    frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    Messaging.SetRealmWanted(true)
+    Messaging.Listen(PREFIX, {
+        chats = { realm = true },
+        receive = ReceiveLimit,
+        perSender = { limit = SENDER_LIMIT, span = SENDER_SPAN, offend = true },
+        inCombat = true,
+        handler = OnMessage,
+    })
     ticker = C_Timer.NewTicker(TICK, Tick)
     active = true
 end
@@ -746,13 +501,11 @@ end
 local function Stop()
     if not active then return end
     active = false
-    frame:UnregisterAllEvents()
     if ticker then ticker:Cancel() end
     ticker = nil
-    Leave(channel)
-    channel, joined, joinAttempts = nil, false, 0
-    SetFilter(false)
-    store, sentState, senderWindows, bucket, receiveBudget = nil, nil, nil, nil, nil
+    Messaging.Stop(PREFIX)
+    Messaging.SetRealmWanted(false)
+    store, sentState, bucket = nil, nil, nil
     for guid in pairs(seen) do seen[guid] = nil end
 end
 
@@ -760,17 +513,16 @@ function SoundAlerter:UpdateGlobalSight()
     local profile = self.db1 and self.db1.profile
     local quality = QUALITY[profile and profile.globalQuality] or QUALITY.normal
     receivePerSecond, presencePerSecond, sweepInterval = quality.receive, quality.presence, quality.sweep
-    if profile and profile.globalSightings and SA_PartyShare.Supported() then Start() else Stop() end
+    if profile and profile.globalSightings and Messaging.Supported() then Start() else Stop() end
     if self.UpdateGlobalMap then self:UpdateGlobalMap() end
-end
-
-function SoundAlerter:GlobalSightChannelId()
-    return active and joined and ChannelId() or nil
+    if self.UpdateGlobalStats then self:UpdateGlobalStats() end
 end
 
 function SoundAlerter:GlobalSightStore()
     return store
 end
+
+local TYPES = { { "sightings", PREFIX }, { "statistics", "SoundAlerterS" }, { "update notice", "SoundAlerterV" } }
 
 function SoundAlerter:GlobalSightCommand(rest)
     local command, target = (rest or ""):match("^(%S*)%s*(.-)%s*$")
@@ -780,16 +532,10 @@ function SoundAlerter:GlobalSightCommand(rest)
             self:Print("Usage: /sa global mute <name> or /sa global unmute <name>")
             return
         end
-        local muted = Muted()
         if command == "mute" then
-            Mute(target)
+            Messaging.Mute(target)
             self:Print("Ignoring global sightings from " .. target .. " on all your characters until you unmute them.")
-        elseif ignored[target] or muted[target] then
-            if ignored[target] then
-                ignored[target], ignoredAt[target] = nil, nil
-                ignoredCount = ignoredCount - 1
-            end
-            muted[target] = nil
+        elseif Messaging.Unmute(target) then
             self:Print("No longer ignoring " .. target .. ".")
         else
             self:Print(target .. " is not ignored.")
@@ -801,29 +547,32 @@ function SoundAlerter:GlobalSightCommand(rest)
         return
     end
     local now = GetTime()
+    local realm = Messaging.RealmStatus()
     local zoneMap = PlayerCell()
     local stats = zoneMap and G.ZoneStats(store, zoneMap, now, 300, {}) or nil
     local average = counters.decodeCount > 0 and counters.decodeTotal / counters.decodeCount or 0
-    self:Print(string.format("Global sightings: channel %s (%s%s), zone %s, send %s", joined and "joined" or "not joined", channel or "none", channelIndex > 0 and ", fallback " .. channelIndex or "", Eligible() and "open world" or "not eligible", SA_PartyShare.Open(breaker, now) and "paused after failures" or (now < holdUntil and "holding, throttled" or "ok")))
-    self:Print(string.format("Received %d: merged %d, presence %d, own %d, rejected %d, conflicting %d, over budget %d, over sender limit %d, ignored %d", counters.received, counters.merged, counters.presence, counters.own, counters.rejected, counters.conflicts, counters.overBudget, counters.overSender, counters.ignored))
-    self:Print(string.format("Sent %d sightings, %d presence, %d failed (%d throttled); tracked enemies %d (pool %d), swept %d", counters.sent, counters.sentPresence, counters.sendFailed, counters.throttled, store.count, #store.pool, counters.swept))
+    self:Print(string.format("Global sightings: channel %s (%s%s), zone %s, send %s", realm.joined and "joined" or "not joined", realm.name or "none", realm.fallback > 0 and ", fallback " .. realm.fallback or "", Eligible() and "open world" or "not eligible", realm.sending))
+    for _, item in ipairs(TYPES) do
+        local c = Messaging.Counters(item[2])
+        self:Print(string.format("Messages, %s: received %d, accepted %d, rejected %d, over budget %d, over sender limit %d, ignored %d, in combat %d; sent %d, failed %d (%d throttled)", item[1], c.received, c.accepted, c.rejected, c.overBudget, c.overSender, c.ignored, c.combat, c.sent, c.failed, c.throttled))
+    end
+    self:Print(string.format("Sightings: merged %d, presence %d, own %d, conflicting %d; sent %d sightings, %d presence; tracked enemies %d (pool %d), swept %d", counters.merged, counters.presence, counters.own, counters.conflicts, counters.sent, counters.sentPresence, store.count, #store.pool, counters.swept))
     self:Print(string.format("Decode %.3f ms average, %.3f ms max", average, counters.decodeMax))
     if stats then
         self:Print(string.format("This zone, last 5 min: %d enemies, %d watchers", stats.enemies, stats.watchers))
     end
-    if ignoredCount > 0 then
+    local bad, badCount = Messaging.BadSenders()
+    if badCount > 0 then
         local shown = 0
-        for sender, reason in pairs(ignored) do
+        for sender, reason in pairs(bad) do
             shown = shown + 1
             if shown > 10 then break end
             self:Print(string.format("Ignored: %s (%s)", sender, reason))
         end
-        if ignoredCount > 10 then self:Print(string.format("... and %d more", ignoredCount - 10)) end
+        if badCount > 10 then self:Print(string.format("... and %d more", badCount - 10)) end
     end
-    local names = {}
-    for name in pairs(Muted()) do names[#names + 1] = name end
+    local names = Messaging.Muted()
     if #names > 0 then
-        table.sort(names)
         self:Print(string.format("Muted by you (%d): %s", #names, table.concat(names, ", ", 1, math.min(#names, 10)) .. (#names > 10 and ", ..." or "")))
     end
 end

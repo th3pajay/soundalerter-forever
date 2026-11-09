@@ -6,7 +6,6 @@ local BUTTON_SIZE = 24
 local INITIAL_X = 5
 local INITIAL_Y = -5
 local ICON_TINT = { 0.5, 1.0, 1.0 }
-local LOCKABLE = { "ResourceBar", "CastingBars", "SpellTracker", "CastFeed" }
 
 local button
 
@@ -16,16 +15,11 @@ end
 
 local function state()
     local current = profile()
-    local until_ = SoundAlerter.snoozeUntil
     return {
         proximity = current.proximityEnabled and true or false,
         battleground = current.battlegroundAlertsEnabled and true or false,
-        snoozed = until_ and until_ > GetTime() or false,
+        snoozed = SA_Actions.Snoozed(),
     }
-end
-
-local function onOff(value)
-    return value and "|cff00FF00ON|r" or "|cffFF0000OFF|r"
 end
 
 function MinimapButton:GetSettings()
@@ -40,117 +34,21 @@ end
 
 function MinimapButton:UpdateIcon()
     if not button or not button.icon then return end
-    local current = state()
-    local slot = Model.Slot(current.proximity, current.battleground)
-    button.icon:SetTexture(Model.IconPath(Model.Icon(self:GetSettings().icons, slot)))
+    local current = profile()
+    local slot = Model.Slot(current.proximityEnabled, current.battlegroundAlertsEnabled)
+    local path = Model.IconPath(Model.Icon(current.minimapButton.icons, slot))
+    if button.iconPath == path then return end
+    button.iconPath = path
+    button.icon:SetTexture(path)
     button.icon:SetVertexColor(ICON_TINT[1], ICON_TINT[2], ICON_TINT[3])
 end
 
-local function openPage(key)
-    local dialog = LibStub("AceConfigDialog-3.0")
-    local open = dialog.OpenFrames and dialog.OpenFrames["SoundAlerter"]
-    if not (open and open.frame and open.frame:IsVisible()) then SoundAlerter:ShowConfig() end
-    pcall(dialog.SelectGroup, dialog, "SoundAlerter", key)
-end
-
-local function lockable()
-    local modules, states = {}, {}
-    for _, name in ipairs(LOCKABLE) do
-        local module = SoundAlerter[name]
-        if module and module.db and module.SetLocked then
-            modules[#modules + 1] = module
-            states[#states + 1] = module.db.locked
-        end
-    end
-    return modules, states
-end
-
-local ACTIONS = {}
-
-ACTIONS.options = function()
-    SoundAlerter:ShowConfig()
-end
-
-ACTIONS.finder = function()
-    openPage("FindSpell")
-end
-
-ACTIONS.stats = function()
-    openPage("Statistics")
-end
-
-ACTIONS.menu = function(self)
-    self:ShowMenu()
-end
-
-ACTIONS.proximity = function()
-    local current = profile()
-    current.proximityEnabled = not current.proximityEnabled
-    local worldNote = ""
-    if current.proximityEnabled and not current.proximityWorld then
-        current.proximityWorld = true
-        worldNote = " (World PvP switched on too)"
-    end
-    SoundAlerter:Print("Proximity Alerts: " .. onOff(current.proximityEnabled) .. worldNote)
-end
-
-ACTIONS.battleground = function()
-    local current = profile()
-    current.battlegroundAlertsEnabled = not current.battlegroundAlertsEnabled
-    SoundAlerter:Print("Battleground Alerts: " .. onOff(current.battlegroundAlertsEnabled))
-end
-
-ACTIONS.snooze = function()
-    if state().snoozed then
-        SoundAlerter:Unsnooze()
-    else
-        SoundAlerter:Snooze()
-    end
-end
-
-ACTIONS.lockbars = function()
-    local modules, states = lockable()
-    if #modules == 0 then return end
-    local lock = Model.AnyUnlocked(states)
-    for _, module in ipairs(modules) do
-        module:SetLocked(lock)
-    end
-    SoundAlerter:Print("Bars and trackers " .. (lock and "locked" or "unlocked, drag them now") .. ".")
-end
-
-ACTIONS.chat = function()
-    local current = profile()
-    current.chatalerts = not current.chatalerts
-    SoundAlerter:Print("Chat alerts: " .. onOff(current.chatalerts))
-end
-
-ACTIONS.notices = function()
-    local notices = SoundAlerter.Notices
-    if not (notices and notices.db) then return end
-    notices:SetSetting("enabled", not notices.db.enabled)
-    notices:LoadSettings()
-    SoundAlerter:Print("Notices: " .. onOff(notices.db.enabled))
-end
-
-ACTIONS.profile = function()
-    local db = SoundAlerter.db1
-    local name = Model.NextProfile(db:GetProfiles(), db:GetCurrentProfile())
-    if not name or name == db:GetCurrentProfile() then return end
-    db:SetProfile(name)
-    SoundAlerter:Print("Profile: " .. name)
-end
-
-ACTIONS.test = function()
-    if not PlaySoundFile then return end
-    pcall(PlaySoundFile, profile().sapath .. "detected.mp3", "Master")
-    SoundAlerter:Print("Playing a test voice.")
-end
-
 function MinimapButton:Run(action)
-    local handler = ACTIONS[action]
-    if not handler then return end
-    handler(self)
-    self:UpdateIcon()
+    if action == "menu" then
+        self:ShowMenu()
+        return
+    end
+    SA_Actions.Run(action)
 end
 
 function MinimapButton:Click(buttonName, modifier)
@@ -168,10 +66,10 @@ function MinimapButton:ShowMenu()
     local rows = {
         { "Proximity alerts", function() return profile().proximityEnabled end, "proximity" },
         { "Battleground alerts", function() return profile().battlegroundAlertsEnabled end, "battleground" },
-        { "Snoozed", function() return state().snoozed end, "snooze" },
+        { "Snoozed", SA_Actions.Snoozed, "snooze" },
         { "Chat alerts", function() return profile().chatalerts end, "chat" },
         { "Notices", function() return SoundAlerter.Notices and SoundAlerter.Notices.db and SoundAlerter.Notices.db.enabled end, "notices" },
-        { "Bars locked", function() local _, states = lockable() return not Model.AnyUnlocked(states) end, "lockbars" },
+        { "Bars locked", function() local _, states = SA_Actions.Lockable() return not Model.AnyUnlocked(states) end, "lockbars" },
     }
     MenuUtil.CreateContextMenu(button, function(_, root)
         root:CreateTitle("SoundAlerter")

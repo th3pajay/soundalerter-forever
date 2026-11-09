@@ -146,7 +146,7 @@ function SoundAlerter:BuildCastingBarOptions()
             end
         end, false, "General"),
         Page.Select("barTexture", "Bar texture", "Choose the visual texture for all casting bars. Matches resource bar texture options for consistency.", textureOptions(), false, "General"),
-        Page.Select("barTextureQuality", "Texture quality", "Low animates 15 times a second and drops the farthest layer. Normal is the full animation. High adds a moving glint along the bar border. Only animated textures are affected.", TEXTURE_QUALITIES, true, "General"),
+        Page.Select("barTextureQuality", "Texture quality", "Low animates 15 times a second and drops the farthest layer. Normal is the full animation. High adds a fourth layer to Fire and Leaves. Only animated textures are affected.", TEXTURE_QUALITIES, true, "General"),
         Page.Toggle("showSpellIcon", "Show spell icons", "Display spell icons to the left of casting bars.", false, "General"),
         Page.Toggle("showLockIcon", "Show a lock on casts you cannot interrupt", "Draws a small padlock on the bar while the cast cannot be interrupted. Works on enemy casts too: the game decides whether the lock shows, because the addon is not allowed to read that flag for enemies.", false, "General"),
         Page.Toggle("showLatency", "Show latency shadow", "Display a red shadow at the end of the player casting bar representing network latency. Helps predict when the spell will actually cast on the server.", false, "General"),

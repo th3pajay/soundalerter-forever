@@ -7,21 +7,10 @@ Model.BUTTONS = { "left", "right", "middle" }
 Model.MODIFIER_LABELS = { none = "", shift = "Shift+", ctrl = "Ctrl+", alt = "Alt+" }
 Model.BUTTON_LABELS = { left = "left click", right = "right click", middle = "middle click" }
 
-Model.ACTIONS = {
-    { "none", "Nothing" },
-    { "options", "Open options" },
-    { "menu", "Quick switch menu" },
-    { "proximity", "Toggle proximity alerts" },
-    { "battleground", "Toggle battleground alerts" },
-    { "snooze", "Snooze alerts" },
-    { "lockbars", "Lock / unlock bars" },
-    { "chat", "Toggle chat alerts" },
-    { "notices", "Toggle notices" },
-    { "profile", "Next profile" },
-    { "finder", "Open Spell Finder" },
-    { "stats", "Open statistics" },
-    { "test", "Play a test voice" },
-}
+Model.ACTIONS = { { "none", "Nothing" }, { "menu", "Quick switch menu" } }
+for _, action in ipairs(SA_Actions.List()) do
+    if action.run then Model.ACTIONS[#Model.ACTIONS + 1] = { action.id, action.name } end
+end
 
 Model.SLOTS = {
     { "both", "Proximity and battleground on" },

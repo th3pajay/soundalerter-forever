@@ -956,10 +956,7 @@ function Voice:ShowTab(key, animate)
     view.frame:SetAllPoints(self.body)
     view.frame:Show()
     local width = view.scroll:GetWidth()
-    if width and width > 12 then
-        view.child:SetWidth(width - 12)
-        if view.onWidth then view.onWidth(width - 12) end
-    end
+    if width and width > 12 then view:LayWidth(width - 12) end
     if animate then FX.SlideIn(view.frame, self.body) end
     self:Refresh()
     view:UpdateScroll()

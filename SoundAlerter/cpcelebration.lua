@@ -33,7 +33,6 @@ local WAVE_COLOR = { r = 1, g = 0.78, b = 0.2 }
 local EMBER_COLORS = { { r = 1, g = 0.54, b = 0.16 }, { r = 1, g = 0.82, b = 0.25 } }
 
 local GAIN_POP = 0.4
-local GAIN_POP_TIME = 0.26
 local ECHO_DELAY = 0.14
 local ECHO_GROUPS = { { 3 }, { 2, 4 }, { 1, 5 } }
 local ARC_STEP = 0.09
@@ -279,7 +278,10 @@ local function restoreShake(fx)
 	end
 end
 
+local stopEngine
+
 local function clearTransient(fx)
+	stopEngine(fx)
 	wipe(fx.anims)
 	releaseLive(fx)
 	restPips(fx)
@@ -324,6 +326,257 @@ local function finishExit(fx, delay, next)
 	end)
 end
 
+local IGNITE_FROM, IGNITE_LIGHT, IGNITE_DIM = 0.6, 0.14, 0.3
+local SPRING = { { 1.2, 0.14, "OUT" }, { 0.93, 0.1, "IN_OUT" }, { 1.03, 0.08, "IN_OUT" }, { 1, 0.06, "IN_OUT" } }
+local DRAIN_DEPTH, DRAIN_DOWN, DRAIN_UP, DRAIN_FADE, DRAIN_STAGGER = 0.82, 0.12, 0.2, 0.3, 0.055
+local RING_TIME, RING_REACH = 0.38, 2.1
+local SPARK_TIME, SPARK_REACH, SPARK_SIZE, SPARKS_PER_PIP = 0.32, 18, 5, 6
+local WAVE_STAGGER, WAVE_PEAK, WAVE_UP, WAVE_DOWN, WAVE_RING = 0.06, 1.3, 0.1, 0.16, 2.4
+local SWEEP_STAGGER, SWEEP_DEPTH, SWEEP_DOWN, SWEEP_UP = 0.05, 0.7, 0.12, 0.2
+local COLLAPSE_SPENT, COLLAPSE_LOST, COLLAPSE_FLASH = 0.18, 0.32, 0.3
+local GATE = 0.001
+
+local EXITS = {
+	{ "style", "Style's own" },
+	{ "sweep", "Sweep out" },
+	{ "collapse", "Collapse to centre" },
+}
+local EXIT_KEYS = { style = true, sweep = true, collapse = true }
+
+local function ease(animation, kind)
+	if kind and animation.SetSmoothing then animation:SetSmoothing(kind) end
+	return animation
+end
+
+local function relativeScale(group, order, factor, duration, kind)
+	local animation = group:CreateAnimation("Scale")
+	animation:SetOrder(order)
+	animation:SetScale(factor, factor)
+	animation:SetDuration(duration)
+	return ease(animation, kind)
+end
+
+local function track(fx, group)
+	fx.engineGroups[#fx.engineGroups + 1] = group
+	return group
+end
+
+local function slotOf(fx, i)
+	local slot = fx.engine[i]
+	if not slot then
+		slot = {}
+		fx.engine[i] = slot
+	end
+	return slot
+end
+
+local function restart(group, delay)
+	group:Stop()
+	if group.gate then group.gate:SetDuration(math_max(GATE, delay or 0)) end
+	if group.lead and group.lead.SetStartDelay then group.lead:SetStartDelay(delay or 0) end
+	group:Play()
+end
+
+local function pipGroup(fx, i, key, build)
+	local slot = slotOf(fx, i)
+	local group = slot[key]
+	if not group then
+		group = track(fx, newGroup(fx.pips[i], "NONE"))
+		build(group)
+		slot[key] = group
+	end
+	return group
+end
+
+local function igniteGroup(fx, i)
+	return pipGroup(fx, i, "ignite", function(group)
+		relativeScale(group, 1, IGNITE_FROM, GATE)
+		local size = IGNITE_FROM
+		for step = 1, #SPRING do
+			local target, duration, kind = SPRING[step][1], SPRING[step][2], SPRING[step][3]
+			relativeScale(group, step + 1, target / size, duration, kind)
+			size = target
+		end
+		ease(alphaAnimation(group, 2, IGNITE_DIM, 1, IGNITE_LIGHT), "OUT")
+	end)
+end
+
+local function dipGroup(fx, i, key, depth, down, up, downKind, upKind)
+	return pipGroup(fx, i, key, function(group)
+		group.lead = relativeScale(group, 1, depth, down, downKind)
+		relativeScale(group, 2, 1 / depth, up, upKind)
+	end)
+end
+
+local function overlay(fx, i, c)
+	local slot = slotOf(fx, i)
+	local lit = slot.lit
+	if not lit then
+		local pip = fx.pips[i]
+		lit = pip:CreateTexture(nil, "OVERLAY")
+		lit:SetAllPoints(pip.texture)
+		lit:Hide()
+		local hide = function() lit:Hide() end
+		local fade = track(fx, newGroup(lit, "NONE"))
+		fade.gate = alphaAnimation(fade, 1, 1, 1, GATE)
+		slot.fadeAlpha = alphaAnimation(fade, 2, 1, 0, DRAIN_FADE)
+		fade:SetScript("OnFinished", hide)
+		local slide = track(fx, newGroup(lit, "NONE"))
+		slot.slideMove = ease(translateAnimation(slide, 1, 0, 0, COLLAPSE_SPENT), "IN")
+		slot.slideAlpha = ease(alphaAnimation(slide, 1, 1, 0, COLLAPSE_SPENT), "IN")
+		slide:SetScript("OnFinished", hide)
+		slot.lit, slot.fade, slot.slide = lit, fade, slide
+	end
+	local texture = fx.pips[i].texture
+	lit:SetTexture(texture.GetTexture and texture:GetTexture() or DOT)
+	color(lit, c)
+	lit:Show()
+	return slot
+end
+
+local function ringOf(fx, i)
+	local slot = slotOf(fx, i)
+	if not slot.ring then
+		local ring = fx.layer:CreateTexture(nil, "OVERLAY")
+		ring:SetTexture(RING)
+		ring:SetBlendMode("ADD")
+		ring:Hide()
+		local group = track(fx, newGroup(ring, "NONE"))
+		group.gate = alphaAnimation(group, 1, 0, 0, GATE)
+		slot.ringScale = ease(relativeScale(group, 2, RING_REACH, RING_TIME), "OUT")
+		slot.ringAlpha = ease(alphaAnimation(group, 2, 1, 0, RING_TIME), "IN")
+		group:SetScript("OnFinished", function() ring:Hide() end)
+		slot.ring, slot.ringGroup = ring, group
+	end
+	return slot
+end
+
+local function bloom(fx, i, c, size, reach, duration, delay)
+	local slot = ringOf(fx, i)
+	local ring = slot.ring
+	ring:ClearAllPoints()
+	ring:SetPoint("CENTER", fx.pips[i], "CENTER", 0, 0)
+	ring:SetSize(size, size)
+	color(ring, c)
+	slot.ringScale:SetScale(reach, reach)
+	slot.ringScale:SetDuration(duration)
+	slot.ringAlpha:SetDuration(duration)
+	ring:Show()
+	restart(slot.ringGroup, delay)
+end
+
+local function sparksOf(fx, i)
+	local slot = slotOf(fx, i)
+	if not slot.sparks then
+		slot.sparks = {}
+		for k = 1, SPARKS_PER_PIP do
+			local texture = fx.layer:CreateTexture(nil, "OVERLAY")
+			texture:SetTexture(GLOW)
+			texture:SetBlendMode("ADD")
+			texture:SetSize(SPARK_SIZE, SPARK_SIZE)
+			texture:Hide()
+			local group = track(fx, newGroup(texture, "NONE"))
+			group.gate = alphaAnimation(group, 1, 0, 0, GATE)
+			local angle = (k - 1) / SPARKS_PER_PIP * TWO_PI + i
+			ease(translateAnimation(group, 2, math_cos(angle) * SPARK_REACH, math_sin(angle) * SPARK_REACH, SPARK_TIME), "OUT")
+			ease(alphaAnimation(group, 2, 1, 0, SPARK_TIME), "IN")
+			group:SetScript("OnFinished", function() texture:Hide() end)
+			slot.sparks[k] = { texture = texture, group = group }
+		end
+	end
+	return slot.sparks
+end
+
+local function burst(fx, i, count, c, delay)
+	local list = sparksOf(fx, i)
+	for k = 1, math_min(count, #list) do
+		local spark = list[k]
+		spark.texture:ClearAllPoints()
+		spark.texture:SetPoint("CENTER", fx.pips[i], "CENTER", 0, 0)
+		color(spark.texture, c)
+		spark.texture:Show()
+		restart(spark.group, delay)
+	end
+end
+
+local function isHigh(fx)
+	return fx.tier == TIERS.high
+end
+
+local function ignite(fx, i)
+	restart(igniteGroup(fx, i), 0)
+	local c = activeColor(fx)
+	if fx.tier.rings then bloom(fx, i, c, fx.size, RING_REACH, RING_TIME, 0) end
+	if isHigh(fx) then burst(fx, i, SPARKS_PER_PIP, c, 0.05) end
+end
+
+local function drain(fx, i, delay, c)
+	restart(dipGroup(fx, i, "drain", DRAIN_DEPTH, DRAIN_DOWN, DRAIN_UP, "OUT", "IN_OUT"), delay)
+	local slot = overlay(fx, i, c)
+	slot.fadeAlpha:SetDuration(DRAIN_FADE)
+	ease(slot.fadeAlpha, "OUT")
+	restart(slot.fade, delay)
+end
+
+local function wave(fx)
+	local c = maxColor(fx)
+	for i = 1, MAX do
+		local delay = (i - 1) * WAVE_STAGGER
+		restart(dipGroup(fx, i, "wave", WAVE_PEAK, WAVE_UP, WAVE_DOWN, "OUT", "IN_OUT"), delay)
+		if fx.tier.rings then bloom(fx, i, WAVE_COLOR, fx.size, WAVE_RING, RING_TIME, delay) end
+		if isHigh(fx) then burst(fx, i, 3, c, delay + WAVE_UP) end
+	end
+end
+
+stopEngine = function(fx)
+	for k = 1, #fx.engineGroups do fx.engineGroups[k]:Stop() end
+	for _, slot in pairs(fx.engine) do
+		if slot.lit then slot.lit:Hide() end
+		if slot.ring then slot.ring:Hide() end
+		if slot.sparks then
+			for k = 1, #slot.sparks do slot.sparks[k].texture:Hide() end
+		end
+	end
+end
+
+local function sweepOut(fx, next)
+	local c = maxColor(fx)
+	for i = next + 1, MAX do
+		local delay = (i - next - 1) * SWEEP_STAGGER
+		restart(dipGroup(fx, i, "sweep", SWEEP_DEPTH, SWEEP_DOWN, SWEEP_UP, "IN", "OUT"), delay)
+		local slot = overlay(fx, i, c)
+		slot.fadeAlpha:SetDuration(SWEEP_DOWN)
+		ease(slot.fadeAlpha, "IN")
+		restart(slot.fade, delay)
+	end
+end
+
+local function collapse(fx, next, kind)
+	local c = maxColor(fx)
+	local spent = kind == "spent"
+	local duration = spent and COLLAPSE_SPENT or COLLAPSE_LOST
+	for i = next + 1, MAX do
+		local slot = overlay(fx, i, c)
+		slot.slideMove:SetOffset((3 - i) * fx.step, 0)
+		slot.slideMove:SetDuration(duration)
+		slot.slideAlpha:SetDuration(duration)
+		restart(slot.slide, 0)
+	end
+	if spent and fx.tier.rings then bloom(fx, 3, c, fx.size, RING_REACH * 1.3, COLLAPSE_FLASH, duration) end
+	if spent and isHigh(fx) then burst(fx, 3, SPARKS_PER_PIP, c, duration) end
+end
+
+local function engineExit(fx, next, kind)
+	for i = 1, MAX do settlePip(fx, i, next) end
+	if fx.exitMode == "sweep" then
+		sweepOut(fx, next)
+	else
+		collapse(fx, next, kind)
+	end
+	local definition = STYLES[fx.style]
+	if definition and definition.settle then definition.settle(fx, next) end
+end
+
 local function pop(fx, index, delay, duration, amount)
 	local pip = fx.pips[index]
 	run(fx, delay, duration, function(p)
@@ -331,26 +584,14 @@ local function pop(fx, index, delay, duration, amount)
 	end)
 end
 
-local function drop(fx, index, delay)
-	local pip = fx.pips[index]
-	run(fx, delay, 0.2, function(p)
-		pip:SetScale(1 - 0.7 * p)
-		pip:SetAlpha(1 - 0.8 * p)
-	end, function()
-		pip:SetScale(1)
-		pip:SetAlpha(1)
-	end)
-end
-
-local function gain(fx, prev, next, amount)
-	for i = prev + 1, next do
-		pop(fx, i, (i - prev - 1) * 0.07, GAIN_POP_TIME, amount or GAIN_POP)
-	end
+local function gain(fx, prev, next)
+	for i = prev + 1, next do ignite(fx, i) end
 end
 
 local function partialDrop(fx, prev, next)
+	local c = prev == MAX and maxColor(fx) or activeColor(fx)
 	for i = prev, next + 1, -1 do
-		drop(fx, i, (prev - i) * 0.055)
+		drain(fx, i, (prev - i) * DRAIN_STAGGER, c)
 	end
 end
 
@@ -449,20 +690,9 @@ STYLES.classic = {
 	change = function(fx, prev, next)
 		if next > prev then
 			if next < MAX then
-				gain(fx, prev, next, 0.25)
+				gain(fx, prev, next)
 			else
-				for i = 1, MAX do
-					local delay = (i - 1) * 0.08
-					pop(fx, i, delay, 0.4, 0.25)
-					local texture = take(fx, GLOW, "ADD")
-					color(texture, WAVE_COLOR)
-					texture:SetAlpha(0)
-					run(fx, delay, 0.4, function(p)
-						place(fx, texture, pipX(fx, i), 0, fx.size * 2.3)
-						texture:SetAlpha(0.9 * math_sin(p * math_pi))
-					end, function() give(fx, texture) end)
-					expand(fx, RING, pipX(fx, i), 0, fx.size, fx.size * 2.4, 0.4, delay, WAVE_COLOR)
-				end
+				wave(fx)
 			end
 		else
 			partialDrop(fx, prev, next)
@@ -1309,6 +1539,9 @@ function Celebration:Create(frame, pips, spacing, colors)
 		live = {},
 		groups = {},
 		persistent = {},
+		engine = {},
+		engineGroups = {},
+		exitMode = "style",
 		exiting = false,
 	}
 	layer.fx = fx
@@ -1341,11 +1574,25 @@ function Celebration:IsCustom(style)
 	return STYLES[style] ~= nil
 end
 
+function Celebration:Exits()
+	return EXITS
+end
+
+function Celebration:NormalizeExit(mode)
+	if EXIT_KEYS[mode] then return mode end
+	return "style"
+end
+
+function Celebration:SetExit(fx, mode)
+	fx.exitMode = self:NormalizeExit(mode)
+end
+
 function Celebration:Reset(fx)
 	wipe(fx.anims)
 	wipe(fx.loops)
 	fx.layer:SetScript("OnUpdate", nil)
 	stopGroups(fx)
+	stopEngine(fx)
 	releaseLive(fx)
 	for i = 1, #fx.persistent do
 		fx.persistent[i]:Hide()
@@ -1377,6 +1624,11 @@ function Celebration:Change(fx, prev, next, kind)
 	if not definition then return end
 	metrics(fx)
 	if fx.exiting then self:Reset(fx) end
+	if next < prev and prev == MAX and fx.style ~= "none" and fx.exitMode ~= "style" then
+		self:Reset(fx)
+		engineExit(fx, next, kind or "lost")
+		return
+	end
 	if next < prev and prev == MAX and definition.exit then
 		definition.exit(fx, next, kind or "lost")
 		return

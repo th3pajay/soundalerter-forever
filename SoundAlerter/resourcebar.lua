@@ -53,6 +53,11 @@ local FLAT_TEXTURE = "Interface\\Buttons\\WHITE8X8"
 local VALUE_UPDATE_THROTTLE = 0.016
 local ENERGY_UPDATE_THROTTLE = 0.01
 local TWO_PI = math_pi * 2
+local Furor = SA_FurorModel
+local ENERGY_SCALE = 100
+local ESTIMATE_ALPHA = 0.45
+local ESTIMATE_TICK = 0.25
+local ESTIMATE_TEXT = "on shift"
 
 local BAR_CONFIGS = {
 	energy = {
@@ -64,7 +69,10 @@ local BAR_CONFIGS = {
 		updateFreq = ENERGY_UPDATE_THROTTLE,
 		getValueFunc = function() return UnitPower("player", POWER_TYPE_ENERGY), UnitPowerMax("player", POWER_TYPE_ENERGY) end,
 		shouldUpdate = function(self, current, lastValue) return current ~= lastValue end,
-		events = {"UNIT_POWER_FREQUENT", "UNIT_MAXPOWER"}
+		isActive = function() return UnitPowerType("player") == POWER_TYPE_ENERGY end,
+		formEvent = "UNIT_DISPLAYPOWER",
+		estimate = true,
+		events = {"UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER"}
 	},
 	rage = {
 		key = "rage",
@@ -114,6 +122,7 @@ local RESOURCE_BAR_KEYS = {
 	comboStyle = "circle",
 	comboCelebration = true,
 	comboAnimQuality = true,
+	comboExit = true,
 	fullCPSound = true,
 	barTexture = true,
 	barTextureQuality = true,
@@ -304,7 +313,6 @@ function ResourceBar:SetFaded(barKey, faded)
 	local previous = self.faded[barKey]
 	if previous == faded then return end
 	local wasCurve = previous == "curve"
-	self.faded[barKey] = faded
 
 	local frame = self[barKey .. "Frame"]
 	local group = self.fadeGroups[barKey]
@@ -321,9 +329,11 @@ function ResourceBar:SetFaded(barKey, faded)
 
 	group:Stop()
 	group.target = faded and 0 or 1
-	group.anim:SetFromAlpha(wasCurve and group.target or frame:GetAlpha())
+	if wasCurve then frame:SetAlpha(group.target) end
+	group.anim:SetFromAlpha(wasCurve and group.target or (previous and 0 or 1))
 	group.anim:SetToAlpha(group.target)
 	group:Play()
+	self.faded[barKey] = faded
 end
 
 function ResourceBar:ApplyFade(barKey, config, empty)
@@ -383,6 +393,125 @@ function ResourceBar:ShowInactive(barKey, config)
 	self:ApplyFade(barKey, config, true)
 end
 
+local function KnownSpell(id)
+	if not IsPlayerSpell then return false end
+	local ok, known = pcall(IsPlayerSpell, id)
+	return ok and Plain(known) == true
+end
+
+function ResourceBar:BuildEstimate(barKey)
+	local bar = self[barKey .. "Bar"]
+	local clip = CreateFrame("Frame", nil, bar)
+	clip:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
+	clip:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 0, 0)
+	clip:SetWidth(1)
+	if clip.SetClipsChildren then clip:SetClipsChildren(true) end
+	local fill = CreateFrame("StatusBar", nil, clip)
+	fill:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
+	fill:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0)
+	fill:SetStatusBarTexture(FLAT_TEXTURE)
+	local edge = fill:GetStatusBarTexture()
+	local regen = fill:CreateTexture(nil, "ARTWORK")
+	regen:SetTexture(FLAT_TEXTURE)
+	regen:SetPoint("TOPLEFT", edge, "TOPRIGHT", 0, 0)
+	regen:SetPoint("BOTTOMLEFT", edge, "BOTTOMRIGHT", 0, 0)
+	regen:Hide()
+	local holder = CreateFrame("Frame", nil, bar)
+	holder:SetAllPoints(bar)
+	holder:SetFrameLevel(clip:GetFrameLevel() + 2)
+	self[barKey .. "Text"]:SetParent(holder)
+	local estimate = { clip = clip, fill = fill, regen = regen }
+	self.estimate = estimate
+	return estimate
+end
+
+function ResourceBar:ShowEstimate(barKey)
+	local now = GetTime()
+	local clock = self.furorClock
+	if not clock then
+		clock = Furor.NewClock()
+		self.furorClock = clock
+	end
+	if clock.form == nil or clock.form == "cat" then self.furorRank = Furor.Rank(KnownSpell) end
+	Furor.Note(clock, UnitPowerType("player") == POWER_TYPE_RAGE and "bear" or "other", now)
+	local rank = self.furorRank or 0
+	local bar = self[barKey .. "Bar"]
+	if not self.estimating then
+		self.estimating = true
+		self.idle[barKey] = true
+		self:SetAnimating(barKey, false)
+		bar:SetValue(0)
+		bar:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+		if bar.glow then bar.glow:SetAlpha(0) end
+		local text = rank > 0 and ESTIMATE_TEXT or "0"
+		self[barKey .. "Text"]:SetText(text)
+		self.lastText[barKey] = text
+		self.lastValues[barKey] = nil
+		local estimate = self.estimate or self:BuildEstimate(barKey)
+		if rank > 0 then
+			local color = self.cachedColors[barKey]
+			local r, g, b = 1, 1, 0
+			if color then r, g, b = color.r, color.g, color.b end
+			estimate.fill:SetStatusBarColor(r, g, b, ESTIMATE_ALPHA)
+			estimate.regen:SetVertexColor(r, g, b, ESTIMATE_ALPHA)
+			estimate.width = bar:GetWidth()
+			estimate.clip:SetWidth(estimate.width * Furor.Cap(rank) / ENERGY_SCALE)
+			estimate.fill:SetMinMaxValues(0, ENERGY_SCALE / Furor.Share(rank))
+			pcall(estimate.fill.SetValue, estimate.fill, self.catEnergy or 0)
+			estimate.shown = nil
+			estimate.clip:Show()
+		else
+			estimate.clip:Hide()
+		end
+	end
+	self:DrawEstimate(now)
+end
+
+function ResourceBar:DrawEstimate(now)
+	local estimate = self.estimate
+	local rank = self.furorRank or 0
+	if not (estimate and self.estimating and rank > 0) then return end
+	local clock = self.furorClock
+	local width = math_floor(estimate.width * Furor.Regen(rank, Furor.Outside(clock, now)) / ENERGY_SCALE + 0.5)
+	if width ~= estimate.shown then
+		estimate.shown = width
+		if width < 1 then
+			estimate.regen:Hide()
+		else
+			estimate.regen:SetWidth(width)
+			estimate.regen:Show()
+		end
+	end
+	local growing = Furor.Growing(clock, rank, now)
+	if growing and not self.estimateTicker then
+		if not self.estimateTick then
+			self.estimateTick = function()
+				if not (self.energyFrame and self.energyFrame:IsShown()) then
+					self.estimateTicker:Cancel()
+					self.estimateTicker = nil
+					return
+				end
+				self:DrawEstimate(GetTime())
+			end
+		end
+		self.estimateTicker = C_Timer.NewTicker(ESTIMATE_TICK, self.estimateTick)
+	elseif not growing and self.estimateTicker then
+		self.estimateTicker:Cancel()
+		self.estimateTicker = nil
+	end
+end
+
+function ResourceBar:EndEstimate(barKey)
+	self.estimating = nil
+	if self.estimate then self.estimate.clip:Hide() end
+	if self.estimateTicker then
+		self.estimateTicker:Cancel()
+		self.estimateTicker = nil
+	end
+	self.lastText[barKey] = nil
+	self.lastValues[barKey] = nil
+end
+
 function ResourceBar:UpdateResourceBar(barKey, config)
 	local barName = barKey .. "Bar"
 	local textName = barKey .. "Text"
@@ -391,12 +520,22 @@ function ResourceBar:UpdateResourceBar(barKey, config)
 	if not bar then return end
 
 	if config.isActive and not config.isActive() then
-		self:ShowInactive(barKey, config)
+		if config.estimate then
+			self:ShowEstimate(barKey)
+		else
+			self:ShowInactive(barKey, config)
+		end
 		return
 	end
 	self.idle[barKey] = nil
 
 	local current, max = config.getValueFunc()
+	if config.estimate then
+		self.catEnergy = current
+		if self.estimating then self:EndEstimate(barKey) end
+		local clock = self.furorClock
+		if clock and clock.form ~= "cat" then Furor.Note(clock, "cat", GetTime()) end
+	end
 	if current == nil or max == nil then return end
 
 	if issecretvalue(current) or issecretvalue(max) then
@@ -554,7 +693,19 @@ function ResourceBar:CreateCPTextFrame()
 	self.comboTextFrame:Hide()
 end
 
+local SHIFTERS = { DRUID = true }
+local STEADY_EVENTS = { "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER" }
+
 function ResourceBar:RegisterEvents()
+	local _, playerClass = UnitClass("player")
+	if not SHIFTERS[playerClass] then
+		for _, config in pairs(BAR_CONFIGS) do
+			if config.formEvent then
+				config.isActive, config.formEvent, config.estimate = nil, nil, nil
+				config.events = STEADY_EVENTS
+			end
+		end
+	end
 	for barKey, config in pairs(BAR_CONFIGS) do
 		local frame = self[barKey .. "Frame"]
 		local powerToken = config.powerToken
@@ -773,7 +924,9 @@ function ResourceBar:ApplyCelebration()
 	local cp = self.lastComboPoints or 0
 	self.db.comboCelebration = Celebration:Normalize(self.db.comboCelebration)
 	self.db.comboAnimQuality = Celebration:NormalizeQuality(self.db.comboAnimQuality)
+	self.db.comboExit = Celebration:NormalizeExit(self.db.comboExit)
 	Celebration:Apply(fx, self.db.comboCelebration, cp, self.db.comboAnimQuality)
+	Celebration:SetExit(fx, self.db.comboExit)
 	self:PaintComboPoints(cp)
 end
 

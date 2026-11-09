@@ -362,7 +362,7 @@ end
 function Wizard:Render()
     local current = profile()
     if not current then return end
-    environment.supported = SA_PartyShare.Supported()
+    environment.supported = SA_Messaging.Supported()
     self.steps = QuickStart.ActiveSteps(current, environment)
     self.index = math.min(math.max(self.index, 1), #self.steps)
     local step = self.steps[self.index]
@@ -500,19 +500,33 @@ end
 
 function SoundAlerter:ShowSightingsNotice()
     local global = self.db1 and self.db1.global
-    if global then global.sightingsNoticeDone = true end
+    if global then global.sightingsNoticeDone, global.statsNoticeDone = true, true end
     self:Print(QuickStart.SIGHTINGS_NOTICE)
+end
+
+function SoundAlerter:ShowStatsNotice()
+    local global = self.db1 and self.db1.global
+    if global then global.statsNoticeDone = true end
+    self:Print(QuickStart.STATS_NOTICE)
 end
 
 function SoundAlerter:CheckQuickStartSetup()
     local global = self.db1 and self.db1.global
     if not global then return end
     if QuickStart.NeedsSetup(global) then self:ScheduleTimer("ShowQuickStartSetup", FIRST_RUN_DELAY) end
-    local notice = QuickStart.SightingsNoticeDue(global, profile() or {}, SA_PartyShare.Supported())
+    local current, supported = profile() or {}, SA_Messaging.Supported()
+    local notice = QuickStart.SightingsNoticeDue(global, current, supported)
     if notice == "tell" then
         self:ScheduleTimer("ShowSightingsNotice", FIRST_RUN_DELAY)
+        return
     elseif notice == "skip" then
         global.sightingsNoticeDone = true
+    end
+    local stats = QuickStart.StatsNoticeDue(global, current, supported)
+    if stats == "tell" then
+        self:ScheduleTimer("ShowStatsNotice", FIRST_RUN_DELAY)
+    elseif stats == "skip" then
+        global.statsNoticeDone = true
     end
 end
 
