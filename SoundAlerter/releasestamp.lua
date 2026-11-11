@@ -1,1 +1,1 @@
-SA_ReleaseStamp = { release = 2, token = "0375577f95b1ea2ca584c3d5ee656b85" }
+SA_ReleaseStamp = { release = 3, token = "d991fd59415e47c4b90ddbc58f9ddd75" }
