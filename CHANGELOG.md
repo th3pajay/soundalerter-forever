@@ -1,5 +1,94 @@
 # Changelog
 
+## 0.3.14
+
+## Dungeon interruptions
+
+Interrupts
+- Interrupt alerts now work in dungeons, where the game hides the enemy's name and spell. The alert names your target or focus instead.
+- Your party gets "Interrupted target with [Feral Charge]."; the hidden spell is left out because the game does not allow it in sent messages.
+- Your own chat window also gets a line with the interrupted spell's icon and link: "Interrupted target's [Flamestrike] with [Feral Charge]." Solo, you get only this line. Shift-click the link to share it in chat yourself.
+- One interrupt no longer alerts twice when the enemy is both your target and under your mouse.
+- Enemy cast bars with hidden timing no longer stay on screen after an interrupt; the bar closes as soon as the cast is gone.
+
+Chat alerts
+- "From enemy to friend" and "Sap on a friend" work again: when a party member is Sapped, Blinded, Polymorphed, Hexed or Feared, your group gets the line. They follow the "on you or a friend" switches.
+- "From enemy to you" names the caster instead of starting with a blank: "An enemy casted [Blind] on me!". Both lines say "An enemy" when the caster is unknown.
+- Both Sap texts now sit under the Sap switch that actually sends them.
+- Turning chat alerts off now also silences custom alert and proximity chat lines, which used to send anyway.
+- A backslash typed into a chat message is now removed in every alert, not only the interrupt lines.
+- Removed the "Enemy debuff down (from you)" switch, which never did anything.
+
+Statistics
+- The overview is now a dashboard: six tiles (alerts this session and all-time, per session or your match record, top enemy, top alert, top place) and four cards (alert mix, top spells, top enemies, where).
+- One switch shows the session or all-time, and is remembered. Session spells, enemies and places are now counted too.
+- Matches show the last 5, and the full spell, enemy and class lists open on demand with their sort choices.
+- No Refresh button: the page redraws itself when the numbers change. "Danger" is now "Threat", a sort choice with an explanation, no longer printed on every row.
+
+Global statistics
+- Spells now show from a single player's reports, so the tab fills even when you are the only reporter.
+- Reports no longer carry decoy spells, so every listed spell was really seen. Decoys added little privacy, since Global sightings already shares far more under your name, and they showed up as fake entries, including arenas Forever does not have. Copies older than 0.3.14 still send them for a while.
+- The empty tab says how many players are reporting.
+
+Voice Alerts
+- New Shaman alerts: Windfury Totem, Elemental Mastery, Nature's Swiftness and Rage of the Farseer.
+- Windfury Totem calls once when enemies gain its buff, then waits 30 seconds, so a whole group standing at one totem does not repeat it.
+- New enemy alerts: Voice of Truth (Paladin, immune to silence and interrupts, hold your kick), Feedback (Priest, stop casting at them), Rapid Fire and Feign Death (Hunter).
+- New "On you" alerts: Confounding Flash (Priest), Concussion Blow (Warrior) and Intimidation (Hunter pet).
+- All are on by default and sit under their class on the Spell Alerts page.
+- Enemy Cannibalize, Last Stand and Earth Shield, and Freezing Trap ranks 1 and 2 on you, now alert. They were listed under the spell that starts them instead of the buff or debuff they leave.
+
+Diminishing Returns
+- The categories now come from Forever's own diminishing returns table, so the tracker shows the stage the game really uses.
+- Kidney Shot has its own diminishing returns (shared only with Between the Eyes): after a Hammer of Justice it shows as a full stun, no longer as half.
+- Cheap Shot and Pounce share the normal stun, so a stun before them now counts. The separate Opener category is gone.
+- Banish counts as Incapacitate. Wyvern Sting now uses Forever's spell, so it is tracked.
+- New categories: Charm (Mind Control), Proc stun (Impact, Mace stun, Blackout, Improved Concussive Shot) and Proc root (Entrapment, Counterattack, Frostbite, Improved Hamstring, Improved Wing Clip).
+- Many more crowd control spells are tracked, among them Sleep, Shackle Undead, Turn Evil, Hex, Chastise and Confounding Flash.
+- New voice: "immune" when crowd control lands on your target or focus and the next one of that kind would do nothing. A switch on the Diminishing Returns page turns it off.
+
+Cast Feed
+- Hovering an enemy's cast now shows the full spell tooltip (rank, cost, cast time, description) even when the game hides the spell, instead of only its name.
+
+Smoother frames
+- Proximity toasts in combat slide with the game's own animation.
+- The Trinket Menu waits for its fade without running any code.
+- The combo point fill slides at the same speed at any frame rate.
+- The Statistics page builds only the lists you open and redraws at most once a second, only when something changed.
+
+Login line
+- The login line no longer repeats the addon name and now shows the version: "SoundAlerter 0.3.14 by th3pajay · type /sa for options".
+- After an update, the first login says what changed instead, and /sa whatsnew lists the highlights. A new install points to Quick Start.
+- "Show the login line" under General turns the everyday line off; update news still shows.
+
+Minimap
+- SoundAlerter now appears in the game's AddOns menu by the minimap, with its own speaker icon (also shown in the AddOns list). Clicking it does what your minimap button clicks do, and hovering shows the same tooltip.
+
+Under the hood
+- Interrupt matching and every chat alert's text now run through two shared modules, so all alerts follow the same rules and are easier to fix.
+
+Casting bars
+- Enemy and friendly casting bars now show the time left, even when the game hides the cast's timing. The game itself counts it down, in your chosen time format, so no hidden value is ever read.
+
+Fixes
+- Retargeting a dead enemy you had combo points on no longer replays the full combo point celebration or its sound; the points just show. A living enemy you retarget still celebrates.
+- The options window keeps its size and position when you close and reopen it, and after a reload.
+- Opening /sa is faster: the options pages are built once instead of on every open.
+
+How it works
+
+![How diminishing returns follow Forever's own table](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/dr-forever.png)
+
+- The categories are generated from the game's own SpellCategories table for the current Forever build (432 spells on 70888) and rebuilt on every patch, so they match what the server applies.
+
+![How the new voice alerts are heard on Forever](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/voice-alerts-forever.png)
+
+- Forever hides the spell on every enemy cast, so the new alerts listen for the buff or debuff the spell leaves, which stays readable in world PvP. Every spell ID was checked against the live game data.
+
+![How interrupts are announced in dungeons](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/dungeon-interrupts.png)
+
+- Your interrupt and the enemy's hidden interruption arrive in the same frame, so they are matched without reading the enemy at all.
+
 ## 0.3.01
 
 ## Smooth rider

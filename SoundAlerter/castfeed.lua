@@ -606,6 +606,11 @@ function Row:SetTooltipBody(entry)
 		return true
 	end
 
+	local secretID = entry.secretID
+	if issecretvalue(secretID) and pcall(GameTooltip.SetSpellByID, GameTooltip, secretID) then
+		return true
+	end
+
 	if entry.label ~= nil and pcall(GameTooltip.SetText, GameTooltip, entry.label) then
 		return true
 	end
@@ -718,6 +723,7 @@ function Row:Begin(key, spellID, status, isFallback, caster, secretID, castUnit)
 	entry.label = label
 	entry.icon = icon
 	entry.generic = generic
+	if spellID == nil then entry.secretID = secretID end
 	entry.status = status
 	entry.caster = caster or CastFeed.addon.SafeUnitName(unit)
 

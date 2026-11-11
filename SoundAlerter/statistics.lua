@@ -31,6 +31,7 @@ end
 
 local STATISTICS_KEYS = {
 	enabled = true,
+	overviewMode = true,
 }
 
 function Statistics:GetSettings()
@@ -351,11 +352,6 @@ local function buildKpi()
 	return Format.Kpi(kpiScratch)
 end
 
-local function buildOverview()
-	local stats = GetDB().statistics
-	return Format.Overview(stats.session, stats.allTime)
-end
-
 local function buildList(key)
 	local rows = STATS_CONSTANTS.MAX_DISPLAY_ROWS
 	if key == "topSpells" then
@@ -508,12 +504,6 @@ function Statistics:GetKpiText()
 	return cachedText("kpi", stats, dataVersion, minutes, buildKpi)
 end
 
-function Statistics:GetOverviewText()
-	local stats = trackedStatistics()
-	if not stats then return "" end
-	return cachedText("overview", stats, dataVersion, 0, buildOverview)
-end
-
 function Statistics:GetListText(tableType)
 	local stats = trackedStatistics()
 	if not stats then return "" end
@@ -565,15 +555,77 @@ function Statistics:GetExportText()
 	return cachedText("export", stats, dataVersion, matchVersion, buildExport)
 end
 
+local matchLimit
+
 local function buildMatches()
 	local matches = GetDB().statistics.matches or {}
-	return Debrief.Rows(matches.list, matches.open, time(), GetTime(), Format.Ago)
+	return Debrief.Rows(matches.list, matches.open, time(), GetTime(), Format.Ago, matchLimit)
 end
 
-function Statistics:GetMatchText()
+function Statistics:GetMatchText(limit)
 	local stats = trackedStatistics()
 	if not stats then return "" end
-	return cachedText("matches", stats, dataVersion + matchVersion, math.floor(time() / 60), buildMatches)
+	matchLimit = limit
+	return cachedText(limit and "matchesShort" or "matches", stats, dataVersion + matchVersion, math.floor(time() / 60), buildMatches)
+end
+
+function Statistics:GetMatchCount()
+	local matches = GetDB().statistics.matches
+	return matches and matches.list and #matches.list or 0
+end
+
+function Statistics:Version()
+	return dataVersion, matchVersion
+end
+
+local function buildCounts()
+	local allTime = GetDB().statistics.allTime or {}
+	local tracking = allTime.playerTracking or {}
+	local counts = { topSpells = 0, enemies = 0, classes = 0 }
+	for _ in pairs(allTime.topSpells or {}) do counts.topSpells = counts.topSpells + 1 end
+	for _ in pairs(tracking.enemies or {}) do counts.enemies = counts.enemies + 1 end
+	for _ in pairs(tracking.classSummary or {}) do counts.classes = counts.classes + 1 end
+	return counts
+end
+
+function Statistics:GetListCounts()
+	local stats = trackedStatistics()
+	if not stats then return nil end
+	return cachedText("counts", stats, dataVersion, 0, buildCounts)
+end
+
+local dashboardMode = "all"
+
+local function spellCountOf(spell)
+	return spell.count
+end
+
+local function enemyCountOf(enemy)
+	return enemy.totalAlerts
+end
+
+local function buildDashboard()
+	local stats = GetDB().statistics
+	local session, allTime = stats.session or {}, stats.allTime or {}
+	local topSpells = allTime.topSpells or {}
+	local enemies = (allTime.playerTracking or {}).enemies or {}
+	local won, total = Debrief.Tally(stats.matches and stats.matches.list)
+	return Format.Dashboard({
+		mode = dashboardMode,
+		session = { total = session.totalAlerts, byCategory = session.byCategory, byZone = session.byZone, spells = session.spellsThisSession, enemies = session.enemiesEncountered },
+		allTime = { total = allTime.totalAlerts, byCategory = allTime.byCategory, byZone = allTime.byZone, spells = topSpells, enemies = enemies, spellCount = spellCountOf, enemyCount = enemyCountOf },
+		sessions = allTime.totalSessions or 0,
+		classOf = function(name) return enemies[name] and enemies[name].class end,
+		spellName = function(spellID) return topSpells[spellID] and topSpells[spellID].name or GetCachedSpellName(spellID) end,
+		record = total > 0 and { won = won, total = total } or nil,
+	})
+end
+
+function Statistics:GetDashboard(mode)
+	local stats = trackedStatistics()
+	if not stats then return nil end
+	dashboardMode = mode == "session" and "session" or "all"
+	return cachedText("dashboard", stats, dataVersion + matchVersion, dashboardMode, buildDashboard)
 end
 
 local function spellNameOf(spellID)
@@ -789,6 +841,7 @@ local function newSession(number)
 			noticeAlerts = 0,
 		},
 		byClass = {},
+		byZone = {},
 		enemiesEncountered = {},
 		spellsThisSession = {},
 		party = { sent = 0, received = 0, bySender = {} },
@@ -861,6 +914,12 @@ function Statistics:RecordAlert(category, spellID, sourceGUID, sourceName, spell
 	local zoneType = self:GetCurrentZoneType()
 	if zoneType then
 		sadb.statistics.allTime.byZone[zoneType] = (sadb.statistics.allTime.byZone[zoneType] or 0) + 1
+		local sessionZones = sadb.statistics.session.byZone
+		if not sessionZones then
+			sessionZones = {}
+			sadb.statistics.session.byZone = sessionZones
+		end
+		sessionZones[zoneType] = (sessionZones[zoneType] or 0) + 1
 	end
 
 	if spellID and category == "spellAlerts" then
@@ -1060,9 +1119,10 @@ function Statistics:TrackEnemyPlayer(sourceGUID, sourceName, spellID, knownClass
 		end
 	end
 
-	if sadb.statistics.session and not sadb.statistics.session.enemiesEncountered[sourceName] then
-		sadb.statistics.session.enemiesEncountered[sourceName] = true
-
+	local met = sadb.statistics.session and sadb.statistics.session.enemiesEncountered
+	local before = met and met[sourceName]
+	if met then met[sourceName] = (type(before) == "number" and before or (before and 1 or 0)) + 1 end
+	if met and not before then
 		if enemies[sourceName] then
 			enemies[sourceName].encounterCount = enemies[sourceName].encounterCount + 1
 		end

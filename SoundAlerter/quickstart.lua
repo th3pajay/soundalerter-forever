@@ -270,4 +270,49 @@ function QuickStart.SummaryRows(profile, volumePercent, env)
     return rows
 end
 
+local NAME = "|cffff7d0aSoundAlerter|r"
+local CREDIT = "|cff00ff00th|r|cff00d4ff3|r|cff00ff00pajay|r"
+local VERSION_COLOR = "|cffffd100"
+local DIM = "|cffa0a0a0"
+
+QuickStart.WHATS_NEW = {
+    version = "0.3.14",
+    headline = "New voice alerts, Forever diminishing returns, Statistics dashboard",
+    items = {
+        "New voice alerts: Windfury Totem, Voice of Truth, Feedback, Rapid Fire, Feign Death and more.",
+        "Diminishing Returns uses Forever's own categories and can say \"immune\".",
+        "The Statistics overview is a dashboard with a session or all-time switch.",
+        "Interrupt alerts work in dungeons, and your chat shows the interrupted spell's icon and link.",
+        "SoundAlerter is in the minimap AddOns menu, with its own icon.",
+    },
+}
+
+local function versionText(version)
+    return VERSION_COLOR .. (version or "?") .. "|r"
+end
+
+function QuickStart.Welcome(input)
+    local version = input.version
+    if input.seen == nil and not input.existing then
+        return "install", NAME .. " " .. versionText(version) .. " installed. Quick Start opens in a moment, or type " .. WHITE .. "/sa|r."
+    end
+    if input.seen ~= version then
+        local news = QuickStart.WHATS_NEW
+        local headline = news.version == version and (": " .. news.headline .. ".") or "."
+        return "update", NAME .. " updated to " .. versionText(version) .. headline .. " Type " .. WHITE .. "/sa whatsnew|r for more."
+    end
+    if not input.showLine then return nil end
+    return "normal", NAME .. " " .. versionText(version) .. " by " .. CREDIT .. " " .. DIM .. "· type|r " .. WHITE .. "/sa|r " .. DIM .. "for options|r"
+end
+
+function QuickStart.WhatsNewLines(version)
+    local news = QuickStart.WHATS_NEW
+    if news.version ~= version then
+        return { NAME .. " " .. versionText(version) .. ": see the changelog on CurseForge for what changed." }
+    end
+    local lines = { NAME .. " " .. versionText(version) .. " what's new:" }
+    for index, item in ipairs(news.items) do lines[index + 1] = DIM .. "- |r" .. item end
+    return lines
+end
+
 SA_QuickStart = QuickStart

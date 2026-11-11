@@ -9,9 +9,7 @@ local RESET = "|r"
 local DANGER_HIGH = 5
 local DANGER_MEDIUM = 3
 
-local SEGMENT_WIDTH = 380
-local SEGMENT_HEIGHT = 10
-local SWATCH_SIZE = 8
+
 local ROW_BAR_WIDTH = 110
 local ROW_BAR_HEIGHT = 8
 local NAME_LIMIT = 22
@@ -91,16 +89,6 @@ function Format.Bar(width, height, r, g, b)
     return string.format("|TInterface\\Buttons\\WHITE8X8:%d:%d:0:0:8:8:0:8:0:8:%d:%d:%d|t", height, width, r, g, b)
 end
 
-function Format.Danger(danger)
-    local color = "|cff00FF00"
-    if danger > DANGER_HIGH then
-        color = "|cffFF0000"
-    elseif danger > DANGER_MEDIUM then
-        color = "|cffFFD700"
-    end
-    return color .. string.format("%.1f", danger) .. RESET
-end
-
 function Format.Kpi(overview)
     local function value(text)
         return GOLD .. text .. RESET
@@ -112,60 +100,6 @@ function Format.Kpi(overview)
         value(Format.Number(overview.allTimeTotal)) .. " all-time   " ..
         value(Format.Number(overview.sessions)) .. " sessions   " ..
         value(Format.Number(overview.avgPerSession)) .. " avg"
-end
-
-function Format.Segments(items, total)
-    if total <= 0 then
-        return GREY .. "no data yet" .. RESET
-    end
-
-    local parts = {}
-    for _, item in ipairs(items) do
-        if item.value > 0 then
-            local width = math.max(1, math.floor(item.value / total * SEGMENT_WIDTH + 0.5))
-            parts[#parts + 1] = Format.Bar(width, SEGMENT_HEIGHT, item.color[1], item.color[2], item.color[3])
-        end
-    end
-    return table.concat(parts)
-end
-
-function Format.Mix(title, items)
-    local total = 0
-    for _, item in ipairs(items) do
-        total = total + item.value
-    end
-
-    local lines = { GOLD .. title .. RESET, Format.Segments(items, total) }
-    for _, item in ipairs(items) do
-        lines[#lines + 1] = Format.Bar(SWATCH_SIZE, SWATCH_SIZE, item.color[1], item.color[2], item.color[3]) ..
-            " " .. item.label .. "  " .. GREEN .. Format.Number(item.value) .. RESET ..
-            "  " .. GREY .. Format.Percent(item.value, total) .. "%" .. RESET
-    end
-    return table.concat(lines, "\n")
-end
-
-function Format.CategoryItems(byCategory)
-    local items = {}
-    for i, category in ipairs(Format.CATEGORIES) do
-        items[i] = { label = category.label, value = (byCategory and byCategory[category.key]) or 0, color = category.color }
-    end
-    return items
-end
-
-function Format.ZoneItems(byZone)
-    local items = {}
-    for i, zone in ipairs(Format.ZONES) do
-        items[i] = { label = zone.label, value = (byZone and byZone[zone.key]) or 0, color = zone.color }
-    end
-    return items
-end
-
-function Format.Overview(session, allTime)
-    return table.concat({
-        Format.Mix("This session", Format.CategoryItems(session and session.byCategory)),
-        Format.Mix("All-time", Format.CategoryItems(allTime and allTime.byCategory)),
-        Format.Mix("Where, all-time", Format.ZoneItems(allTime and allTime.byZone)),
-    }, "\n\n")
 end
 
 local function rowBar(value, maximum, r, g, b)
@@ -216,7 +150,6 @@ function Format.EnemyRows(list, limit)
             "  " .. GREY .. className(enemy.class) .. RESET ..
             "  " .. GREEN .. Format.Number(enemy.alerts) .. RESET ..
             GREY .. " " .. rounded(enemy.percentage) .. "%" .. RESET ..
-            "  danger " .. Format.Danger(enemy.danger or 0) ..
             "  " .. GREY .. (enemy.topZone or "N/A") .. RESET
     end
     return table.concat(rows, "\n")
@@ -427,6 +360,105 @@ function Format.PanelModel(data)
         classes[index] = { class = entry.class, text = string.format("%.2f each", entry.ratio), players = entry.players }
     end
     model.rivals.classes = classes
+    return model
+end
+
+local DASH_TOP = 3
+
+local function plainCount(value)
+    return value
+end
+
+local function ranked(map, nameOf, countOf)
+    local list, seen = {}, 0
+    countOf = countOf or plainCount
+    for key, value in pairs(map or {}) do
+        local count = countOf(value)
+        if type(count) == "number" and count > 0 then
+            seen = seen + 1
+            local name = nameOf(key)
+            local at = #list + 1
+            for index = 1, #list do
+                local other = list[index]
+                if count > other.count or (count == other.count and name < other.name) then
+                    at = index
+                    break
+                end
+            end
+            if at <= DASH_TOP then
+                table.insert(list, at, { key = key, name = name, count = count })
+                list[DASH_TOP + 1] = nil
+            end
+        end
+    end
+    return list, seen
+end
+
+local function shareText(value, total)
+    return Format.Percent(value, total) .. "%"
+end
+
+function Format.Dashboard(input)
+    local scope = (input.mode == "session" and input.session or input.allTime) or {}
+    local session, allTime = input.session or {}, input.allTime or {}
+    local model = { mode = input.mode, tiles = {}, mix = { segments = {}, top = {}, total = 0 }, spells = {}, enemies = {}, zones = {} }
+
+    local mixTotal = 0
+    for _, category in ipairs(Format.CATEGORIES) do
+        local value = (scope.byCategory or {})[category.key] or 0
+        if value > 0 then
+            model.mix.segments[#model.mix.segments + 1] = { label = category.label, value = value, color = category.color }
+            mixTotal = mixTotal + value
+        end
+    end
+    model.mix.total = mixTotal
+    local order = {}
+    for index, segment in ipairs(model.mix.segments) do order[index] = segment end
+    table.sort(order, function(a, b)
+        if a.value ~= b.value then return a.value > b.value end
+        return a.label < b.label
+    end)
+    for index = 1, math.min(DASH_TOP, #order) do
+        local segment = order[index]
+        model.mix.top[index] = { label = segment.label, value = segment.value, color = segment.color, share = shareText(segment.value, mixTotal) }
+    end
+
+    local spellName = input.spellName or function() end
+    local spells, spellCount = ranked(scope.spells, function(id) return spellName(id) or ("Spell " .. tostring(id)) end, scope.spellCount)
+    model.spellCount = spellCount
+    for index = 1, math.min(DASH_TOP, #spells) do model.spells[index] = { id = spells[index].key, name = spells[index].name, count = spells[index].count } end
+
+    local classOf = input.classOf or function() end
+    local enemies, enemyCount = ranked(scope.enemies, tostring, scope.enemyCount)
+    model.enemyCount = enemyCount
+    for index = 1, math.min(DASH_TOP, #enemies) do
+        local entry = enemies[index]
+        model.enemies[index] = { name = entry.name, class = classOf(entry.name), count = entry.count }
+    end
+
+    local zoneTotal, topZone = 0, nil
+    for index, zone in ipairs(Format.ZONES) do
+        local value = (scope.byZone or {})[zone.key] or 0
+        model.zones[index] = { label = zone.label, value = value, color = zone.color }
+        zoneTotal = zoneTotal + value
+        if value > 0 and (not topZone or value > topZone.value) then topZone = model.zones[index] end
+    end
+
+    local tiles = model.tiles
+    tiles[1] = { value = Format.Number(session.total or 0), label = "alerts this session" }
+    tiles[2] = { value = Format.Number(allTime.total or 0), label = "alerts all-time" }
+    local record = input.record
+    if record and (record.total or 0) > 0 then
+        tiles[3] = { value = record.won .. " of " .. record.total, label = "matches won" }
+    else
+        local sessions = input.sessions or 0
+        tiles[3] = { value = string.format("%.1f", sessions > 0 and (allTime.total or 0) / sessions or 0), label = "per session (" .. sessions .. ")" }
+    end
+    local enemy = model.enemies[1]
+    tiles[4] = enemy and { value = enemy.name, class = enemy.class, label = "top enemy, " .. enemy.count .. " alerts" } or { value = "-", label = "no enemy yet" }
+    local alert = model.mix.top[1]
+    tiles[5] = alert and { value = alert.label, label = "top alert, " .. alert.share } or { value = "-", label = "no alerts yet" }
+    tiles[6] = topZone and { value = topZone.label, label = shareText(topZone.value, zoneTotal) .. " of alerts with a place" } or { value = "-", label = "no place yet" }
     return model
 end
 

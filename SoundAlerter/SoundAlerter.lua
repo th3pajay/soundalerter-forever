@@ -165,8 +165,21 @@ function SoundAlerter:AddOption(key, table)
 	self.options.args[key] = table
 end
 
+local addonVersion
+
+local function AddonVersion()
+    if addonVersion == nil then
+        local readMeta = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
+        addonVersion = readMeta and readMeta("SoundAlerter", "Version") or false
+    end
+    return addonVersion or nil
+end
+
+local rearmSeconds, rearmAt = {}, {}
+
 function SoundAlerter:OnInitialize()
     self.moduleInitErrors = {}
+    rearmSeconds = SoundAlerterSpellRearm or rearmSeconds
 
     if SoundAlerterSpells then
         self.spellList = SoundAlerterSpells
@@ -221,7 +234,11 @@ function SoundAlerter:OnInitialize()
         self:Debug("Init", "Blizzard Settings panel integration unavailable (outdated AceConfigDialog-3.0), use /sa instead")
     end
 
-    self:Print("|cffFF7D0ASoundAlerter|r by |cff00FF00th|r|cff00D4FF3|r|cff00FF00pajay|r - /SA ")
+    local version = AddonVersion()
+    local global = self.db1.global
+    local _, welcome = SA_QuickStart.Welcome({ version = version, seen = global.welcomeVersion, existing = existingInstall, showLine = self.db1.profile.welcomeLine ~= false })
+    if welcome then DEFAULT_CHAT_FRAME:AddMessage(welcome) end
+    global.welcomeVersion = version
 	self:CreateMinimapButton()
 end
 
@@ -398,19 +415,53 @@ function SoundAlerter:SendChat(message, channels)
     return sent
 end
 
-function SoundAlerter:BroadcastChat(message)
-    if sadb.chatgroups.NONE then return end
-    local channels = {}
+local LOCAL_PREFIX = "|cff33ff99SoundAlerter|r: "
+local DOWN_TEMPLATE = "#spell# down on #enemy#"
+
+local chatChannels = {}
+
+local function SendPlain(message)
+    for i = #chatChannels, 1, -1 do chatChannels[i] = nil end
     for channel, enabled in pairs(sadb.chatgroups) do
         if enabled and channel ~= "NONE" then
-            channels[#channels + 1] = channel
+            chatChannels[#chatChannels + 1] = channel
         end
     end
-    local sent = self:SendChat(message, channels)
-    if not sent then
-        self:Debug("Chat", "no channel available, printed locally")
-        self:Print(message)
-    end
+    return SoundAlerter:SendChat(message, chatChannels)
+end
+
+local function AddLocalLine(line)
+    DEFAULT_CHAT_FRAME:AddMessage(LOCAL_PREFIX .. line)
+    return true
+end
+
+local function PrintPlain(message)
+    SoundAlerter:Debug("Chat", "no channel available, printed locally")
+    SoundAlerter:Print(message)
+end
+
+SA_AlertText.Attach(SendPlain, AddLocalLine, PrintPlain, function() return sadb end)
+
+local function Link(spellID)
+    return GetSpellLink(spellID) or ""
+end
+
+local function LinkOrName(spellID)
+    return spellID and (GetSpellLink(spellID) or GetSpellInfo(spellID)) or ""
+end
+
+local function JoinIcon(icon, link)
+    return "|T" .. icon .. ":0|t" .. link
+end
+
+local function HiddenSpellIcon(hiddenSpellID)
+    if not issecretvalue(hiddenSpellID) then return nil end
+    local okIcon, icon = pcall(C_Spell.GetSpellTexture, hiddenSpellID)
+    local okLink, link = pcall(C_Spell.GetSpellLink, hiddenSpellID)
+    if not (okIcon and okLink) or not (issecretvalue(icon) or icon ~= nil) or not (issecretvalue(link) or link ~= nil) then return nil end
+    local ok, piece = pcall(JoinIcon, icon, link)
+    if not ok then return nil end
+    return piece
 end
 
 local statisticsModule
@@ -419,9 +470,18 @@ local DUPLICATE_ALERT_WINDOW = 0.3
 local recentAlerts = {}
 
 function SoundAlerter:PlaySpell(list, spellID, sourceGUID, sourceName)
-    if list[spellID] then
-        if not sadb[list[spellID]] then return end
+    local key = list[spellID]
+    if key then
+        if not sadb[key] then return end
         local now = GetTime()
+        local rearm = rearmSeconds[key]
+        if rearm then
+            local wait = SA_Rearm.Wait(rearmAt, key, rearm, now)
+            if wait then
+                self:Debug("Sound", "%s.mp3 held (re-arms in %.0f s)", key, wait)
+                return
+            end
+        end
         local guid = Plain(sourceGUID)
         local last = recentAlerts[spellID]
         if last then
@@ -653,10 +713,14 @@ function SoundAlerter:HandleCommand(input)
         self:ShowFxStats(rest:lower())
     elseif command == "setup" then
         self:ShowQuickStartSetup()
+    elseif command == "whatsnew" then
+        for _, line in ipairs(SA_QuickStart.WhatsNewLines(AddonVersion())) do
+            DEFAULT_CHAT_FRAME:AddMessage(line)
+        end
     elseif command == "help" then
         self:Print("|cffFFD700=== SoundAlerter Commands ===|r")
         self:Print("|cff00FFFF[General]|r")
-        self:Print("  |cffFFFFFF/sa|r - Open options panel; |cffFFFFFF/sa setup|r runs the Quick Start setup")
+        self:Print("  |cffFFFFFF/sa|r - Open options panel; |cffFFFFFF/sa setup|r runs the Quick Start setup; |cffFFFFFF/sa whatsnew|r lists what changed in this version")
         self:Print("  |cffFFFFFF/sa stats|r - Show alert diagnostics (duplicate alerts, aura resyncs); |cffFFFFFF/sa stats reset|r clears them")
         self:Print("  |cffFFFFFF/sa speed|r - Print the raw speed values and what the Speed Meter would show (stand in the water, then run it)")
         self:Print("  |cffFFFFFF/sa fxstats [reset]|r - Show how often the casting bars and spell tracker icons update at the current animation quality")
@@ -925,30 +989,28 @@ function SoundAlerter:ClearAuraTracking(unit)
     end
 end
 
-local INTERRUPT_ABILITY_SPELLS = SA_Interrupt.COOLDOWN
-local lastInterruptCast = nil
-local lastEnemyCast = {}
-local lastEnemyCastAt = {}
+local interrupts = SA_Interrupt.New()
+local interruptFacts = {}
 local castStartedAt = {}
 
 local function ClearCastState(unit)
-    lastEnemyCast[unit] = nil
-    lastEnemyCastAt[unit] = nil
+    interrupts:Forget(unit)
     castStartedAt[unit] = nil
 end
-local lastPlayerInterrupt = nil
-local pendingEnemyInterrupt = nil
-local INTERRUPT_CORRELATION_WINDOW = 0.6
 
 local function InterrupterIsPlayer(interruptedBy)
     if interruptedBy == nil or issecretvalue(interruptedBy) then return nil end
     return interruptedBy == UnitGUID("player")
 end
 
-function SoundAlerter:AnnounceEnemyInterrupt(enemyName, interruptedSpellID, abilitySpellID, unit)
-    self:Debug("Interrupt", "paired: %s interrupted with spell %s (interrupted spell %s); sound=%s chat=%s emote=%s",
-        enemyName, tostring(abilitySpellID), tostring(interruptedSpellID or "unknown"),
-        tostring(not sadb.interrupt), tostring(not sadb.chatalerts and sadb.interruptenemy and true or false), tostring(sadb.interruptemote and true or false))
+function SoundAlerter:AnnounceEnemyInterrupt(announcement)
+    local enemyName, interruptedSpellID, abilitySpellID = announcement.name, announcement.spell, announcement.ability
+    local unit, hiddenSpellID = announcement.unit, announcement.hidden
+    if sadb.debugmode then
+        self:Debug("Interrupt", "paired: %s interrupted with spell %s (interrupted spell %s); sound=%s chat=%s emote=%s",
+            enemyName, tostring(abilitySpellID), tostring(interruptedSpellID or "unknown"),
+            tostring(not sadb.interrupt), tostring(not sadb.chatalerts and sadb.interruptenemy and true or false), tostring(sadb.interruptemote and true or false))
+    end
     if sadb.statistics and sadb.statistics.enabled then
         local Statistics = self:GetModule("Statistics")
         if Statistics then
@@ -960,15 +1022,10 @@ function SoundAlerter:AnnounceEnemyInterrupt(enemyName, interruptedSpellID, abil
     end
     if sadb.interrupt then return end
     SoundAlerter:PlayVoice(sadb.sapath .. SA_Interrupt.EnemySound(unit, sadb));
-    if sadb.chatalerts or not sadb.interruptenemy then return end
-
-    local abilityText = abilitySpellID and (GetSpellLink(abilitySpellID) or GetSpellInfo(abilitySpellID)) or ""
-    local interruptedText = interruptedSpellID and (GetSpellLink(interruptedSpellID) or GetSpellInfo(interruptedSpellID)) or "spell"
-    local it = gsub(sadb.InterruptEnemyText, "(#spell#)", abilityText)
-    it = gsub(it, "#interruptedspellname#", interruptedText)
-    local finalMessage = gsub(it, "(#enemy#)", enemyName)
-    finalMessage = string.gsub(finalMessage, "[\\]", "")
-    self:BroadcastChat(finalMessage)
+    if not SA_AlertText.Ready(sadb.interruptenemy) then return end
+    local interrupted = interruptedSpellID and (GetSpellLink(interruptedSpellID) or GetSpellInfo(interruptedSpellID))
+    if not interrupted then interrupted = SA_AlertText.Hidden(HiddenSpellIcon(hiddenSpellID), "spell") end
+    SA_AlertText.Say(sadb.InterruptEnemyText, { enemy = enemyName, spell = LinkOrName(abilitySpellID), interruptedspellname = interrupted })
 end
 
 function SoundAlerter:ScheduleInterruptReady(spellID)
@@ -993,17 +1050,23 @@ function SoundAlerter:InterruptReady()
 end
 
 function SoundAlerter:RecordPlayerInterrupt(spellID)
-    if issecretvalue(spellID) or not INTERRUPT_ABILITY_SPELLS[spellID] then return end
-    local now = GetTime()
+    if not SA_Interrupt.IsInterrupt(spellID) then return end
     self:ScheduleInterruptReady(spellID)
-    local pending = pendingEnemyInterrupt
-    if pending and (now - pending.time) <= INTERRUPT_CORRELATION_WINDOW then
-        pendingEnemyInterrupt = nil
-        lastPlayerInterrupt = nil
-        self:AnnounceEnemyInterrupt(pending.name, pending.spellID, spellID, pending.unit)
-        return
+    local announcement = interrupts:Cast("you", spellID, GetTime())
+    if announcement then self:AnnounceEnemyInterrupt(announcement) end
+end
+
+function SoundAlerter:AnnounceSelfInterrupted(announcement)
+    local spellID, ability = announcement.spell, announcement.ability
+    self:CheckCustomAlerts("SPELL_INTERRUPT", nil, "player", spellID)
+    if sadb.interrupt then return end
+    local interruptKey = self.spellList.interruptFriend[ability]
+    if not interruptKey or sadb[interruptKey] then
+        SoundAlerter:PlayVoice(sadb.sapath.."lockout.mp3");
     end
-    lastPlayerInterrupt = { spellID = spellID, time = now }
+    if SA_AlertText.Ready(sadb.interruptself) then
+        SA_AlertText.Say(sadb.InterruptSelfText, { spell = LinkOrName(ability), interruptedspellname = LinkOrName(spellID), enemy = announcement.name })
+    end
 end
 
 local function CollectTrackedSpellIDs(ids, source)
@@ -1049,6 +1112,7 @@ local function GetTrackedAuraSpellIDs()
     CollectTrackedSpellIDs(ids, SoundAlerter.spellList and SoundAlerter.spellList.enemyDebuffdownAP)
     CollectTrackedSpellIDs(ids, SoundAlerter.spellList and SoundAlerter.spellList.auraApplied)
     CollectTrackedSpellIDs(ids, SoundAlerter.spellList and SoundAlerter.spellList.auraRemoved)
+    CollectTrackedSpellIDs(ids, SA_CCChat.SPELLS)
     if sadb and sadb.custom then
         for _, css in pairs(sadb.custom) do
             if css.eventtype and (css.eventtype["SPELL_AURA_APPLIED"] or css.eventtype["SPELL_AURA_REMOVED"]) and css.spellid then
@@ -1341,12 +1405,11 @@ function SoundAlerter:StealthLog(fmt, ...)
 end
 
 function SoundAlerter:AnnounceStealthChat(group, spellID, enemyName, isTargetOrFocus)
-    if sadb.chatalerts then return end
     local isVanish, isStealth, isProwl = group == "vanish", group == "stealth", group == "prowl"
-    if ((sadb.vanishenemy and isVanish) or (sadb.stealthenemy and isStealth) or (sadb.prowlenemy and isProwl))
-       and (isTargetOrFocus or ((sadb.vanishTF and isVanish) or (sadb.stealthTF and isStealth) or (sadb.prowlTF and isProwl))) then
-        local message = gsub(gsub(sadb.enemychat, "(#spell#)", (GetSpellLink(spellID) or "")), "(#enemy#)", enemyName)
-        self:BroadcastChat(message)
+    local wanted = ((sadb.vanishenemy and isVanish) or (sadb.stealthenemy and isStealth) or (sadb.prowlenemy and isProwl))
+       and (isTargetOrFocus or ((sadb.vanishTF and isVanish) or (sadb.stealthTF and isStealth) or (sadb.prowlTF and isProwl)))
+    if SA_AlertText.Ready(wanted) then
+        SA_AlertText.Say(sadb.enemychat, { spell = Link(spellID), enemy = enemyName })
     end
 end
 
@@ -1426,6 +1489,12 @@ function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFoc
         if not sadb.dArenaPartner then
             self:PlaySpell(self.spellList.friendCCSuccess, spellID)
         end
+        local kind = not firstSight and SA_CCChat.Kind(spellID, sadb)
+        if kind and SA_AlertText.Ready(true) then
+            local friend = SafeUnitName(unit) or "a friend"
+            local enemy = sourceUnit and SafeUnitName(sourceUnit) or "An enemy"
+            SA_AlertText.Say(kind == "sap" and sadb.sapfriendtext or sadb.friendchat, { spell = Link(spellID), friend = friend, enemy = enemy })
+        end
         return
     end
 
@@ -1441,18 +1510,12 @@ function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFoc
             local trapper = Plain(UnitGUID(sourceUnit))
             if trapper then self.ProximityToasts:OnTrapLanded(trapper, spellID) end
         end
-        if not sadb.chatalerts then
-            if ((spellID == 450600 and sadb.hexselffriend) or
-                ((spellID == 6215 or spellID == 17928 or spellID == 5484) and sadb.fearselffriend) or
-                ((spellID == 12826 or spellID == 118 or spellID == 28271 or spellID == 28272) and sadb.polyenemy) or
-                (spellID == 2094 and sadb.blindselffriend)) then
-                local form1 = gsub(sadb.selfchat, "(#spell#)", (GetSpellLink(spellID) or ""))
-                local form2 = gsub(form1, "(#target#)", "me")
-                local message = gsub(form2, "(#enemy#)", "")
-                self:BroadcastChat(message)
-            elseif (spellID == 6770 or spellID == 11297 or spellID == 2070) and sadb.sapselffriend then
-                local message = gsub(sadb.sapselftext, "(#spell#)", (GetSpellLink(spellID) or ""))
-                self:BroadcastChat(message)
+        local kind = SA_CCChat.Kind(spellID, sadb)
+        if kind and SA_AlertText.Ready(true) then
+            if kind == "cc" then
+                SA_AlertText.Say(sadb.selfchat, { spell = Link(spellID), target = "me", enemy = sourceUnit and SafeUnitName(sourceUnit) or "An enemy" })
+            elseif kind == "sap" then
+                SA_AlertText.Say(sadb.sapselftext, { spell = Link(spellID) })
             end
         end
         return
@@ -1476,28 +1539,23 @@ function SoundAlerter:HandleDebuffApplied(unit, spellID, isPlayer, isTargetOrFoc
         self:PlaySpell(self.spellList.enemyDebuffs, spellID, guid, name)
     end
 
-    if not sadb.chatalerts then
+    if SA_AlertText.Ready(true) then
         if (((spellID == 6770 or spellID == 11297 or spellID == 2070) and sadb.sapenemy) or
             (spellID == 2094 and sadb.blindenemy) or
             (spellID == 450600 and sadb.hexenemy) or
             (spellID == 5782 and sadb.fearenemy)) then
-            local ccenemychat = gsub(sadb.enemychat, "(#spell#)", (GetSpellLink(spellID) or ""))
-            local message = gsub(ccenemychat, "(#enemy#)", name)
-            self:BroadcastChat(message)
+            SA_AlertText.Say(sadb.enemychat, { spell = Link(spellID), enemy = name })
         end
 
         if sadb.bubbleenemy and spellID == 642 then
-            local message = gsub(sadb.bubbleenemytext, "(#enemy#)", name)
-            self:BroadcastChat(message)
+            SA_AlertText.Say(sadb.bubbleenemytext, { enemy = name })
         end
     end
 
     if ((sadb.myself and isTargetOrFocus) or (sadb.enemyinrange and isTracked)) and not sadb.aruaApplied then
         self:PlaySpell(self.spellList.auraApplied, spellID)
-        if not sadb.chatalerts and sadb.chatauraApplied and self.spellList.auraApplied[spellID] then
-            local buffMsg = gsub(sadb.enemybuffchat, "(#spell#)", (GetSpellLink(spellID) or ""))
-            buffMsg = gsub(buffMsg, "(#enemy#)", name)
-            self:BroadcastChat(buffMsg)
+        if SA_AlertText.Ready(sadb.chatauraApplied and self.spellList.auraApplied[spellID]) then
+            SA_AlertText.Say(sadb.enemybuffchat, { spell = Link(spellID), enemy = name })
         end
     end
 end
@@ -1526,23 +1584,21 @@ function SoundAlerter:HandleDebuffRemoved(unit, spellID, isTargetOrFocus, isAlly
         self:PlaySpell(self.spellList.enemyDebuffdown, spellID)
     end
 
-    if not sadb.chatalerts and sadb.chatdownfriend then
+    if SA_AlertText.Ready(sadb.chatdownfriend) then
         if ((spellID == 450600 and sadb.hexenemy) or
             (spellID == 2094 and sadb.blindenemy) or
             ((spellID == 6770 or spellID == 11297 or spellID == 2070) and sadb.sapenemy) or
             ((spellID == 12826 or spellID == 118 or spellID == 28271 or spellID == 28272) and sadb.polyenemy) or
             ((spellID == 6215 or spellID == 5484 or spellID == 17928) and sadb.fearenemy)) then
-            self:BroadcastChat((GetSpellLink(spellID) or GetSpellInfo(spellID) or "Unknown Spell").." down on "..name)
+            SA_AlertText.Say(DOWN_TEMPLATE, { spell = GetSpellLink(spellID) or GetSpellInfo(spellID) or "Unknown Spell", enemy = name })
         end
     end
 
     if not sadb.auraRemoved then
         self:PlaySpell(self.spellList.auraRemoved, spellID)
     end
-    if not sadb.chatalerts and sadb.chatauraRemoved and self.spellList.auraRemoved[spellID] then
-        local downMsg = gsub(sadb.auraRemovedChat, "(#spell#)", (GetSpellLink(spellID) or ""))
-        downMsg = gsub(downMsg, "(#enemy#)", name)
-        self:BroadcastChat(downMsg)
+    if SA_AlertText.Ready(sadb.chatauraRemoved and self.spellList.auraRemoved[spellID]) then
+        SA_AlertText.Say(sadb.auraRemovedChat, { spell = Link(spellID), enemy = name })
     end
 end
 
@@ -1613,16 +1669,9 @@ function SoundAlerter:CheckCustomAlerts(eventName, sourceUnit, destUnit, spellID
 
                     if not css.chatAlert then
                         SoundAlerter:PlayVoice("Interface\\Addons\\SoundAlerter\\CustomSounds\\"..css.soundfilepath, "Master")
-                    else
-                        local spell = gsub(css.chatalerttext, "([#]spell[#])", (GetSpellLink(spellID) or ""))
-                        local targetName = destName or sourceName or ""
-                        local message
-                        if eventName == "SPELL_CAST_START" then
-                            message = gsub(spell, "([#]enemy[#])", "")
-                        else
-                            message = gsub(spell, "([#]enemy[#])", targetName)
-                        end
-                        self:BroadcastChat(message)
+                    elseif SA_AlertText.Ready(true) then
+                        local enemy = eventName == "SPELL_CAST_START" and "" or (destName or sourceName or "")
+                        SA_AlertText.Say(css.chatalerttext, { spell = Link(spellID), enemy = enemy })
                     end
                 end
             end
@@ -2028,11 +2077,8 @@ function SoundAlerter:CheckProximityAlert(unit, allySpotted)
 
     self:FireProximityAlert(guid, unitName, unitClass, unitLevel, approxRange, not allySpotted and unit or nil, SA_Plates.Count(), nil, nil, Plain(secondName))
 
-    if sadb.proximityChat and sadb.proximityChatText then
-        local chatText = gsub(sadb.proximityChatText, "#class#", unitClass)
-        chatText = gsub(chatText, "#player#", unitName)
-
-        self:BroadcastChat(chatText)
+    if SA_AlertText.Ready(sadb.proximityChat and sadb.proximityChatText) then
+        SA_AlertText.Say(sadb.proximityChatText, { class = unitClass, player = unitName })
     end
 
     if not allySpotted then
@@ -2132,8 +2178,7 @@ end
 function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
     self.alertUnit = unit
     if unit == "target" or unit == "focus" or unit == "mouseover" then
-        lastEnemyCast[unit] = not issecretvalue(spellID) and spellID or nil
-        lastEnemyCastAt[unit] = GetTime()
+        interrupts:CastStarted(unit, not issecretvalue(spellID) and spellID or nil, GetTime())
     end
     if not unit or not IsRelevantCastUnit(unit) then return end
     if not self:IsAlertZoneAllowed() then return end
@@ -2166,10 +2211,8 @@ function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
         local name = SafeUnitName(unit)
         if Plain(guid) and name then
             self:PlaySpell(self.spellList.castStart, spellID, guid, name)
-            if not sadb.chatalerts and sadb.chatcastStart and self.spellList.castStart[spellID] then
-                local startMsg = gsub(sadb.castStartChat, "(#spell#)", (GetSpellLink(spellID) or ""))
-                startMsg = gsub(startMsg, "(#enemy#)", name)
-                self:BroadcastChat(startMsg)
+            if SA_AlertText.Ready(sadb.chatcastStart and self.spellList.castStart[spellID]) then
+                SA_AlertText.Say(sadb.castStartChat, { spell = Link(spellID), enemy = name })
             end
         end
     end
@@ -2195,15 +2238,12 @@ function SoundAlerter:UNIT_SPELLCAST_SUCCEEDED(event, unit, castGUID, spellID)
     local name = SafeUnitName(unit)
     if not Plain(guid) or not name then return end
 
-    if INTERRUPT_ABILITY_SPELLS[spellID] then
-        lastInterruptCast = { spellID = spellID, name = name, time = GetTime() }
-    end
+    interrupts:Cast("enemy", spellID, GetTime(), name)
 
     self:CheckCustomAlerts("SPELL_CAST_SUCCESS", unit, nil, spellID)
 
-    if not sadb.chatalerts and sadb.trinketalert and spellID == 1259718 then
-        local message = gsub(sadb.trinketalerttext, "(#enemy#)", name)
-        self:BroadcastChat(message)
+    if SA_AlertText.Ready(sadb.trinketalert and spellID == 1259718) then
+        SA_AlertText.Say(sadb.trinketalerttext, { enemy = name })
     end
 
     if spellID == 1259718 and sadb.trinket then
@@ -2236,67 +2276,32 @@ function SoundAlerter:UNIT_SPELLCAST_INTERRUPTED(event, unit, castGUID, spellID,
             self:ProbeValue("interrupted " .. unit .. " by is player", interruptedBy == UnitGUID("player"))
         end
     end
+    local now = GetTime()
+    local facts = interruptFacts
+    facts.unit = unit
     if issecretvalue(spellID) then
         if unit == "player" then return end
-        spellID = lastEnemyCast[unit]
-    end
-
-    local replacementText = spellID and (GetSpellLink(spellID) or GetSpellInfo(spellID)) or ""
-
-    if unit == "player" then
-        local matched = lastInterruptCast and (GetTime() - lastInterruptCast.time) <= INTERRUPT_CORRELATION_WINDOW
-        if not matched then return end
-
-        self:CheckCustomAlerts("SPELL_INTERRUPT", nil, unit, spellID)
-
-        if not sadb.interrupt then
-            local interruptKey = self.spellList.interruptFriend[lastInterruptCast.spellID]
-            if not interruptKey or sadb[interruptKey] then
-                SoundAlerter:PlayVoice(sadb.sapath.."lockout.mp3");
-            end
-            if not sadb.chatalerts and sadb.interruptself then
-                local it = gsub(sadb.InterruptSelfText, "(#spell#)", (GetSpellLink(lastInterruptCast.spellID) or GetSpellInfo(lastInterruptCast.spellID) or ""))
-                it = gsub(it, "#interruptedspellname#", replacementText)
-                local finalMessage = gsub(it, "(#enemy#)", lastInterruptCast.name)
-                finalMessage = string.gsub(finalMessage, "[\\]", "")
-                self:BroadcastChat(finalMessage)
-            end
-        end
-        return
-    end
-
-    if spellID then
-        self:CheckCustomAlerts("SPELL_INTERRUPT", nil, unit, spellID)
-    end
-
-    if unit ~= "target" and unit ~= "focus" and unit ~= "mouseover" then return end
-    if not UnitExists(unit) or not UnitIsEnemy("player", unit) then return end
-
-    local name = SafeUnitName(unit)
-    if not name then return end
-
-    local now = GetTime()
-    if not SA_Interrupt.PassesMinCast(sadb.interruptMinCast, lastEnemyCastAt[unit], now) then
-        self:Debug("Interrupt", "%s (%s) interrupted before the %.1fs minimum cast time", name, unit, sadb.interruptMinCast)
-        return
-    end
-    local mine = lastPlayerInterrupt
-    local byPlayer = InterrupterIsPlayer(interruptedBy)
-    if byPlayer == false then
-        self:Debug("Interrupt", "%s (%s) was interrupted by someone else", name, unit)
-        return
-    end
-    if byPlayer then
-        local ability = mine and (now - mine.time) <= INTERRUPT_CORRELATION_WINDOW and mine.spellID or nil
-        lastPlayerInterrupt = nil
-        pendingEnemyInterrupt = nil
-        self:AnnounceEnemyInterrupt(name, spellID, ability, unit)
-    elseif mine and (now - mine.time) <= INTERRUPT_CORRELATION_WINDOW then
-        lastPlayerInterrupt = nil
-        pendingEnemyInterrupt = nil
-        self:AnnounceEnemyInterrupt(name, spellID, mine.spellID, unit)
+        facts.spellID, facts.hidden = nil, spellID
     else
-        self:Debug("Interrupt", "%s (%s) was interrupted, waiting %.1fs for your interrupt cast", name, unit, INTERRUPT_CORRELATION_WINDOW)
-        pendingEnemyInterrupt = { name = name, spellID = spellID, time = now, unit = unit }
+        facts.spellID, facts.hidden = spellID, nil
+    end
+    if unit == "player" then
+        facts.isEnemy, facts.name, facts.byPlayer = nil, nil, nil
+        local announcement = interrupts:Interrupted(facts, now, sadb)
+        if announcement then self:AnnounceSelfInterrupted(announcement) end
+        return
+    end
+    facts.isEnemy = UnitExists(unit) and UnitIsEnemy("player", unit) or false
+    facts.name = SafeUnitName(unit)
+    facts.byPlayer = InterrupterIsPlayer(interruptedBy)
+    local announcement, readable, reason = interrupts:Interrupted(facts, now, sadb)
+    facts.hidden = nil
+    if readable then
+        self:CheckCustomAlerts("SPELL_INTERRUPT", nil, unit, readable)
+    end
+    if announcement then
+        self:AnnounceEnemyInterrupt(announcement)
+    elseif reason and sadb.debugmode then
+        self:Debug("Interrupt", "%s not announced: %s", unit, reason)
     end
 end

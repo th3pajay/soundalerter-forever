@@ -20,9 +20,8 @@ Stats.RECOMPUTE_GAP = 60
 
 local active, ticker = false, nil
 local ids, masks = {}, {}
-local universe, known = nil, nil
+local known = nil
 local nextReport, lastSent, nextSweep = 0, 0, 0
-local decoyPeriod, decoyList = nil, {}
 local ownKey
 local counters = {}
 local cache = { version = -1 }
@@ -36,24 +35,20 @@ local function hash(text)
     return SA_UpdateCheck.Sha256(text)
 end
 
-local function buildUniverse()
-    if universe then return end
-    universe, known = {}, {}
+local function buildKnown()
+    if known then return end
+    known = {}
     for _, list in pairs(SoundAlerterSpells or {}) do
         if type(list) == "table" then
             for id in pairs(list) do
-                if type(id) == "number" and id > 0 and id == math.floor(id) and not known[id] then
-                    known[id] = true
-                    universe[#universe + 1] = id
-                end
+                if type(id) == "number" and id > 0 and id == math.floor(id) then known[id] = true end
             end
         end
     end
-    table.sort(universe)
 end
 
 function Stats.IsKnown(id)
-    buildUniverse()
+    buildKnown()
     return known[id] == true
 end
 
@@ -83,7 +78,7 @@ local function root()
         data = {}
         global.globalStats = data
     end
-    if not Model.SecretValid(data.secret) then data.secret = Model.NewSecret(math.random) end
+    data.secret = nil
     data.realms = type(data.realms) == "table" and data.realms or {}
     data.mine = type(data.mine) == "table" and data.mine or {}
     data.lastExport = type(data.lastExport) == "table" and data.lastExport or {}
@@ -123,16 +118,6 @@ local function mineFor(data, key, day)
         data.mine[key] = mine
     end
     return mine
-end
-
-local function decoys(data, day)
-    local period = Model.Period(day)
-    if period ~= decoyPeriod then
-        buildUniverse()
-        decoyPeriod = period
-        Model.Decoys(hash(data.secret .. "|" .. period), universe, Model.DECOYS, decoyList)
-    end
-    return decoyList
 end
 
 function Stats.Note(spellID, zoneType)
@@ -184,7 +169,7 @@ local function report(now)
     local mine = mineFor(data, key, day)
     if not next(mine.e) then return end
     if not mine.dirty and now - lastSent < Stats.REFRESH then return end
-    local spells = Model.Report(mine.e, decoys(data, day))
+    local spells = Model.Report(mine.e)
     local store, sender = storeFor(data, key), ownSenderKey()
     local parts = {}
     for part = 1, Stats.MAX_PARTS do
@@ -283,8 +268,7 @@ function SoundAlerter:GetGlobalVennData()
         if cache.version == store.version then return cache.entries, cache.players end
         if InCombatLockdown() or now - cache.at < Stats.RECOMPUTE_GAP then return cache.entries, cache.players end
     end
-    buildUniverse()
-    local spells, players = Model.Aggregate(store, day, #universe)
+    local spells, players = Model.Aggregate(store, day)
     local entries = {}
     local Venn, Statistics = SA_StatsVenn, SoundAlerter.Statistics
     for _, spell in ipairs(spells) do

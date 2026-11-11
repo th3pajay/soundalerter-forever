@@ -115,6 +115,8 @@ function Skin.HeaderText(version, author)
     return Skin.BETA .. " " .. text
 end
 
+local badgeText
+
 function Skin.Badge(widget)
     if type(widget) ~= "table" or not widget.frame or not widget.frame.CreateFontString then return false end
     local frame = widget.frame
@@ -126,7 +128,11 @@ function Skin.Badge(widget)
         text:SetTextColor(COLOR.muted[1], COLOR.muted[2], COLOR.muted[3])
         frame.saBadge = text
     end
-    text:SetText(Skin.HeaderText(metadata("Version"), metadata("Author") or "th3pajay"))
+    badgeText = badgeText or Skin.HeaderText(metadata("Version"), metadata("Author") or "th3pajay")
+    if frame.saBadgeText ~= badgeText then
+        frame.saBadgeText = badgeText
+        text:SetText(badgeText)
+    end
     return true
 end
 

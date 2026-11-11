@@ -43,22 +43,23 @@ function MinimapButton:UpdateIcon()
     button.icon:SetVertexColor(ICON_TINT[1], ICON_TINT[2], ICON_TINT[3])
 end
 
-function MinimapButton:Run(action)
+function MinimapButton:Run(action, owner)
     if action == "menu" then
-        self:ShowMenu()
+        self:ShowMenu(owner)
         return
     end
     SA_Actions.Run(action)
 end
 
-function MinimapButton:Click(buttonName, modifier)
+function MinimapButton:Click(buttonName, modifier, owner)
     local action = Model.Resolve(self:GetSettings().clicks, modifier, buttonName)
-    if action then self:Run(action) end
+    if action then self:Run(action, owner) end
     return action
 end
 
-function MinimapButton:ShowMenu()
-    if not (MenuUtil and MenuUtil.CreateContextMenu and button) then
+function MinimapButton:ShowMenu(owner)
+    owner = owner or button
+    if not (MenuUtil and MenuUtil.CreateContextMenu and owner) then
         SoundAlerter:Print("The quick menu is not available on this client; opening the options instead.")
         SoundAlerter:ShowConfig()
         return
@@ -71,7 +72,7 @@ function MinimapButton:ShowMenu()
         { "Notices", function() return SoundAlerter.Notices and SoundAlerter.Notices.db and SoundAlerter.Notices.db.enabled end, "notices" },
         { "Bars locked", function() local _, states = SA_Actions.Lockable() return not Model.AnyUnlocked(states) end, "lockbars" },
     }
-    MenuUtil.CreateContextMenu(button, function(_, root)
+    MenuUtil.CreateContextMenu(owner, function(_, root)
         root:CreateTitle("SoundAlerter")
         for _, row in ipairs(rows) do
             root:CreateCheckbox(row[1], function() return row[2]() and true or false end, function() MinimapButton:Run(row[3]) end)
@@ -120,13 +121,17 @@ local TOOLTIP_COLORS = {
     state = { 1, 0.82, 0 },
 }
 
-function MinimapButton:OnEnter()
-    GameTooltip:SetOwner(button, "ANCHOR_LEFT")
+function MinimapButton:ShowTooltip(owner)
+    GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
     for _, line in ipairs(Model.TooltipLines(self:GetSettings().clicks, state())) do
         local color = TOOLTIP_COLORS[line[2]]
         GameTooltip:AddLine(line[1], color[1], color[2], color[3])
     end
     GameTooltip:Show()
+end
+
+function MinimapButton:OnEnter()
+    self:ShowTooltip(button)
 
     button.unhoverAnimGroup:Stop()
     button.hoverAnimGroup:Play()
@@ -168,10 +173,22 @@ function MinimapButton:OnMouseUp()
     end
 end
 
-function MinimapButton:OnClick(mouseButton)
+function MinimapButton:OnClick(mouseButton, owner)
     local modifier = Model.Modifier(IsShiftKeyDown(), IsControlKeyDown(), IsAltKeyDown())
     local buttonName = Model.ButtonName(mouseButton)
-    if buttonName then self:Click(buttonName, modifier) end
+    if buttonName then self:Click(buttonName, modifier, owner) end
+end
+
+function SoundAlerter_OnAddonCompartmentClick(_, mouseButton)
+    MinimapButton:OnClick(mouseButton, AddonCompartmentFrame)
+end
+
+function SoundAlerter_OnAddonCompartmentEnter(_, menuButton)
+    MinimapButton:ShowTooltip(menuButton or AddonCompartmentFrame)
+end
+
+function SoundAlerter_OnAddonCompartmentLeave()
+    GameTooltip:Hide()
 end
 
 function MinimapButton:OnDragStop()

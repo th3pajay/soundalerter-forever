@@ -2,17 +2,14 @@ SA_GlobalStatsModel = {}
 
 local Model = SA_GlobalStatsModel
 
-local string_byte, string_sub, string_format = string.byte, string.sub, string.format
+local string_byte, string_sub = string.byte, string.sub
 local math_floor, math_max = math.floor, math.max
 local tonumber = tonumber
 
 Model.PREFIX = "SoundAlerterS"
 Model.VERSION = "1"
 Model.WINDOW_DAYS = 7
-Model.DECOYS = 2
-Model.MIN_PLAYERS = 2
-Model.SIGMAS = 3
-Model.DECOY_PERIOD = 7
+Model.MIN_PLAYERS = 1
 Model.MAX_ENTRIES = 40
 Model.MAX_TOKEN = 7
 Model.MAX_SENDERS = 1000
@@ -87,25 +84,7 @@ function Model.Decode(text, today, isKnown, ids, masks)
     return day, count
 end
 
-function Model.Period(day)
-    return math_floor(day / Model.DECOY_PERIOD)
-end
-
-function Model.Decoys(digest, universe, count, out)
-    for index = #out, 1, -1 do out[index] = nil end
-    local size = #universe
-    if size == 0 or type(digest) ~= "string" then return out end
-    for index = 1, count do
-        local chunk = tonumber(string_sub(digest, (index - 1) * 8 + 1, index * 8), 16)
-        if not chunk then break end
-        local id = universe[chunk % size + 1]
-        local bit = BITS[math_floor(chunk / size) % 3 + 1]
-        out[#out + 1] = { id = id, mask = bit }
-    end
-    return out
-end
-
-function Model.Report(mine, decoys)
+function Model.Report(mine)
     local byId, order = {}, {}
     local function add(id, bit)
         local mask = byId[id]
@@ -120,7 +99,6 @@ function Model.Report(mine, decoys)
         local bit = pair % 8
         add((pair - bit) / 8, bit)
     end
-    for _, decoy in ipairs(decoys) do add(decoy.id, decoy.mask) end
     table.sort(order)
     local spells = {}
     for index, id in ipairs(order) do spells[index] = { id = id, mask = byId[id] } end
@@ -199,34 +177,14 @@ function Model.Prune(store, today)
     return removed
 end
 
-local function estimate(observed, expectedDecoys, players)
-    if players <= 0 then return 0 end
-    local share = expectedDecoys / players
-    if share >= 1 then return 0 end
-    local value = math_max(0, (observed - expectedDecoys) / (1 - share))
-    if value < Model.SIGMAS * math.sqrt(expectedDecoys) then return 0 end
-    return value
-end
-
-function Model.Aggregate(store, today, universeSize)
+function Model.Aggregate(store, today)
     local first = today - Model.WINDOW_DAYS + 1
-    local zoneSeen, anySeen = {}, {}
-    local players, dayWeight = 0, 0
+    local zoneSeen, anySeen, touched = {}, {}, {}
+    local players = 0
     for _, sender in pairs(store.senders) do
         if sender.last >= first then
             players = players + 1
-            local periods, low, high = 0, nil, nil
-            for day in pairs(sender.days) do
-                if day >= first then
-                    local period = Model.Period(day)
-                    if period ~= low and period ~= high then
-                        periods = periods + 1
-                        if not low then low = period else high = period end
-                    end
-                end
-            end
-            dayWeight = dayWeight + periods
-            local touched = {}
+            for id in pairs(touched) do touched[id] = nil end
             for pair, day in pairs(sender.e) do
                 if day >= first then
                     zoneSeen[pair] = (zoneSeen[pair] or 0) + 1
@@ -241,23 +199,17 @@ function Model.Aggregate(store, today, universeSize)
         end
     end
     local spells = {}
-    if players == 0 or universeSize <= 0 then return spells, players end
-    local perPair = dayWeight * Model.DECOYS / (3 * universeSize)
-    local perSpell = dayWeight * Model.DECOYS / universeSize
-    for id, observed in pairs(anySeen) do
+    if players == 0 then return spells, players end
+    for id, overall in pairs(anySeen) do
         local byZone, top = {}, 0
         for bit, zone in pairs(Model.ZONE_KEYS) do
             local seen = zoneSeen[id * 8 + bit]
-            if seen then
-                local value = math_floor(estimate(seen, perPair, players) + 0.5)
-                if value >= Model.MIN_PLAYERS then
-                    byZone[zone] = value
-                    if value > top then top = value end
-                end
+            if seen and seen >= Model.MIN_PLAYERS then
+                byZone[zone] = seen
+                if seen > top then top = seen end
             end
         end
-        local overall = top > 0 and math_floor(estimate(observed, perSpell, players) + 0.5) or 0
-        if overall >= Model.MIN_PLAYERS then
+        if top > 0 and overall >= Model.MIN_PLAYERS then
             spells[#spells + 1] = { id = id, total = math_max(top, overall), byZone = byZone }
         end
     end
@@ -458,14 +410,4 @@ end
 function Model.SenderKey(hash, sender)
     if type(sender) ~= "string" or sender == "" then return nil end
     return string_sub(hash("SAS1" .. sender), 1, 12)
-end
-
-function Model.SecretValid(secret)
-    return type(secret) == "string" and #secret == 32 and secret:match("^%x+$") ~= nil
-end
-
-function Model.NewSecret(random)
-    local parts = {}
-    for index = 1, 8 do parts[index] = string_format("%04x", random(0, 65535)) end
-    return table.concat(parts)
 end

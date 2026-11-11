@@ -892,17 +892,27 @@ function ResourceBar:ComboLossKind()
 	return "spent"
 end
 
+function ResourceBar:RestoredOnCorpse(cp, lastCP)
+	if cp <= lastCP then return false end
+	if GetTime() - (self.targetChangedAt or 0) >= TARGET_SWITCH_WINDOW then return false end
+	return Plain(UnitIsDeadOrGhost("target")) == true
+end
+
 function ResourceBar:SetComboPoints(cp, forcedKind)
 	local lastCP = self.lastComboPoints or 0
 	if cp == lastCP then return end
 
 	self:PaintComboPoints(cp)
 
-	local kind
-	if cp < lastCP then kind = forcedKind or self:ComboLossKind() end
-	SoundAlerter.CPCelebration:Change(self.celebration, lastCP, cp, kind)
-	if cp == 5 and self.db.fullCPSound then
-		PlaySound(SOUNDKIT and SOUNDKIT.AUCTION_WINDOW_CLOSE or 5275)
+	if self:RestoredOnCorpse(cp, lastCP) then
+		SoundAlerter.CPCelebration:Settle(self.celebration, cp)
+	else
+		local kind
+		if cp < lastCP then kind = forcedKind or self:ComboLossKind() end
+		SoundAlerter.CPCelebration:Change(self.celebration, lastCP, cp, kind)
+		if cp == 5 and self.db.fullCPSound then
+			PlaySound(SOUNDKIT and SOUNDKIT.AUCTION_WINDOW_CLOSE or 5275)
+		end
 	end
 
 	self.lastComboPoints = cp

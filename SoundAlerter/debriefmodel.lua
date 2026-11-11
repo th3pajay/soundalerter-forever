@@ -299,12 +299,26 @@ function Model.Row(record, now, ago)
         (spells ~= "" and ("  " .. GREY .. spells .. RESET) or "")
 end
 
-function Model.Rows(list, open, now, clock, ago)
+function Model.Tally(list)
+    local won, total = 0, 0
+    for index = 1, #(list or {}) do
+        local record = list[index]
+        if record.result and (record.kind == "arena" or record.kind == "battleground") then
+            total = total + 1
+            if record.result == "won" then won = won + 1 end
+        end
+    end
+    return won, total
+end
+
+function Model.Rows(list, open, now, clock, ago, limit)
     local rows = {}
     local summary = Model.Summary(list)
     if summary then rows[1] = summary end
     if open then rows[#rows + 1] = Model.LiveRow(open, now, clock) end
-    for index = 1, #(list or {}) do rows[#rows + 1] = Model.Row(list[index], now, ago) end
+    local count = #(list or {})
+    if limit and limit < count then count = limit end
+    for index = 1, count do rows[#rows + 1] = Model.Row(list[index], now, ago) end
     if #rows == 0 then
         return GREY .. "No arena or battleground match recorded yet. A match runs from entering the instance until you leave it." .. RESET
     end

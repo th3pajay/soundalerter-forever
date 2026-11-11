@@ -91,7 +91,6 @@ local AUTOHIDE_DELAY = 1.5
 local DIAMOND_SIZE = 12
 local DRIVE_RETRY = 0.6
 local MAX_ATTEMPTS = 6
-local FADE_TICK = 0.05
 local PULSE_TIME = 0.5
 local TEST_TIME = 3
 local SWAP_WAIT = 2
@@ -1430,20 +1429,43 @@ function TrinketMenu:ApplyLayout()
     end
 end
 
-local fadeElapsed = 0
+local function Busy(menu)
+    return menu.bar:IsMouseOver() or menu.flyout:IsShown()
+end
 
-local function FadeStep(driver, elapsed)
-    local menu, now = TrinketMenu, GetTime()
-    if now - menu.idleSince < menu.db.fadeDelay then
-        fadeElapsed = fadeElapsed + elapsed
-        if fadeElapsed < FADE_TICK then return end
-        fadeElapsed = 0
+local function FadeStep(driver)
+    local menu = TrinketMenu
+    if Busy(menu) then
+        driver:SetScript("OnUpdate", nil)
+        menu:SetBarAlpha(1)
+        menu:Rest()
+        return
     end
-    if menu.bar:IsMouseOver() or menu.flyout:IsShown() then menu.idleSince = now end
-    local target = menu.db.fadeAlpha
-    local alpha = Model.IdleAlpha(true, now - menu.idleSince, menu.db.fadeDelay, target)
+    local db = menu.db
+    local target = db.fadeAlpha
+    local alpha = Model.IdleAlpha(true, GetTime() - menu.idleSince, db.fadeDelay, target)
     menu:SetBarAlpha(alpha)
     if alpha == target then driver:SetScript("OnUpdate", nil) end
+end
+
+local function IdleReached()
+    local menu = TrinketMenu
+    menu.idleTicket = nil
+    if not menu.fadeOn then return end
+    if Busy(menu) then
+        menu:Rest()
+        return
+    end
+    menu.idleSince = GetTime() - menu.db.fadeDelay
+    menu.driver:SetScript("OnUpdate", FadeStep)
+end
+
+function TrinketMenu:CancelIdle()
+    local ticket = self.idleTicket
+    if ticket then
+        ticket:Cancel()
+        self.idleTicket = nil
+    end
 end
 
 function TrinketMenu:SetBarAlpha(alpha)
@@ -1454,14 +1476,16 @@ end
 
 function TrinketMenu:Wake()
     if not self.fadeOn then return end
+    self:CancelIdle()
     self.driver:SetScript("OnUpdate", nil)
     self:SetBarAlpha(1)
 end
 
 function TrinketMenu:Rest()
     if not self.fadeOn then return end
-    self.idleSince, fadeElapsed = GetTime(), 0
-    self.driver:SetScript("OnUpdate", FadeStep)
+    self:CancelIdle()
+    self.idleSince = GetTime()
+    self.idleTicket = C_Timer.NewTimer(self.db.fadeDelay, IdleReached)
 end
 
 function TrinketMenu:ApplyFade()
@@ -1470,6 +1494,7 @@ function TrinketMenu:ApplyFade()
     if self.fadeOn then
         self:Rest()
     else
+        self:CancelIdle()
         self.driver:SetScript("OnUpdate", nil)
         self:SetBarAlpha(1)
     end

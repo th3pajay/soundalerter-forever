@@ -2,9 +2,12 @@ local SoundAlerter = SoundAlerter
 
 local SORT_OPTIONS = {
     topSpells = { { "count_desc", "Most alerts" }, { "trend", "Trend (rising first)" }, { "name_asc", "Name (A-Z)" }, { "time", "Most recent" } },
-    enemies = { { "alerts_desc", "Most alerts" }, { "danger", "Danger" }, { "name_asc", "Name (A-Z)" }, { "time", "Most recent" } },
+    enemies = { { "alerts_desc", "Most alerts" }, { "danger", "Threat" }, { "name_asc", "Name (A-Z)" }, { "time", "Most recent" } },
     classes = { { "alerts_desc", "Most alerts" }, { "players", "Most players" }, { "avg", "Alerts per player" }, { "class_asc", "Class (A-Z)" } },
 }
+
+local MATCHES_SHORT = 5
+local expanded = { matches = false, topSpells = false, enemies = false, classes = false }
 
 local function statistics()
     return SoundAlerter:GetModule("Statistics", true)
@@ -14,16 +17,20 @@ local function view()
     local active = statistics()
     if not active then return nil end
     local on = active:GetSettings().enabled and true or false
-    local data = { enabled = on, sort = {}, text = { kpi = "", overview = "", matches = "", topSpells = "", enemies = "", classes = "", export = "" } }
+    local data = { enabled = on, sort = {}, text = { kpi = "", matches = "", matchesShort = "", topSpells = "", enemies = "", classes = "", export = "" }, counts = {}, matchCount = 0 }
     if not on then return data end
     local sorts = active:GetSortState()
     for key in pairs(SORT_OPTIONS) do data.sort[key] = sorts[key] and sorts[key].sortType end
+    data.mode = active:GetSettings().overviewMode == "session" and "session" or "all"
+    data.dashboard = active:GetDashboard(data.mode)
+    data.counts = active:GetListCounts() or data.counts
+    data.matchCount = active:GetMatchCount()
     data.text.kpi = active:GetKpiText()
-    data.text.overview = active:GetOverviewText()
-    data.text.matches = active:GetMatchText()
-    data.text.topSpells = active:GetListText("topSpells")
-    data.text.enemies = active:GetListText("enemies")
-    data.text.classes = active:GetListText("classes")
+    data.text.matchesShort = active:GetMatchText(MATCHES_SHORT)
+    if expanded.matches then data.text.matches = active:GetMatchText() end
+    if expanded.topSpells then data.text.topSpells = active:GetListText("topSpells") end
+    if expanded.enemies then data.text.enemies = active:GetListText("enemies") end
+    if expanded.classes then data.text.classes = active:GetListText("classes") end
     data.text.export = active:GetExportText()
     data.panel = active:GetPanelModel()
     return data
@@ -41,6 +48,10 @@ local function write(key, value)
             active:UpdateMatch()
             SoundAlerter:Print("Statistics tracking disabled (existing data preserved)")
         end
+        return
+    end
+    if key == "mode" then
+        active:SetSetting("overviewMode", value == "session" and "session" or "all")
         return
     end
     local table_ = key:match("^sort%.(.+)$")
@@ -236,7 +247,10 @@ local function globalEmptyText(players)
     if (players or 0) == 0 then
         return "No reports yet. SoundAlerter players on your realm and faction report every 15 minutes."
     end
-    return "Not enough reports yet. A spell shows once enough players saw it to tell it from the decoys."
+    if players == 1 then
+        return "1 player reporting (you). Your spells show here once your next report goes out."
+    end
+    return players .. " players reporting. Spells show here once their reports arrive."
 end
 
 local function spellTexture(spellID)
@@ -993,16 +1007,199 @@ function Panel.update(state, settings)
     selectTab(state, state.tab)
 end
 
+local DASH_GAP = 6
+local TILE_HEIGHT = 40
+local CARD_HEIGHT = 84
+local CARD_LINES = 3
+local MIX_SLOTS = 10
+local DASH_HEIGHT = 2 * TILE_HEIGHT + 2 * CARD_HEIGHT + 3 * DASH_GAP + 4
+local DASH_REFRESH = 1
+local CARD_TITLES = { "Alert mix", "Top spells", "Top enemies", "Where" }
+
+local function dashBox(parent, Kit)
+    local box = CreateFrame("Frame", nil, parent)
+    local fill = Kit.Paint(box, Kit.COLOR.card, 1)
+    fill:SetAllPoints(box)
+    Kit.Outline(box, Kit.COLOR.line)
+    return box
+end
+
+local function buildDashboard(frame, page)
+    local Kit = SoundAlerter.Page.Kit
+    local state = { frame = frame, tiles = {}, cards = {}, width = 0 }
+    for index = 1, 6 do
+        local tile = dashBox(frame, Kit)
+        tile.value = Kit.Text(tile, 15, Kit.COLOR.text)
+        tile.value:SetPoint("TOPLEFT", tile, "TOPLEFT", 7, -5)
+        tile.value:SetPoint("RIGHT", tile, "RIGHT", -5, 0)
+        tile.label = Kit.Text(tile, 10.5, Kit.COLOR.muted)
+        tile.label:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 7, 5)
+        tile.label:SetPoint("RIGHT", tile, "RIGHT", -5, 0)
+        state.tiles[index] = tile
+    end
+    for index = 1, 4 do
+        local card = dashBox(frame, Kit)
+        local title = Kit.Text(card, 11.5, { 1, 0.82, 0 })
+        title:SetPoint("TOPLEFT", card, "TOPLEFT", 8, -6)
+        title:SetText(CARD_TITLES[index])
+        card.lines = {}
+        local top = index == 1 and -32 or -22
+        for line = 1, CARD_LINES do
+            local left = Kit.Text(card, 11.5, Kit.COLOR.text)
+            left:SetPoint("TOPLEFT", card, "TOPLEFT", 8, top - (line - 1) * 16)
+            local right = Kit.Text(card, 11.5, Kit.COLOR.on, "RIGHT")
+            right:SetPoint("TOPRIGHT", card, "TOPRIGHT", -8, top - (line - 1) * 16)
+            left:SetPoint("RIGHT", right, "LEFT", -6, 0)
+            card.lines[line] = { left = left, right = right }
+        end
+        state.cards[index] = card
+    end
+    local mix = state.cards[1]
+    mix.track = Kit.Paint(mix, Kit.COLOR.track, 1, "BORDER")
+    mix.track:SetPoint("TOPLEFT", mix, "TOPLEFT", 8, -22)
+    mix.track:SetPoint("TOPRIGHT", mix, "TOPRIGHT", -8, -22)
+    mix.track:SetHeight(6)
+    mix.slots = {}
+    for slot = 1, MIX_SLOTS do mix.slots[slot] = Kit.Paint(mix, Kit.COLOR.track, 1, "ARTWORK") end
+
+    local ticker
+    local function stop()
+        if ticker then ticker:Cancel() end
+        ticker = nil
+    end
+    frame:HookScript("OnShow", function()
+        stop()
+        ticker = C_Timer.NewTicker(DASH_REFRESH, function()
+            local active = statistics()
+            if not active then return end
+            local data, matches = active:Version()
+            if data ~= state.dataVersion or matches ~= state.matchVersion then page:Refresh() end
+        end)
+    end)
+    frame:HookScript("OnHide", stop)
+    return state
+end
+
+local function placeDashboard(state, frame, width)
+    if width == state.width then return end
+    state.width = width
+    local tileWidth = (width - 2 * DASH_GAP) / 3
+    for index, tile in ipairs(state.tiles) do
+        local column, row = (index - 1) % 3, math.floor((index - 1) / 3)
+        tile:ClearAllPoints()
+        tile:SetSize(tileWidth, TILE_HEIGHT)
+        tile:SetPoint("TOPLEFT", frame, "TOPLEFT", column * (tileWidth + DASH_GAP), -2 - row * (TILE_HEIGHT + DASH_GAP))
+    end
+    local cardWidth = (width - DASH_GAP) / 2
+    local top = 2 + 2 * (TILE_HEIGHT + DASH_GAP)
+    for index, card in ipairs(state.cards) do
+        local column, row = (index - 1) % 2, math.floor((index - 1) / 2)
+        card:ClearAllPoints()
+        card:SetSize(cardWidth, CARD_HEIGHT)
+        card:SetPoint("TOPLEFT", frame, "TOPLEFT", column * (cardWidth + DASH_GAP), -top - row * (CARD_HEIGHT + DASH_GAP))
+    end
+    state.mixWidth = nil
+end
+
+local function cardLine(line, left, right, r, g, b)
+    line.left:SetText(left or "")
+    line.right:SetText(right or "")
+    line.left:SetTextColor(r or 0.906, g or 0.918, b or 0.941)
+end
+
+local function paintMix(card, mix, width)
+    local used, x = 0, 0
+    local total = mix.total
+    for _, segment in ipairs(mix.segments) do
+        used = used + 1
+        if used > MIX_SLOTS then break end
+        local slot = card.slots[used]
+        local share = total > 0 and segment.value / total or 0
+        local span = math.max(1, share * width)
+        slot:ClearAllPoints()
+        slot:SetPoint("TOPLEFT", card.track, "TOPLEFT", x, 0)
+        slot:SetSize(span, 6)
+        slot:SetVertexColor(segment.color[1] / 255, segment.color[2] / 255, segment.color[3] / 255, 1)
+        slot:Show()
+        x = x + span
+    end
+    for slot = used + 1, MIX_SLOTS do card.slots[slot]:Hide() end
+end
+
+local function updateDashboard(state, settings, width)
+    local active = statistics()
+    if active then state.dataVersion, state.matchVersion = active:Version() end
+    local model = settings.dashboard
+    placeDashboard(state, state.frame, width)
+    if not model then return DASH_HEIGHT end
+    if model == state.model and state.mixWidth == width then return DASH_HEIGHT end
+    state.model, state.mixWidth = model, width
+    for index, tile in ipairs(state.tiles) do
+        local data = model.tiles[index]
+        tile.value:SetText(data.value)
+        tile.label:SetText(data.label)
+        if data.class then
+            local r, g, b = SA_StatsFormat.ClassColor(data.class)
+            tile.value:SetTextColor(r / 255, g / 255, b / 255)
+        else
+            tile.value:SetTextColor(0.906, 0.918, 0.941)
+        end
+    end
+    local mixCard, spellCard, enemyCard, zoneCard = state.cards[1], state.cards[2], state.cards[3], state.cards[4]
+    paintMix(mixCard, model.mix, (width - DASH_GAP) / 2 - 16)
+    for line = 1, CARD_LINES do
+        local mix = model.mix.top[line]
+        cardLine(mixCard.lines[line], mix and mix.label, mix and mix.share)
+        local spell = model.spells[line]
+        cardLine(spellCard.lines[line], spell and spell.name or (line == 1 and "No spell alerts yet" or nil), spell and tostring(spell.count))
+        local enemy = model.enemies[line]
+        if enemy then
+            local r, g, b = SA_StatsFormat.ClassColor(enemy.class)
+            cardLine(enemyCard.lines[line], enemy.name, tostring(enemy.count), r / 255, g / 255, b / 255)
+        else
+            cardLine(enemyCard.lines[line], line == 1 and "No enemies yet" or nil, nil)
+        end
+        local zone = model.zones[line]
+        cardLine(zoneCard.lines[line], zone and zone.label, zone and tostring(zone.value))
+    end
+    return DASH_HEIGHT
+end
+
+local SHOW_LABELS = { topSpells = "spells", enemies = "enemies", classes = "classes" }
+
 function SoundAlerter:BuildStatisticsOptions()
     local Page = SoundAlerter.Page
 
-    local function block(label, group, getter)
-        return Page.Visible(reportOn, Page.Block(label, getter, false, group))
+    local SORT_HINTS = {
+        topSpells = "How the list below is ordered.",
+        enemies = "How the list below is ordered. Threat is alerts per encounter: a player who sets off many alerts each time they show up ranks high.",
+        classes = "How the list below is ordered.",
+    }
+
+    local function open(key)
+        return function(settings) return settings.enabled and expanded[key] end
     end
 
     local function sorter(key, label, group)
-        return Page.Visible(reportOn, Page.Select("sort." .. key, "Sort by", "How the list below is ordered.", SORT_OPTIONS[key], false, group))
+        return Page.Visible(open(key), Page.Select("sort." .. key, "Sort by", SORT_HINTS[key], SORT_OPTIONS[key], false, group))
     end
+
+    local function showAll(key, group)
+        local function label(settings)
+            if expanded[key] then return "Hide the full list" end
+            return "Show all " .. ((settings.counts or {})[key] or 0) .. " " .. SHOW_LABELS[key]
+        end
+        local row = Page.Action(label, "", function() expanded[key] = not expanded[key] end, false, group)
+        return Page.Visible(function(settings) return settings.enabled and ((settings.counts or {})[key] or 0) > 0 end, row)
+    end
+
+    local function listBlock(key, group)
+        return Page.Visible(open(key), Page.Block(group, function(settings) return settings.text[key] end, false, group))
+    end
+
+    local matchToggle = Page.Action(function()
+        return expanded.matches and "Show the last " .. MATCHES_SHORT or "Show all matches"
+    end, "", function() expanded.matches = not expanded.matches end, false, "Matches")
 
     local exportRow = Page.Text("text.export", "Export", "Select all and copy to share or keep your numbers.", true, "Data", 8)
     local resetSessionRow = Page.Action("Reset session", "Reset this session's numbers. All-time statistics are kept.", resetSession, true, "Data")
@@ -1019,15 +1216,20 @@ function SoundAlerter:BuildStatisticsOptions()
         summary = summary,
         preview = Panel,
         rows = {
-            Page.Visible(reportOn, Page.Action("Refresh", "Redraw the statistics with the latest numbers.", function() end, false, "Overview")),
-            block("Overview", "Overview", function(settings) return settings.text.overview end),
-            block("Last 20 matches", "Matches", function(settings) return settings.text.matches end),
+            Page.Visible(reportOn, Page.Select("mode", "Show", "Session numbers or everything since you started. Spells, enemies and places follow this; totals show both.", { { "all", "All-time" }, { "session", "Session" } }, false, "Overview")),
+            Page.Visible(reportOn, Page.Custom(DASH_HEIGHT, buildDashboard, updateDashboard, false, "Overview")),
+            Page.Visible(function(settings) return settings.enabled and not expanded.matches end, Page.Block("Matches", function(settings) return settings.text.matchesShort end, false, "Matches")),
+            Page.Visible(function(settings) return settings.enabled and expanded.matches end, Page.Block("Matches", function(settings) return settings.text.matches end, false, "Matches")),
+            Page.Visible(function(settings) return settings.enabled and (settings.matchCount or 0) > MATCHES_SHORT end, matchToggle),
+            showAll("topSpells", "Spells"),
             sorter("topSpells", "Sort by", "Spells"),
-            block("Spells", "Spells", function(settings) return settings.text.topSpells end),
+            listBlock("topSpells", "Spells"),
+            showAll("enemies", "Enemies"),
             sorter("enemies", "Sort by", "Enemies"),
-            block("Enemies", "Enemies", function(settings) return settings.text.enemies end),
+            listBlock("enemies", "Enemies"),
+            showAll("classes", "Classes"),
             sorter("classes", "Sort by", "Classes"),
-            block("Classes", "Classes", function(settings) return settings.text.classes end),
+            listBlock("classes", "Classes"),
             Page.Visible(reportOn, exportRow),
             Page.Visible(reportOn, resetSessionRow),
             Page.Visible(reportOn, resetAllRow),

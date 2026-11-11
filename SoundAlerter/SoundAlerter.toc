@@ -3,8 +3,11 @@
 ## Title: SoundAlerter
 ## Notes: Voice alerts and chat announcements for critical PvP spells (CC, interrupts, cooldowns).
 ## Author: th3pajay
-## Version: 0.3.01
-## IconTexture: Interface\AddOns\SoundAlerter\Textures\circle.tga
+## Version: 0.3.14
+## IconTexture: Interface\AddOns\SoundAlerter\Textures\addon_icon.tga
+## AddonCompartmentFunc: SoundAlerter_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: SoundAlerter_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: SoundAlerter_OnAddonCompartmentLeave
 ## SavedVariables: SoundAlerterDB, SoundAlerterSpellDB, SoundAlerterSpellDescDB
 ## X-License: MIT
 ## X-Website: https://github.com/th3pajay/soundalerter-forever

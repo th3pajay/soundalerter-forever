@@ -33,6 +33,7 @@ function SoundAlerter:BuildDRTrackerOptions()
         end, false, "General"),
         Page.Toggle("target", "Track the target", "Counts crowd control on your target and shows its row.", false, "General"),
         Page.Toggle("focus", "Track the focus", "Counts crowd control on your focus and shows its row.", false, "General"),
+        Page.Toggle("voice", "Say when the next one is immune", "Says \"immune\" when crowd control lands on your target or focus and the next one of that kind would do nothing.", false, "General"),
         Page.Range("size", "Icon size", "Size of each icon.", 24, 56, 1, false, "Layout", " px"),
         Page.Range("spacing", "Spacing", "Gap between icons.", 0, 10, 1, false, "Layout", " px"),
         Page.Toggle("numbers", "Countdown numbers", "Seconds left on the crowd control, then on the reset.", false, "Look"),

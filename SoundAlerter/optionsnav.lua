@@ -340,6 +340,44 @@ function Nav.RememberPage(dialog, store)
     end
 end
 
+local MIN_WIDTH, MIN_HEIGHT = 400, 300
+local EDGE = 40
+
+local function number(value)
+    return type(value) == "number" and value == value and value or nil
+end
+
+function Nav.SaveWindow(status, store)
+    if type(status) ~= "table" or type(store) ~= "table" then return false end
+    local width, height = number(status.width), number(status.height)
+    if not (width and height) then return false end
+    store.width, store.height = width, height
+    store.top, store.left = number(status.top), number(status.left)
+    return true
+end
+
+function Nav.RestoreWindow(status, store, screenW, screenH)
+    if type(status) ~= "table" or type(store) ~= "table" then return false end
+    local width, height = number(store.width), number(store.height)
+    if not (width and height) then return false end
+    screenW, screenH = number(screenW), number(screenH)
+    local maxW = screenW and math.max(MIN_WIDTH, screenW) or width
+    local maxH = screenH and math.max(MIN_HEIGHT, screenH) or height
+    width = math.min(math.max(width, MIN_WIDTH), maxW)
+    height = math.min(math.max(height, MIN_HEIGHT), maxH)
+    status.width, status.height = width, height
+    local top, left = number(store.top), number(store.left)
+    local onScreen = top and left and screenW and screenH
+        and top >= EDGE and top <= screenH
+        and left >= EDGE - width and left <= screenW - EDGE
+    if onScreen then
+        status.top, status.left = top, left
+    else
+        status.top, status.left = nil, nil
+    end
+    return true
+end
+
 function Nav.RestorePage(dialog, store)
     if not store.lastPage then return end
     local ok, status = pcall(dialog.GetStatusTable, dialog, APP)

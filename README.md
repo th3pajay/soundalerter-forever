@@ -9,7 +9,7 @@
 Voiced PvP alerts, bars and trackers for WoW Forever.
 
 <a href="https://www.curseforge.com/wow/addons/soundalerter-forever"><img alt="CurseForge version" src="https://img.shields.io/curseforge/v/1754014?label=CurseForge&color=F16436&logo=curseforge&logoColor=white&style=flat-square"/></a>
-<a href="https://github.com/th3pajay/soundalerter-forever/tree/develop"><img alt="Develop" src="https://img.shields.io/badge/develop-0.3.01-blue?logo=github&style=flat-square"/></a>
+<a href="https://github.com/th3pajay/soundalerter-forever/tree/develop"><img alt="Develop" src="https://img.shields.io/badge/develop-0.3.14-blue?logo=github&style=flat-square"/></a>
 <a href="https://www.curseforge.com/wow/addons/soundalerter-forever"><img alt="Downloads" src="https://img.shields.io/curseforge/dt/1754014?label=downloads&color=F16436&logo=curseforge&logoColor=white&style=flat-square"/></a>
 <a href="https://github.com/th3pajay/soundalerter-forever/commits/develop"><img alt="Last commit" src="https://img.shields.io/github/last-commit/th3pajay/soundalerter-forever/develop?label=updated&style=flat-square"/></a>
 <img alt="WoW Forever" src="https://img.shields.io/badge/WoW-Forever%201.60-E6B422?style=flat-square"/>
@@ -47,7 +47,7 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 | | Feature | What it does | |
 | :---: | :--- | :--- | :---: |
 | <img src="Media/icons/proximity.svg" width="32"/> | **Proximity toasts** | Pop-ups for enemies nearby with both of their names, a distance band, level, group size and 3 aura icons. Pick an **Intel card** or a **Threat card**, click to target. Shows the enemy's latest spell, even when the client hides it (see **Show hidden enemy spells**). An enemy whose name or class was unreadable when their plate appeared is checked again on their next cast. Quiet rules and `/sa snooze` keep it silent when you want | 🟢 |
-| <img src="Media/icons/aware.svg" width="32"/> | **Awareness and watchlist** | Voice when an enemy targets you, starts a cast or uses an instant at you, and for watched players or guilds. Silent where the client hides targets or names. Optional party sharing, off by default, and a separate global sightings channel, on by default with an opt-out, whose world map panels show the counts while enemy markers on the map and minimap dots stay off unless you turn them on. The same switch shares which alert spells you saw, without names or counts and mixed with decoys, for the Global statistics tab | 🟡 |
+| <img src="Media/icons/aware.svg" width="32"/> | **Awareness and watchlist** | Voice when an enemy targets you, starts a cast or uses an instant at you, and for watched players or guilds. Silent where the client hides targets or names. Optional party sharing, off by default, and a separate global sightings channel, on by default with an opt-out, whose world map panels show the counts while enemy markers on the map and minimap dots stay off unless you turn them on. The same switch shares which alert spells you saw and in which zone type, without counts, for the Global statistics tab | 🟡 |
 | <img src="Media/icons/flag.svg" width="32"/> | **Flag tracking** | Team-aware pickup, drop and capture toasts in WSG and Eye of the Storm. Returns too, once switched on | 🟢 |
 | <img src="Media/icons/notice.svg" width="32"/> | **Notices** | Cues for duels, summons, resurrections, invites, queue pops, ready checks and low durability. Each is silent until its voice file exists (`/sa notices files`) | 🟣 |
 

@@ -134,6 +134,12 @@ function Page.Block(label, text, advanced, group)
     return row
 end
 
+function Page.Custom(height, build, update, advanced, group)
+    local row = Row("custom", nil, "", "", advanced, group)
+    row.height, row.build, row.update = height, build, update
+    return row
+end
+
 function Page.Visible(predicate, row)
     row.visible = predicate
     return row
@@ -871,7 +877,7 @@ function Methods:Visibility(settings)
         local entry = self.rows[index]
         local row = entry.spec
         entry.visible = not row.visible or (row.visible(settings) and true or false)
-        bits[index] = (entry.visible and "1" or "0") .. (row.kind == "block" and tostring(entry.height) or "")
+        bits[index] = (entry.visible and "1" or "0") .. ((row.kind == "block" or row.kind == "custom") and tostring(entry.height) or "")
     end
     return table.concat(bits)
 end
@@ -954,6 +960,13 @@ function Methods:Refresh()
             local value = Resolve(settings, row.key)
             if value ~= nil then entry.control:Set(value) end
         end
+        if row.kind == "custom" and (not row.visible or row.visible(settings)) then
+            local height = row.update(entry.custom, settings, math.max(60, self.child:GetWidth()))
+            if height and height ~= entry.height then
+                entry.height = height
+                entry.frame:SetHeight(height)
+            end
+        end
         if row.kind == "block" then
             entry.blockText:SetWidth(math.max(60, self.child:GetWidth() - 8))
             entry.blockText:SetText(row.text(settings) or "")
@@ -989,6 +1002,7 @@ function Methods:AddRow(row, advanced)
     local height = row.hint ~= "" and ROW_WITH_HINT or ROW_PLAIN
     if multiline then height = 30 + row.lines * 15 + 14 end
     if row.kind == "block" then height = 30 end
+    if row.kind == "custom" then height = row.height end
     local frame = CreateFrame("Frame", nil, self.child)
     frame:SetHeight(height)
     frame:EnableMouse(true)
@@ -1018,7 +1032,7 @@ function Methods:AddRow(row, advanced)
         control = MakeRange(frame, row, function(value) page:Change(row.key, value) end)
     elseif row.kind == "color" then
         control = MakeColor(frame, function(value) page:Change(row.key, value) end)
-    elseif row.kind == "block" then
+    elseif row.kind == "block" or row.kind == "custom" then
         control = { frame = frame }
     elseif row.kind == "text" then
         control = MakeText(frame, row, function(value) page:Change(row.key, value) end)
@@ -1067,7 +1081,10 @@ function Methods:AddRow(row, advanced)
     end
 
     local entry = { spec = row, frame = frame, control = control, height = height, highlight = highlight, flash = flash }
-    if row.kind == "block" then
+    if row.kind == "custom" then
+        rule:Hide()
+        entry.custom = row.build(frame, page)
+    elseif row.kind == "block" then
         local block = Text(frame, 12, COLOR.text)
         block:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -4)
         block:SetJustifyV("TOP")

@@ -50,6 +50,35 @@ local function EndPause(toast)
     end
 end
 
+local function SlideFinished(group)
+    local toast = group.toast
+    toast:SetPoint("TOP", UIParent, "TOP", toast.slideBaseX, toast.slideToY)
+end
+
+local function EngineSlide(toast, baseX, targetY)
+    local group = toast.slideGroup
+    if not group then
+        group = toast:CreateAnimationGroup()
+        group.toast = toast
+        local move = group:CreateAnimation("Translation")
+        move:SetDuration(SLIDE_DURATION)
+        move:SetSmoothing("OUT")
+        group.move = move
+        group:SetScript("OnFinished", SlideFinished)
+        toast.slideGroup = group
+    end
+    local fromY = toast.currentY
+    if group:IsPlaying() then
+        fromY = toast.slideFromY + (toast.slideToY - toast.slideFromY) * group.move:GetSmoothProgress()
+        group:Stop()
+    end
+    toast:SetPoint("TOP", UIParent, "TOP", baseX, fromY)
+    toast.slideFromY, toast.slideToY, toast.slideBaseX = fromY, targetY, baseX
+    toast.currentY = targetY
+    group.move:SetOffset(0, targetY - fromY)
+    group:Play()
+end
+
 local function ByCreationTime(a, b)
     return a.creationTime < b.creationTime
 end
@@ -421,6 +450,7 @@ function Engine:Release(toast)
     toast.pauseState.startTime = 0
     toast.pauseState.totalTime = 0
 
+    if toast.slideGroup then toast.slideGroup:Stop() end
     toast.currentY = nil
     toast.isSliding = false
     toast.slideFromY = nil
@@ -497,6 +527,8 @@ function Engine:UpdateLayout()
                 toast.currentY = targetY
                 toast:ClearAllPoints()
                 toast:SetPoint("TOP", UIParent, "TOP", baseX, targetY)
+            elseif toast.currentY ~= targetY and not toast.isSecure then
+                EngineSlide(toast, baseX, targetY)
             elseif toast.currentY ~= targetY then
                 toast.slideFromY = toast.currentY
                 toast.slideToY = targetY

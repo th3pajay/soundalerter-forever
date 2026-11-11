@@ -26,22 +26,52 @@ local GREY = { 0.75, 0.78, 0.84 }
 
 local SETTING_KEYS = {
     enabled = true, target = true, focus = true, size = true, spacing = true,
-    numbers = true, tags = true, locked = true,
+    numbers = true, tags = true, locked = true, voice = true,
 }
 
-local byID, byName, notCC = {}, {}, {}
+local IMMUNE_VOICE = "immune.mp3"
+
+local byID, notCC = {}, {}
+local byName
 local records = {}
 local watch = { target = { auras = {} }, focus = { auras = {} } }
 local present = {}
 
+local function AddIDs(source)
+    for category, ids in pairs(source) do
+        for index = 1, #ids do byID[ids[index]] = category end
+    end
+end
+
 local function BuildLookup()
-    for category, ids in pairs(Model.SEEDS) do
-        for _, id in ipairs(ids) do
-            byID[id] = category
-            local name = SA_COMPAT.GetSpellInfo(id)
-            if name and not byName[name] then byName[name] = category end
+    AddIDs(Model.SEEDS)
+    AddIDs(Model.UNTABLED)
+end
+
+local function AddNames(names, source)
+    local getInfo = SA_COMPAT.GetSpellInfo
+    for category, ids in pairs(source) do
+        for index = 1, #ids do
+            local name = getInfo(ids[index])
+            if name then
+                local known = names[name]
+                if known == nil then
+                    names[name] = category
+                elseif known ~= category then
+                    names[name] = false
+                end
+            end
         end
     end
+end
+
+local function Names()
+    if not byName then
+        byName = {}
+        AddNames(byName, Model.SEEDS)
+        AddNames(byName, Model.UNTABLED)
+    end
+    return byName
 end
 
 function DRTracker:Category(aura)
@@ -52,13 +82,23 @@ function DRTracker:Category(aura)
     if not category then
         if id and notCC[id] then return nil end
         local name = Plain(aura.name)
-        category = name and byName[name]
+        category = name and Names()[name] or nil
         if id then
             if category then byID[id] = category else notCC[id] = true end
         end
     end
     if not category or not self.db.categories[category] then return nil end
     return category, id
+end
+
+function DRTracker:SayImmune(category, unit)
+    local addon = self.addon
+    if not (self.db.voice and addon) then return end
+    if addon.IsAlertZoneAllowed and not addon:IsAlertZoneAllowed() then return end
+    if addon.IsQuiet and addon:IsQuiet() then return end
+    local profile = addon.db1.profile
+    addon:Debug("DR", "%s on %s: next is immune", category, unit)
+    addon:PlayVoice(profile.sapath .. IMMUNE_VOICE)
 end
 
 local function Record(key, category)
@@ -104,7 +144,8 @@ function DRTracker:Land(unit, aura, category, id)
     record.unit, record.instance = unit, instance
     if record.appliedAt == now and Model.Up(record, now) then return end
     local expires, duration = Timing(aura)
-    Model.Apply(record, now, IconOf(aura, id), expires, duration)
+    local _, immune = Model.Apply(record, now, IconOf(aura, id), expires, duration)
+    if immune then self:SayImmune(category, unit) end
 end
 
 function DRTracker:Rescan(unit)
@@ -136,7 +177,8 @@ function DRTracker:Scan(unit, state, getAura)
             record.unit, record.instance = unit, instance
             local expires, duration = Timing(aura)
             if Model.Expired(record, now) or (record.fadeAt and now >= record.fadeAt) then
-                Model.Apply(record, now, IconOf(aura, id), expires, duration)
+                local _, immune = Model.Apply(record, now, IconOf(aura, id), expires, duration)
+                if immune then self:SayImmune(category, unit) end
             else
                 Model.Hold(record, expires, duration)
             end
@@ -433,8 +475,7 @@ function DRTracker:TestRecords(now)
             list[category] = record
             if record.testAt ~= self.testUntil then
                 record.testAt = self.testUntil
-                local id = Model.SEEDS[category][1]
-                local _, _, icon = SA_COMPAT.GetSpellInfo(id)
+                local _, _, icon = SA_COMPAT.GetSpellInfo(Model.CATEGORIES[category].icon)
                 record.count = TEST_COUNTS[shown]
                 record.icon = icon
                 record.appliedAt = now

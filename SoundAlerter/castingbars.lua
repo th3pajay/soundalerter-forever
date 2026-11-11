@@ -15,6 +15,7 @@ local FRAME_PAD_X = 20
 local FRAME_PAD_Y = 30
 
 local FINISH_NEAR_END = 0.2
+local SECRET_CHECK = 0.2
 local WARN_TIME = 0.7
 local WARN_MIN_DURATION = 1
 local CHANNEL_PULSES = 3
@@ -473,12 +474,83 @@ function CastingBars:ApplySecretTimer(b, unit, channeling)
 	else
 		getDuration = UnitCastingDuration
 	end
-	if not getDuration or not b.bar.SetTimerDuration then return false end
+	if not getDuration or not b.bar.SetTimerDuration then return nil end
 	local ok, duration = pcall(getDuration, unit)
-	if not ok or duration == nil then return false end
+	if not ok or duration == nil then return nil end
 	local direction = Enum and Enum.StatusBarTimerDirection
 	direction = direction and (channeling and direction.RemainingTime or direction.ElapsedTime)
-	return pcall(b.bar.SetTimerDuration, b.bar, duration, nil, direction)
+	if pcall(b.bar.SetTimerDuration, b.bar, duration, nil, direction) then return duration end
+	return nil
+end
+
+local timeFormatters = {}
+
+local function TimeFormatter(format)
+	local key = format == "centiseconds" and "centiseconds" or "milliseconds"
+	local cached = timeFormatters[key]
+	if cached ~= nil then return cached or nil end
+	local formatter = false
+	local create = C_StringUtil and C_StringUtil.CreateNumericRuleFormatter
+	if create then
+		local ok, made = pcall(create)
+		if ok and made then
+			local modes = Enum and Enum.NumericRuleFormatRounding
+			local down = modes and modes.Down or 2
+			local rule = key == "centiseconds"
+				and { threshold = 0, step = 0.01, rounding = down, format = "%05.2f" }
+				or { threshold = 0, step = 0.001, rounding = down, format = "%06.3f" }
+			if pcall(made.SetBreakpoints, made, { rule }) then formatter = made end
+		end
+	end
+	timeFormatters[key] = formatter
+	return formatter or nil
+end
+
+function CastingBars:TimeBinding(b)
+	if self.bindingBroken then return nil end
+	local binding = b.timeBinding
+	if binding then return binding end
+	local create = C_DurationUtil and C_DurationUtil.CreateDurationTextBinding
+	local ok, made = false, nil
+	if create then ok, made = pcall(create) end
+	if not ok or not made or not pcall(made.SetFontString, made, b.timeText) then
+		self.bindingBroken = true
+		return nil
+	end
+	if made.SetZeroDurationText then pcall(made.SetZeroDurationText, made, "") end
+	if made.SetExpiredText then pcall(made.SetExpiredText, made, "") end
+	b.timeBinding = made
+	b.bindingFormat = nil
+	return made
+end
+
+function CastingBars:StartTimeBinding(b, duration)
+	local binding = duration and self:TimeBinding(b)
+	if not binding then
+		b.timeText:SetText("")
+		return
+	end
+	local format = self.db.timeFormat
+	if b.bindingFormat ~= format then
+		local formatter = TimeFormatter(format)
+		if formatter then pcall(binding.SetFormatter, binding, formatter) end
+		b.bindingFormat = format
+	end
+	if pcall(binding.SetDuration, binding, duration) and pcall(binding.SetEnabled, binding, true) then
+		b.bindingOn = true
+		return
+	end
+	self.bindingBroken = true
+	b.bindingOn = true
+	self:StopTimeBinding(b)
+	b.timeText:SetText("")
+end
+
+function CastingBars:StopTimeBinding(b)
+	if not b.bindingOn then return end
+	b.bindingOn = false
+	local binding = b.timeBinding
+	if binding then pcall(binding.SetEnabled, binding, false) end
 end
 
 function CastingBars:ShowLock(b, notInterruptible)
@@ -512,12 +584,15 @@ function CastingBars:StartFx(b, fresh, notInterruptible)
 end
 
 function CastingBars:BeginSecretCast(b, unit, channeling, spellName, texture, notInterruptible, fresh)
-	if not self:ApplySecretTimer(b, unit, channeling) then return end
+	local duration = self:ApplySecretTimer(b, unit, channeling)
+	if not duration then return end
 
 	self:Fx("Rest", b)
 	b.casting = not channeling
 	b.channeling = channeling
 	b.secretTimer = true
+	b.lastCheck = GetTime()
+	b.missed = nil
 	b.spellName = spellName
 	b.finishing = nil
 	b.bounceActive = false
@@ -531,7 +606,7 @@ function CastingBars:BeginSecretCast(b, unit, channeling, spellName, texture, no
 	end
 
 	b.spellText:SetText(spellName)
-	b.timeText:SetText("")
+	self:StartTimeBinding(b, duration)
 
 	if self.db.showSpellIcon and texture then
 		pcall(b.icon.SetTexture, b.icon, texture)
@@ -563,6 +638,7 @@ function CastingBars:BeginCast(unit, channeling)
 		return
 	end
 	b.secretTimer = nil
+	self:StopTimeBinding(b)
 	self:Fx("Rest", b)
 
 	local now = self:SetTimes(b, startTime, endTime)
@@ -606,6 +682,7 @@ function CastingBars:BeginCast(unit, channeling)
 end
 
 function CastingBars:ResetState(b)
+	self:StopTimeBinding(b)
 	b.secretTimer = nil
 	b.casting = false
 	b.channeling = false
@@ -633,6 +710,7 @@ function CastingBars:Finish(b, kind)
 		b.bar:SetValue(1)
 		b.lastFill = 1
 	end
+	self:StopTimeBinding(b)
 	b.secretTimer = nil
 	b.casting = false
 	b.channeling = false
@@ -670,6 +748,19 @@ function CastingBars:UpdateFinish(b, now)
 	else
 		b.frame:SetAlpha(1 - (t - style.hold) / (1 - style.hold))
 	end
+end
+
+function CastingBars:CheckSecretCast(b)
+	local name = (b.channeling and UnitChannelInfo or UnitCastingInfo)(b.unit)
+	if issecretvalue(name) or name ~= nil then
+		b.missed = nil
+		return
+	end
+	if not b.missed then
+		b.missed = true
+		return
+	end
+	self:OnCastStop(b.unit, true)
 end
 
 function CastingBars:OnStopEvent(unit, interrupted)
@@ -753,7 +844,8 @@ function CastingBars:Retime(unit, channeling)
 	if not spellName then return end
 	if issecretvalue(startTime) or issecretvalue(endTime) then
 		if b.secretTimer and ((channeling and b.channeling) or (not channeling and b.casting)) then
-			self:ApplySecretTimer(b, unit, channeling)
+			local duration = self:ApplySecretTimer(b, unit, channeling)
+			if duration and b.bindingOn then self:StartTimeBinding(b, duration) end
 		end
 		return
 	end
@@ -798,6 +890,10 @@ function CastingBars:OnUpdate()
 			busy = busy or b.finishing ~= nil
 		elseif b.secretTimer then
 			busy = true
+			if now - (b.lastCheck or 0) >= SECRET_CHECK then
+				b.lastCheck = now
+				self:CheckSecretCast(b)
+			end
 		elseif b.casting or b.channeling then
 			if throttle <= 0 or now - (b.lastDraw or 0) >= throttle then
 				b.lastDraw = now

@@ -9,8 +9,7 @@ SoundAlerterSpells = {
         [20572] = "bloodfury",
         [7744] = "willoftheforsaken",
 		[1259799] = "eluneslight",
-		[20577] = "cannibalize",
-		[1259686] = "skysight",
+		[20578] = "cannibalize",
 		[1259688] = "skysight",
 
         [408024] = "survivalinstincts",
@@ -39,6 +38,7 @@ SoundAlerterSpells = {
         [407804] = "divinesacrifice",
         [498] = "divineprotection",
         [5573] = "divineprotection",
+        [1310897] = "voiceoftruth",
 
         [2983] = "sprint",
         [8696] = "sprint",
@@ -60,7 +60,7 @@ SoundAlerterSpells = {
         [1719] = "recklessness",
         [1329555] = "recklessswings",
         [871] = "shieldwall",
-        [12975] = "laststand",
+        [12976] = "laststand",
         [18499] = "berserkerrage",
         [20230] = "retaliation",
         [23920] = "spellreflection",
@@ -73,12 +73,23 @@ SoundAlerterSpells = {
         [6346] = "fearward",
         [425294] = "dispersion",
         [14751] = "innerfocus",
+        [13896] = "feedback",
+        [19271] = "feedback",
+        [19273] = "feedback",
+        [19274] = "feedback",
+        [19275] = "feedback",
+        [447549] = "feedback",
 
         [433255] = "shamanisticrage",
-        [379] = "earthshield",
+        [974] = "earthshield",
         [408514] = "earthshield",
-        [408519] = "earthshield",
         [408510] = "watershield",
+        [8515] = "windfury",
+        [10609] = "windfury",
+        [10612] = "windfury",
+        [16166] = "elementalmastery",
+        [16188] = "naturesswiftnessshaman",
+        [425336] = "rageofthefarseer",
 
         [11958] = "iceblock",
         [12042] = "arcanepower",
@@ -88,6 +99,8 @@ SoundAlerterSpells = {
 
         [1223758] = "thebeastwithin",
         [19263] = "deterrence",
+        [3045] = "rapidfire",
+        [5384] = "feigndeath",
 
         [17941] = "shadowtrance",
 		[403789] = "metamorphosis",
@@ -308,6 +321,9 @@ SoundAlerterSpells = {
         [16190] = "manatide",
         [2484] = "earthbind",
         [8177] = "grounding",
+        [8512] = "windfury",
+        [10613] = "windfury",
+        [10614] = "windfury",
 
         [2457] = "battlestance",
         [71] = "defensestance",
@@ -442,9 +458,8 @@ SoundAlerterSpells = {
         [6213] = "fear",
         [14309] = "freezingtrap",
         [13810] = "frosttrap",
-        [13809] = "frosttrap",
-        [14311] = "freezingtrap",
-        [1499] = "freezingtrap",
+        [14308] = "freezingtrap",
+        [3355] = "freezingtrap",
         [5246] = "fear3",
         [17928] = "fear2",
         [2094] = "blind",
@@ -456,7 +471,6 @@ SoundAlerterSpells = {
         [17926] = "deathcoil",
         [5138] = "drainmana",
         [20066] = "repentance",
-        [19434] = "aimedshot",
         [24335] = "wyvernsting",
         [6358] = "seduction",
         [15286] = "vampiricembrace",
@@ -478,7 +492,15 @@ SoundAlerterSpells = {
         [1325756] = "deathmark",
         [1325757] = "deathmark",
         [1325758] = "deathmark",
+        [1277455] = "confoundingflash",
+        [12809] = "concussionblow",
+        [22427] = "concussionblow",
+        [24394] = "intimidation",
     },
+}
+
+SoundAlerterSpellRearm = {
+    windfury = 30,
 }
 
 SoundAlerterSpellMeta = {
@@ -516,6 +538,9 @@ SoundAlerterSpellMeta = {
     thebeastwithin = { "Hunter", "The Beast Within" },
     wyvernsting = { "Hunter", "Wyvern Sting" },
     aspectofthewild = { "Hunter", "Aspect of the Wild" },
+    rapidfire = { "Hunter", "Rapid Fire" },
+    feigndeath = { "Hunter", "Feign Death" },
+    intimidation = { "Hunter", "Intimidation" },
 
     arcanepower = { "Mage", "Arcane Power" },
     coldsnap = { "Mage", "Cold Snap" },
@@ -557,6 +582,7 @@ SoundAlerterSpellMeta = {
     turnevil = { "Paladin", "Turn Undead / Turn Evil" },
     templarsbulwark = { "Paladin", "Templar's Bulwark" },
     divinefavor = { "Paladin", "Divine Favor" },
+    voiceoftruth = { "Paladin", "Voice of Truth" },
 
     dispersion = { "Priest", "Dispersion" },
     dispersiondown = { "Priest", "Dispersion" },
@@ -573,6 +599,8 @@ SoundAlerterSpellMeta = {
     silence = { "Priest", "Silence" },
     fade = { "Priest", "Fade" },
     vampiricembrace = { "Priest", "Vampiric Embrace" },
+    feedback = { "Priest", "Feedback" },
+    confoundingflash = { "Priest", "Confounding Flash" },
 
     adrenalinerush = { "Rogue", "Adrenaline Rush" },
     adrenalinerushdown = { "Rogue", "Adrenaline Rush" },
@@ -617,6 +645,10 @@ SoundAlerterSpellMeta = {
     shamanisticrage = { "Shaman", "Shamanistic Rage" },
     tremortotem = { "Shaman", "Tremor Totem" },
     watershield = { "Shaman", "Water Shield" },
+    windfury = { "Shaman", "Windfury Totem" },
+    elementalmastery = { "Shaman", "Elemental Mastery" },
+    naturesswiftnessshaman = { "Shaman", "Nature's Swiftness" },
+    rageofthefarseer = { "Shaman", "Rage of the Farseer" },
 
     banish = { "Warlock", "Banish" },
     curseoftongues = { "Warlock", "Curse of Tongues" },
@@ -656,6 +688,7 @@ SoundAlerterSpellMeta = {
     shockwave = { "Warrior", "Shockwave" },
     spellreflection = { "Warrior", "Spell Reflection" },
     sweepingstrikes = { "Warrior", "Sweeping Strikes" },
+    concussionblow = { "Warrior", "Concussion Blow" },
 
     berserking = { "Races", "Berserking" },
     bloodfury = { "Races", "Blood Fury" },

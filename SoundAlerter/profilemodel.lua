@@ -284,7 +284,7 @@ end
 do
 SA_ProfileCleanup = {}
 
-SA_ProfileCleanup.PASS = 6
+SA_ProfileCleanup.PASS = 7
 
 SA_ProfileCleanup.DEAD_KEYS = {
     "objectiveAlertsEnabled", "ArenaPartner", "prowlhenemy", "vanishalert", "enemyinterrupts",
@@ -303,6 +303,8 @@ SA_ProfileCleanup.DEAD_RESOURCE_KEYS = {
 }
 
 SA_ProfileCleanup.DEAD_GLOBAL_KEYS = { "nextProbe", "nextProbeWatch", "swingProbe", "recapProbe" }
+
+SA_ProfileCleanup.DEAD_DR_CATEGORY_KEYS = { "opener", "cyclone" }
 
 SA_ProfileCleanup.COPIED_KEYS = {
     { from = "friendcountered", to = "lockout" },
@@ -337,6 +339,10 @@ function SA_ProfileCleanup.Run(saved)
             removed = removed + strip(profile, SA_ProfileCleanup.DEAD_KEYS)
             if type(profile.resourceBar) == "table" then
                 removed = removed + strip(profile.resourceBar, SA_ProfileCleanup.DEAD_RESOURCE_KEYS)
+            end
+            local dr = profile.drTracker
+            if type(dr) == "table" and type(dr.categories) == "table" then
+                removed = removed + strip(dr.categories, SA_ProfileCleanup.DEAD_DR_CATEGORY_KEYS)
             end
         end
     end

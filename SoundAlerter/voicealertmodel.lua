@@ -361,7 +361,6 @@ Model.CHAT_EVENTS = {
     { key = "interruptenemy", label = "You interrupt an enemy" },
     { key = "interruptemote", label = "Roar when you interrupt" },
     { key = "interruptself", label = "An enemy interrupts you" },
-    { key = "chatdownself", label = "Enemy debuff down (from you)" },
     { key = "chatdownfriend", label = "Enemy debuff down (from a friend)" },
     { key = "chatauraApplied", label = "Enemy defensives and buffs" },
     { key = "chatauraRemoved", label = "Enemy defensives expired" },
@@ -385,8 +384,8 @@ Model.CHAT_TEXTS = {
     { key = "castStartChat", label = "Enemy cast start", hint = "#enemy# is casting #spell#." },
     { key = "InterruptEnemyText", label = "You interrupt an enemy", hint = "Also knows #interruptedspellname#.", requires = "interruptenemy" },
     { key = "InterruptSelfText", label = "An enemy interrupts you", hint = "Also knows #interruptedspellname#.", requires = "interruptself" },
-    { key = "sapselftext", label = "Sap on you", hint = "Avoid #enemy#: the sapper is unknown while stealthed.", requires = "sapenemy" },
-    { key = "sapfriendtext", label = "Sap on a friend", hint = "Avoid #enemy#: the sapper is unknown while stealthed.", requires = "sapenemy" },
+    { key = "sapselftext", label = "Sap on you", hint = "#spell# on me!", requires = "sapselffriend" },
+    { key = "sapfriendtext", label = "Sap on a friend", hint = "#friend# is Sapped!", requires = "sapselffriend" },
     { key = "trinketalerttext", label = "PvP trinket", hint = "#enemy# casted #spell#!", requires = "trinketalert" },
 }
 

@@ -70,6 +70,149 @@ function SA_ChatTargets.Pick(targets)
     end
     return picked
 end
+
+end
+
+do
+SA_CCChat = {}
+
+local SPELLS = {
+    [450600] = "hexselffriend",
+    [6215] = "fearselffriend", [5484] = "fearselffriend", [17928] = "fearselffriend",
+    [118] = "polyenemy", [12826] = "polyenemy", [28271] = "polyenemy", [28272] = "polyenemy",
+    [2094] = "blindselffriend",
+    [6770] = "sapselffriend", [11297] = "sapselffriend", [2070] = "sapselffriend",
+}
+
+SA_CCChat.SPELLS = SPELLS
+
+function SA_CCChat.Kind(spellID, settings)
+    local switch = SPELLS[spellID]
+    if not switch or not settings[switch] then return nil end
+    if switch == "sapselffriend" then return "sap" end
+    return "cc"
+end
+end
+
+do
+SA_AlertText = {}
+
+local isHidden = issecretvalue or function() return false end
+local POSSESSIVE = "'s "
+local CACHE_MAX = 64
+local cache, cached = {}, 0
+local buffer = {}
+local send, showLocal, printPlain, settingsOf
+
+local function Strip(text)
+    return (text:gsub("\\", ""))
+end
+
+local function Present(value)
+    return isHidden(value) or value ~= nil
+end
+
+function SA_AlertText.Attach(sendFn, showLocalFn, printPlainFn, settingsFn)
+    send, showLocal, printPlain, settingsOf = sendFn, showLocalFn, printPlainFn, settingsFn
+end
+
+function SA_AlertText.Hidden(hidden, fallback)
+    return { hidden = hidden, fallback = fallback }
+end
+
+function SA_AlertText.Pieces(template)
+    local pieces = cache[template]
+    if pieces then return pieces end
+    pieces = {}
+    local at = 1
+    while true do
+        local first, last = template:find("#%l+#", at)
+        if not first then break end
+        local text = template:sub(at, first - 1)
+        local possessive = text:sub(-3) == POSSESSIVE
+        if possessive then text = text:sub(1, -4) end
+        if text ~= "" then pieces[#pieces + 1] = Strip(text) end
+        pieces[#pieces + 1] = { tag = template:sub(first + 1, last - 1), raw = template:sub(first, last), possessive = possessive }
+        at = last + 1
+    end
+    if at <= #template then pieces[#pieces + 1] = Strip(template:sub(at)) end
+    if cached >= CACHE_MAX then cache, cached = {}, 0 end
+    cache[template], cached = pieces, cached + 1
+    return pieces
+end
+
+local function PlainPart(piece, value)
+    local lead = piece.possessive and POSSESSIVE or ""
+    if value == nil then return lead .. piece.raw end
+    if type(value) == "table" then
+        if piece.possessive then return "" end
+        return Strip(value.fallback or "")
+    end
+    return lead .. Strip(value)
+end
+
+local function SentLine(pieces, values)
+    for i = #buffer, 1, -1 do buffer[i] = nil end
+    local hidden = false
+    for i = 1, #pieces do
+        local piece = pieces[i]
+        if type(piece) == "string" then
+            buffer[#buffer + 1] = piece
+        else
+            local value = values[piece.tag]
+            buffer[#buffer + 1] = PlainPart(piece, value)
+            hidden = hidden or (type(value) == "table" and Present(value.hidden))
+        end
+    end
+    return table.concat(buffer), hidden
+end
+
+local function LocalLine(pieces, values)
+    local line = ""
+    for i = 1, #pieces do
+        local piece = pieces[i]
+        if type(piece) == "string" then
+            line = line .. piece
+        else
+            local value = values[piece.tag]
+            if type(value) == "table" and Present(value.hidden) then
+                if piece.possessive then line = line .. POSSESSIVE end
+                line = line .. value.hidden
+            else
+                line = line .. PlainPart(piece, value)
+            end
+        end
+    end
+    return line
+end
+
+local function Deliver(message, localLine)
+    local sent = send(message)
+    if Present(localLine) then
+        local ok, shown = pcall(showLocal, localLine)
+        if ok and shown then return end
+    end
+    if not sent then printPlain(message) end
+end
+
+function SA_AlertText.Ready(enabled)
+    if not enabled then return false end
+    local settings = settingsOf()
+    if settings.chatgroups.NONE then return false end
+    return not settings.chatalerts
+end
+
+function SA_AlertText.Say(template, values)
+    if not template or not SA_AlertText.Ready(true) then return end
+    local pieces = SA_AlertText.Pieces(template)
+    local sent, hidden = SentLine(pieces, values)
+    local localLine
+    if hidden then
+        local ok, line = pcall(LocalLine, pieces, values)
+        if ok then localLine = line end
+    end
+    Deliver(sent, localLine)
+end
 end
 
 do
@@ -95,10 +238,92 @@ function SA_Interrupt.Cooldown(spellID)
     return COOLDOWN[spellID]
 end
 
-function SA_Interrupt.PassesMinCast(minCast, startedAt, now)
+local isSecret = issecretvalue or function() return false end
+local WINDOW = 0.6
+SA_Interrupt.WINDOW = WINDOW
+
+function SA_Interrupt.IsInterrupt(spellID)
+    return not isSecret(spellID) and COOLDOWN[spellID] ~= nil
+end
+
+local function EnemyName(name, unit)
+    if name then return name end
+    if unit == "focus" then return "focus" end
+    return "target"
+end
+
+local function PassesMinCast(minCast, startedAt, now)
     if not minCast or minCast <= 0 then return true end
     if not startedAt then return true end
     return now - startedAt >= minCast
+end
+
+local Tracker = {}
+Tracker.__index = Tracker
+
+function SA_Interrupt.New()
+    return setmetatable({ castSpell = {}, castAt = {}, pending = {} }, Tracker)
+end
+
+function Tracker:CastStarted(unit, spellID, now)
+    self.castSpell[unit] = spellID
+    self.castAt[unit] = now
+end
+
+function Tracker:Forget(unit)
+    self.castSpell[unit] = nil
+    self.castAt[unit] = nil
+end
+
+local function Announce(kind, name, ability, spell, hidden, unit)
+    return { kind = kind, name = name, ability = ability, spell = spell, hidden = hidden, unit = unit }
+end
+
+function Tracker:Cast(who, spellID, now, name)
+    if not SA_Interrupt.IsInterrupt(spellID) then return nil end
+    if who == "enemy" then
+        self.kickSpell, self.kickName, self.kickAt = spellID, name, now
+        return nil
+    end
+    local pending = self.pending
+    if self.waiting and now - pending.at <= WINDOW then
+        self.waiting, self.mineAt = false, nil
+        return Announce("enemy", pending.name, spellID, pending.spell, pending.hidden, pending.unit)
+    end
+    self.mineSpell, self.mineAt = spellID, now
+    return nil
+end
+
+function Tracker:MineLive(now)
+    return self.mineAt ~= nil and now - self.mineAt <= WINDOW
+end
+
+function Tracker:Interrupted(facts, now, settings)
+    local unit = facts.unit
+    if unit == "player" then
+        local kickAt = self.kickAt
+        if not kickAt or now - kickAt > WINDOW then return nil, facts.spellID end
+        return Announce("self", self.kickName, self.kickSpell, facts.spellID, nil, unit), facts.spellID
+    end
+    local spell = facts.spellID
+    if isSecret(facts.hidden) then spell = self.castSpell[unit] end
+    if now == self.lastAt then return nil, spell, "same frame" end
+    if not facts.isEnemy then return nil, spell, "not an enemy" end
+    self.lastAt = now
+    if not PassesMinCast(settings.interruptMinCast, self.castAt[unit], now) then return nil, spell, "min cast" end
+    local byPlayer = facts.byPlayer
+    if byPlayer == false then return nil, spell, "someone else" end
+    local name = EnemyName(facts.name, unit)
+    local live = self:MineLive(now)
+    if byPlayer or live then
+        local ability = live and self.mineSpell or nil
+        self.waiting, self.mineAt = false, nil
+        return Announce("enemy", name, ability, spell, facts.hidden, unit), spell
+    end
+    local pending = self.pending
+    pending.name, pending.spell, pending.hidden, pending.unit, pending.at = name, spell, facts.hidden, unit, now
+    self.waiting = true
+    return nil, spell, "waiting"
 end
 
 function SA_Interrupt.EnemySound(unit, settings)
@@ -452,5 +677,16 @@ end
 function SA_ToastClick.FocusMacro(safeName, targetState)
     if targetState == "same" then return "/focus target" end
     return "/target " .. safeName .. (RESTORE[targetState] or RESTORE.other)
+end
+end
+
+do
+SA_Rearm = {}
+
+function SA_Rearm.Wait(stamps, key, seconds, now)
+    local last = stamps[key]
+    if last and now - last < seconds then return seconds - (now - last) end
+    stamps[key] = now
+    return nil
 end
 end

@@ -90,7 +90,6 @@ dbDefaults = {
 
 		starfire = false,
 		chatdownfriend = false,
-		chatdownself = true,
 		interruptself = false,
 		trinketalert = false,
 		chatgroups = {["SAY"] = false, ["PARTY"] = true, ["RAID"] = false, ["BATTLEGROUND"] = true, ["NONE"] = false,},
@@ -156,6 +155,7 @@ dbDefaults = {
 		interruptReadyVoice = false,
 		procVoices = false,
 		updateNotice = true,
+		welcomeLine = true,
 		engineAuraSounds = false,
 		hiddenSpells = true,
 		showTotemPlates = false,
@@ -309,7 +309,8 @@ dbDefaults = {
 			numbers = true,
 			tags = true,
 			locked = true,
-			categories = { stun = true, opener = true, incap = true, fear = true, silence = true, root = true, horror = true, cyclone = true },
+			voice = true,
+			categories = { stun = true, kidney = true, incap = true, fear = true, silence = true, root = true, charm = true, procstun = true, procroot = true, horror = true },
 			spots = {},
 		},
 

@@ -7,6 +7,8 @@ local math_random = math.random
 local math_max = math.max
 local math_min = math.min
 local math_abs = math.abs
+local math_exp = math.exp
+local FILL_RATE = 14
 local math_floor = math.floor
 local table_remove = table.remove
 local wipe = wipe
@@ -853,22 +855,31 @@ local function fillTarget(fx, cp)
 	return cp <= 1 and 0 or (cp - 1) * fx.step
 end
 
-local function paintFill(fx, cp)
-	local c = cp == MAX and maxColor(fx) or activeColor(fx)
-	fx.fill:SetVertexColor(c.r, c.g, c.b, 1)
+local function paintWidth(fx)
 	fx.fill:SetWidth(math_max(fx.fillNow, 0.001))
 	fx.fill:SetShown(fx.fillNow > 0.5)
 end
 
+local function paintFill(fx, cp)
+	local c = cp == MAX and maxColor(fx) or activeColor(fx)
+	fx.fill:SetVertexColor(c.r, c.g, c.b, 1)
+	paintWidth(fx)
+end
+
+function Celebration.Chase(current, target, elapsed)
+	return target + (current - target) * math_exp(-FILL_RATE * elapsed)
+end
+
 local function chaseFill(fx, cp)
 	local target = fillTarget(fx, cp)
+	paintFill(fx, cp)
 	loop(fx, "fill", function(elapsed)
-		fx.fillNow = fx.fillNow + (target - fx.fillNow) * math_min(1, elapsed * 14)
+		fx.fillNow = Celebration.Chase(fx.fillNow, target, elapsed)
 		if math_abs(target - fx.fillNow) < 0.5 then
 			fx.fillNow = target
 			fx.loops.fill = nil
 		end
-		paintFill(fx, cp)
+		paintWidth(fx)
 	end)
 end
 
@@ -1617,6 +1628,14 @@ function Celebration:Apply(fx, style, cp, quality)
 		if definition.prepare then definition.prepare(fx) end
 		if definition.settle then definition.settle(fx, cp) end
 	end
+end
+
+function Celebration:Settle(fx, cp)
+	self:Reset(fx)
+	local definition = STYLES[fx.style]
+	if not (definition and definition.settle) then return end
+	metrics(fx)
+	definition.settle(fx, cp)
 end
 
 function Celebration:Change(fx, prev, next, kind)
