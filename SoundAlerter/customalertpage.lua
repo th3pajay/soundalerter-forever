@@ -315,7 +315,7 @@ function Custom:BuildEditor()
         set = function(value) page:Write("soundfilepath", value) end })
 
     self.chatCard = NewCard(child, "Chat")
-    self.chatRow = self:AddRow(self.chatCard, { kind = "toggle", label = "Chat alert", hint = "Say it in chat instead of playing the sound.",
+    self.chatRow = self:AddRow(self.chatCard, { kind = "toggle", label = "Chat alert", hint = "Say it in chat instead of playing the sound. Channels: Voice Alerts, Chat Alerts tab, Custom alerts row.",
         set = function(value) page:Write("chatAlert", value) end })
     self.chatTextRow = self:AddRow(self.chatCard, { kind = "text", label = "Chat alert text", full = true, tip = "For example #enemy# casted #spell# on me! Use %t when you cast the spell on an enemy.",
         set = function(value) page:Write("chatalerttext", value) end })

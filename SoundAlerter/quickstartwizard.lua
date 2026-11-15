@@ -18,6 +18,10 @@ local FOOTER_HEIGHT = 46
 local ROW_HEIGHT, CARD_HEIGHT, HEADING_HEIGHT, CHOICE_HEIGHT, SUMMARY_HEIGHT = 34, 58, 22, 36, 26
 local VALUE_X = 170
 local FIRST_RUN_DELAY = 3
+local PILL_WIDTH, PILL_OPEN_WIDTH, PILL_HEIGHT, PILL_OPEN_HEIGHT = 178, 262, 26, 124
+local PILL_ICON = [[Interface\Icons\Spell_Nature_ForceOfNature]]
+local PILL_EDGE = { 0.54, 0.39, 0.13 }
+local PILL_FILL = { 0.055, 0.067, 0.086 }
 local TEST_SOUND = "trinket.mp3"
 local MAX_STEPS = #QuickStart.STEPS
 local SCOPES = { { "myself", "Target and focus" }, { "enemyinrange", "All enemies in range" } }
@@ -59,7 +63,11 @@ local REFRESH = {
     end,
     proximity = refreshIcon,
     flags = refreshIcon,
-    sightings = function() SoundAlerter:UpdateGlobalSight() end,
+    sightings = function()
+        local current = profile()
+        if current then SoundAlerter:AnswerSightingsConsent(current.globalSightings) end
+        SoundAlerter:UpdateGlobalSight()
+    end,
     party = function() SoundAlerter:UpdatePartyShare() end,
 }
 
@@ -510,11 +518,145 @@ function SoundAlerter:ShowStatsNotice()
     self:Print(QuickStart.STATS_NOTICE)
 end
 
+local pill
+
+local function ClearPill(frame)
+    frame:Hide()
+    frame:UnregisterAllEvents()
+    for _, region in ipairs(frame.scripted) do
+        region:SetScript("OnClick", nil)
+        region:SetScript("OnEnter", nil)
+        region:SetScript("OnLeave", nil)
+    end
+    frame:SetScript("OnEvent", nil)
+end
+
+function SoundAlerter:AnswerSightingsConsent(keep)
+    local global, current = self.db1 and self.db1.global, profile()
+    if not global or not current or not QuickStart.AnswerSightings(global, current, keep) then return false end
+    if pill then
+        ClearPill(pill)
+        pill = nil
+    end
+    self:UpdateGlobalSight()
+    if not keep then self:Print(QuickStart.CONSENT_OFF) end
+    return true
+end
+
+local function SetPillOpen(frame, open)
+    if frame.open == open then return end
+    frame.open = open
+    frame:SetSize(open and PILL_OPEN_WIDTH or PILL_WIDTH, open and PILL_OPEN_HEIGHT or PILL_HEIGHT)
+    if open then
+        frame.body:Show()
+        FX.Appear(frame.body)
+    else
+        frame.body:Hide()
+    end
+end
+
+local function PillLeave()
+    local frame = pill
+    if frame and not frame.pinned and not frame:IsMouseOver() then SetPillOpen(frame, false) end
+end
+
+local function PillEnter()
+    if pill then SetPillOpen(pill, true) end
+end
+
+local function BuildPill()
+    local frame = CreateFrame("Frame", nil, UIParent)
+    frame:SetSize(PILL_WIDTH, PILL_HEIGHT)
+    frame:SetPoint("TOPRIGHT", Minimap, "BOTTOMRIGHT", 0, -22)
+    frame:SetFrameStrata("HIGH")
+    frame:EnableMouse(true)
+    frame:SetClampedToScreen(true)
+    frame:Hide()
+    Paint(frame, PILL_FILL, 0.95):SetAllPoints(frame)
+    Outline(frame, PILL_EDGE)
+    local head = CreateFrame("Button", nil, frame)
+    head:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+    head:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PILL_HEIGHT, 0)
+    head:SetHeight(PILL_HEIGHT)
+    local icon = head:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(16, 16)
+    icon:SetPoint("LEFT", head, "LEFT", 6, 0)
+    icon:SetTexture(PILL_ICON)
+    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    local title = Text(head, 12, GOLD)
+    title:SetPoint("LEFT", icon, "RIGHT", 7, 0)
+    title:SetText(QuickStart.CONSENT_TITLE)
+    local close = CreateFrame("Button", nil, frame)
+    close:SetSize(PILL_HEIGHT, PILL_HEIGHT)
+    close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+    local cross = Text(close, 13, COLOR.muted, "CENTER")
+    cross:SetPoint("CENTER", close, "CENTER", 0, 0)
+    cross:SetText("x")
+    local body = CreateFrame("Frame", nil, frame)
+    body:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -PILL_HEIGHT)
+    body:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, 10)
+    body:Hide()
+    local text = Text(body, 11, COLOR.text)
+    text:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
+    text:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, 0)
+    if text.SetWordWrap then text:SetWordWrap(true) end
+    text:SetJustifyV("TOP")
+    text:SetText(QuickStart.CONSENT_TEXT)
+    local keep = Kit.MakeButton(body, "Keep", function() SoundAlerter:AnswerSightingsConsent(true) end)
+    keep.frame:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 0, 0)
+    keep.label:SetTextColor(COLOR.accent[1], COLOR.accent[2], COLOR.accent[3])
+    local off = Kit.MakeButton(body, "Turn off", function() SoundAlerter:AnswerSightingsConsent(false) end)
+    off.frame:SetPoint("RIGHT", keep.frame, "LEFT", -6, 0)
+    frame.body, frame.open, frame.pinned = body, false, false
+    frame.scripted = { frame, head, close, keep.frame, off.frame }
+    frame:SetScript("OnEnter", PillEnter)
+    frame:SetScript("OnLeave", PillLeave)
+    head:SetScript("OnEnter", PillEnter)
+    head:SetScript("OnLeave", PillLeave)
+    head:SetScript("OnClick", function()
+        frame.pinned = not frame.pinned
+        SetPillOpen(frame, frame.pinned or frame:IsMouseOver())
+    end)
+    close:SetScript("OnEnter", PillEnter)
+    close:SetScript("OnLeave", PillLeave)
+    close:SetScript("OnClick", function() SoundAlerter:AnswerSightingsConsent(true) end)
+    keep.frame:HookScript("OnLeave", PillLeave)
+    off.frame:HookScript("OnLeave", PillLeave)
+    return frame
+end
+
+local function RevealPill(frame)
+    frame:Show()
+    FX.Appear(frame)
+end
+
+function SoundAlerter:ShowSightingsConsent()
+    local global = self.db1 and self.db1.global
+    if pill or not QuickStart.SightingsHeld(global) then return end
+    pill = BuildPill()
+    if not InCombatLockdown() then
+        RevealPill(pill)
+        return
+    end
+    pill:RegisterEvent("PLAYER_REGEN_ENABLED")
+    pill:SetScript("OnEvent", function(frame)
+        frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        frame:SetScript("OnEvent", nil)
+        RevealPill(frame)
+    end)
+end
+
 function SoundAlerter:CheckQuickStartSetup()
     local global = self.db1 and self.db1.global
     if not global then return end
     if QuickStart.NeedsSetup(global) then self:ScheduleTimer("ShowQuickStartSetup", FIRST_RUN_DELAY) end
     local current, supported = profile() or {}, SA_Messaging.Supported()
+    local consent = QuickStart.SightingsConsentDue(global, current, supported)
+    if consent == "ask" then
+        self:ScheduleTimer("ShowSightingsConsent", FIRST_RUN_DELAY)
+    elseif consent == "keep" then
+        self:UpdateGlobalSight()
+    end
     local notice = QuickStart.SightingsNoticeDue(global, current, supported)
     if notice == "tell" then
         self:ScheduleTimer("ShowSightingsNotice", FIRST_RUN_DELAY)

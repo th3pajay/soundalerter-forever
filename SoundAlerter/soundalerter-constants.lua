@@ -94,13 +94,13 @@ SA_COMPAT.GetSpellDescription = function(spellID)
 end
 
 SA_COMPAT.UnitCastingInfo = function(unit)
-    local name, text, texture, startTimeMS, endTimeMS, isTradeSkill, _, notInterruptible, _ = UnitCastingInfo(unit)
-    return name, nil, text, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible
+    local name, text, texture, startTimeMS, endTimeMS, isTradeSkill, _, notInterruptible, spellID = UnitCastingInfo(unit)
+    return name, nil, text, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible, spellID
 end
 
 SA_COMPAT.UnitChannelInfo = function(unit)
-    local name, text, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible, _ = UnitChannelInfo(unit)
-    return name, nil, text, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible
+    local name, text, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible, spellID = UnitChannelInfo(unit)
+    return name, nil, text, texture, startTimeMS, endTimeMS, isTradeSkill, notInterruptible, spellID
 end
 
 local function BuildAuraTuple(data)

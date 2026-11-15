@@ -11,17 +11,70 @@ local GetTime = GetTime
 local UnitExists = UnitExists
 local UnitName = UnitName
 local UnitClass = UnitClass
+local Plain = SA_COMPAT.Plain
 local GetNumRaidMembers = SA_COMPAT.GetNumRaidMembers
 local GetNumPartyMembers = SA_COMPAT.GetNumPartyMembers
 local debugprofilestop = debugprofilestop
 
 local OBJECTIVE_AUDIO_DELAY = 0.8
+local OBJECTIVE_GAP = 2.0
+local QUEUE_CAPACITY = 4
+local QUEUE_STALE = 5
+local MEMO_LIMIT = 32
+local BANG = 33
+local BASE_DEDUPE_WINDOW = 2.0
 
+local BASE_NAMES = { stables = 1, ["gold mine"] = 2, mine = 2, ["lumber mill"] = 3, blacksmith = 4, farm = 5 }
+local BASE_VOICE = { "stables", "goldmine", "lumbermill", "blacksmith", "farm" }
+local BASE_LABEL = { "Stables", "Gold Mine", "Lumber Mill", "Blacksmith", "Farm" }
+local BASE_ACTION_INDEX = { ASSAULT = 1, TAKEN = 2, DEFEND = 3 }
+local BASE_SETTING = { ASSAULT = "baseAssaultAudio", TAKEN = "baseTakenAudio", DEFEND = "baseDefendAudio" }
+local BASE_GAP = { 1.0, 0.9, 0.95, 0.9, 0.65 }
+local BASE_ACTION_VOICE = {
+    ASSAULT = { friendly = "assaulted", enemy = "attacked" },
+    TAKEN = { friendly = "captured", enemy = "lost" },
+    DEFEND = { friendly = "defended", enemy = "retaken" },
+}
+local BASE_CHAT_OUTCOME = BASE_ACTION_VOICE
+local BASE_TITLE = {}
+for index, label in ipairs(BASE_LABEL) do
+    local byAction = {}
+    for action, words in pairs(BASE_ACTION_VOICE) do
+        byAction[action] = { friendly = (label .. " " .. words.friendly):upper(), enemy = (label .. " " .. words.enemy):upper() }
+    end
+    BASE_TITLE[index] = byAction
+end
+local CLASS_NAMES = LOCALIZED_CLASS_NAMES_MALE or {}
+local FLAG_CHAT_KEY = { PICKUP = "flagPickupChat", DROP = "flagDropChat", CAPTURE = "flagCaptureChat", RETURN = "flagReturnChat" }
+local FLAG_ACTION_TEXT = { PICKUP = "picked up the flag", DROP = "dropped the flag", CAPTURE = "captured the flag", RETURN = "returned the flag" }
+local BASE_CHAT_KEY = { ASSAULT = "baseAssaultChat", TAKEN = "baseTakenChat", DEFEND = "baseDefendChat" }
+local chatValues = {}
+local BASE_VERBS = {
+    { "has assaulted the ", "^(.+) has assaulted the (.+)!$", "ASSAULT" },
+    { "claims the ", "^(.+) claims the (.-)!", "ASSAULT" },
+    { "has defended the ", "^(.+) has defended the (.+)!$", "DEFEND" },
+    { "has taken the ", "^[Tt]he (%a+) has taken the (.+)!$", "TAKEN" },
+}
+local PATTERN_MODE_BY_MAP = { [489] = "flag", [2106] = "flag", [726] = "flag", [529] = "base", [2107] = "base", [1681] = "base", [2177] = "base" }
+local TEAM_BY_WORD = { Alliance = "ALLIANCE_TEAM", Horde = "HORDE_TEAM", alliance = "ALLIANCE_TEAM", horde = "HORDE_TEAM" }
+
+local FIXED_TOKENS = { "target", "focus", "mouseover" }
+local PARTY_TOKENS = {}
+for index = 1, 4 do
+    PARTY_TOKENS[#PARTY_TOKENS + 1] = "party" .. index
+    PARTY_TOKENS[#PARTY_TOKENS + 1] = "party" .. index .. "target"
+end
+local RAID_TOKENS = {}
+for index = 1, 40 do
+    RAID_TOKENS[#RAID_TOKENS + 1] = "raid" .. index
+    RAID_TOKENS[#RAID_TOKENS + 1] = "raid" .. index .. "target"
+end
+
+local string_find = string.find
+local string_byte = string.byte
 local string_match = string.match
-local string_gsub = string.gsub
 local string_format = string.format
 local table_insert = table.insert
-local table_remove = table.remove
 local table_sort = table.sort
 local math_max = math.max
 local math_ceil = math.ceil
@@ -80,6 +133,9 @@ local FLAG_ALERTS_KEYS = {
     flagDropAudio = true,
     flagCaptureAudio = true,
     flagReturnAudio = true,
+    baseAssaultAudio = true,
+    baseTakenAudio = true,
+    baseDefendAudio = true,
     flagTeamBackgroundColors = true,
     flagEnemyRedBackground = true,
     flagFriendlyGreenBackground = true,
@@ -89,8 +145,13 @@ local FLAG_ALERTS_KEYS = {
     flagOnlyFriendlyTeam = true,
     flagAllActions = true,
     flagChatEnabled = true,
-    flagChatText = true,
-    flagChatChannel = true,
+    flagPickupChat = true,
+    flagDropChat = true,
+    flagCaptureChat = true,
+    flagReturnChat = true,
+    baseAssaultChat = true,
+    baseTakenChat = true,
+    baseDefendChat = true,
     persistentCacheEnabled = true,
     persistentCacheMaxSize = true,
     persistentCacheMaxAge = true,
@@ -117,6 +178,7 @@ function FlagAlerts:SetSetting(key, value)
     else
         sadb[key] = value
     end
+    if key == "battlegroundAlertsEnabled" then self:UpdateEventRegistration() end
 end
 
 function FlagAlerts:OnInitialize()
@@ -126,8 +188,16 @@ function FlagAlerts:OnInitialize()
 
     self.nameToClassCache = {}
     self.cacheSize = 0
-    self.audioQueue = {}
+    self.audioQueue = { slots = {}, head = 1, count = 0, free = {} }
     self.audioInProgress = false
+    self.patternMode = "both"
+    self.eventsRegistered = false
+    self.baseLast = {}
+    self.baseMemo = {}
+    self.baseMemoCount = 0
+    self.baseKeys = {}
+    self.baseKeyCount = 0
+    self.voicePaths = {}
 
     self.flagEventCache = {}
     self.FLAG_EVENT_DEDUPE_WINDOW = 2.0
@@ -185,10 +255,27 @@ function FlagAlerts:OnInitialize()
 
 end
 
+local CHAT_EVENTS = { "CHAT_MSG_BG_SYSTEM_ALLIANCE", "CHAT_MSG_BG_SYSTEM_HORDE", "CHAT_MSG_BG_SYSTEM_NEUTRAL" }
+
+function FlagAlerts:UpdateEventRegistration()
+    local _, instanceType = IsInInstance()
+    local wanted = instanceType == "pvp" and sadb ~= nil and sadb.battlegroundAlertsEnabled and true or false
+    if wanted == self.eventsRegistered then return end
+    self.eventsRegistered = wanted
+    for _, event in ipairs(CHAT_EVENTS) do
+        if wanted then self:RegisterEvent(event) else self:UnregisterEvent(event) end
+    end
+end
+
+function FlagAlerts:OnZoneChanged()
+    local _, instanceType = IsInInstance()
+    local mapID = instanceType == "pvp" and GetInstanceInfo and select(8, GetInstanceInfo()) or nil
+    self.patternMode = PATTERN_MODE_BY_MAP[mapID] or "both"
+    self:UpdateEventRegistration()
+end
+
 function FlagAlerts:OnEnable()
-    self:RegisterEvent("CHAT_MSG_BG_SYSTEM_ALLIANCE")
-    self:RegisterEvent("CHAT_MSG_BG_SYSTEM_HORDE")
-    self:RegisterEvent("CHAT_MSG_BG_SYSTEM_NEUTRAL")
+    self:OnZoneChanged()
 
     self:RegisterEvent("PLAYER_REGEN_DISABLED")
     self:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -200,9 +287,8 @@ function FlagAlerts:OnEnable()
 end
 
 function FlagAlerts:OnDisable()
-    self:UnregisterEvent("CHAT_MSG_BG_SYSTEM_ALLIANCE")
-    self:UnregisterEvent("CHAT_MSG_BG_SYSTEM_HORDE")
-    self:UnregisterEvent("CHAT_MSG_BG_SYSTEM_NEUTRAL")
+    for _, event in ipairs(CHAT_EVENTS) do self:UnregisterEvent(event) end
+    self.eventsRegistered = false
     self:UnregisterEvent("PLAYER_REGEN_DISABLED")
     self:UnregisterEvent("PLAYER_REGEN_ENABLED")
     self:CancelAllTimers()
@@ -213,15 +299,16 @@ function FlagAlerts:OnProfileChanged()
     sadb = SoundAlerter.db1.profile
 
     self.persistentCache = sadb.persistentClassCache
+    self:UpdateEventRegistration()
 
 end
 
 function FlagAlerts:CHAT_MSG_BG_SYSTEM_ALLIANCE(event, message, ...)
-    self:ProcessFlagEvent(message)
+    self:ProcessFlagEvent(message, "ALLIANCE_TEAM")
 end
 
 function FlagAlerts:CHAT_MSG_BG_SYSTEM_HORDE(event, message, ...)
-    self:ProcessFlagEvent(message)
+    self:ProcessFlagEvent(message, "HORDE_TEAM")
 end
 
 function FlagAlerts:CHAT_MSG_BG_SYSTEM_NEUTRAL(event, message, ...)
@@ -299,12 +386,123 @@ function FlagAlerts:PassesTeamFilter(playerName, playerTeam)
     return true
 end
 
-function FlagAlerts:ProcessFlagEvent(message)
+function FlagAlerts:BaseIndex(raw)
+    local keys = self.baseKeys
+    local index = keys[raw]
+    if index == nil then
+        if self.baseKeyCount >= MEMO_LIMIT then
+            for key in pairs(keys) do keys[key] = nil end
+            self.baseKeyCount = 0
+        end
+        index = BASE_NAMES[raw:lower()] or false
+        keys[raw] = index
+        self.baseKeyCount = self.baseKeyCount + 1
+    end
+    return index
+end
+
+function FlagAlerts:ParseBase(message)
+    for index = 1, #BASE_VERBS do
+        local verb = BASE_VERBS[index]
+        if string_find(message, verb[1], 1, true) then
+            local first, base = string_match(message, verb[2])
+            if not first then return false end
+            local baseIndex = self:BaseIndex(base)
+            if not baseIndex then
+                SoundAlerter:Debug("FlagAlerts", "Unknown base name: %s", base)
+                return false
+            end
+            local action = verb[3]
+            if action == "TAKEN" then
+                return { action = action, base = baseIndex, team = TEAM_BY_WORD[first] }
+            end
+            return { action = action, base = baseIndex, player = first }
+        end
+    end
+    return false
+end
+
+function FlagAlerts:ParsedBase(message)
+    local memo = self.baseMemo
+    local parsed = memo[message]
+    if parsed == nil then
+        if self.baseMemoCount >= MEMO_LIMIT then
+            for key in pairs(memo) do memo[key] = nil end
+            self.baseMemoCount = 0
+        end
+        parsed = self:ParseBase(message)
+        memo[message] = parsed
+        self.baseMemoCount = self.baseMemoCount + 1
+    end
+    return parsed
+end
+
+function FlagAlerts:VoicePath(name)
+    local root = sadb.sapath
+    local paths = self.voicePaths
+    if root ~= self.voiceRoot then
+        self.voiceRoot = root
+        for key in pairs(paths) do paths[key] = nil end
+    end
+    local path = paths[name]
+    if not path then
+        path = root .. name .. ".mp3"
+        paths[name] = path
+    end
+    return path
+end
+
+function FlagAlerts:ProcessBaseEvent(parsed, eventTeam)
+    local action = parsed.action
+    local team = eventTeam or parsed.team
+    local playerName = parsed.player
+    if not self:PassesTeamFilter(playerName or BASE_LABEL[parsed.base], team) then return end
+    if not sadb[BASE_SETTING[action]] then return end
+    local now = GetTime()
+    local slot = parsed.base * 4 + BASE_ACTION_INDEX[action]
+    local last = self.baseLast[slot]
+    if last and now - last < BASE_DEDUPE_WINDOW then
+        self.performanceMetrics.dedupeBlocked = self.performanceMetrics.dedupeBlocked + 1
+        return
+    end
+    self.baseLast[slot] = now
+    local myTeam = self:GetMyTeam()
+    local side = team ~= nil and team == myTeam and "friendly" or "enemy"
+    local label = BASE_LABEL[parsed.base]
+    SoundAlerter:Debug("FlagAlerts", "Base %s %s by %s (%s)", label, action, tostring(playerName or team), side)
+    self:QueueVoice(self:VoicePath(BASE_VOICE[parsed.base]), self:VoicePath(BASE_ACTION_VOICE[action][side]), parsed.base, BASE_GAP[parsed.base])
+    local playerClass
+    if playerName and sadb.flagToastsEnabled and sadb.flagToastsUseClassIcons ~= false then
+        playerClass = self:GetPlayerClassByName(playerName)
+    end
+    if sadb.flagToastsEnabled then
+        self:ShowFlagToast(playerName, playerClass, action, team, BASE_TITLE[parsed.base][action][side], playerName or "")
+    end
+    if sadb.flagChatEnabled then
+        self:SendBaseChatAlert(playerName, action, side, label)
+    end
+end
+
+function FlagAlerts:ProcessFlagEvent(message, eventTeam)
     if not sadb.battlegroundAlertsEnabled then return end
+    if type(message) ~= "string" then return end
 
     local startTime = debugprofilestop()
 
     SoundAlerter:Debug("FlagAlerts", "CHAT MESSAGE: %s", message)
+
+    local mode = self.patternMode
+    if mode ~= "flag" and string_byte(message, -1) == BANG then
+        local parsed = self:ParsedBase(message)
+        if parsed then
+            self:ProcessBaseEvent(parsed, eventTeam)
+            return
+        end
+    end
+    if mode == "base" then
+        SoundAlerter:Debug("FlagAlerts", "No pattern match - message ignored")
+        return
+    end
 
     local playerName, eventType, flagName, carrierTeam
     for _, patternData in ipairs(self.flagPatterns) do
@@ -354,9 +552,9 @@ function FlagAlerts:ProcessFlagEvent(message)
 
     SoundAlerter:Debug("FlagAlerts", "Chat: Inferred %s is on %s (from flag name)", playerName, carrierTeam)
 
-    local playerClass = self:GetPlayerClassByName(playerName)
-
     if not self:PassesTeamFilter(playerName, carrierTeam) then return end
+
+    local playerClass = self:GetPlayerClassByName(playerName)
 
     if eventType == "PICKUP" then
         self.performanceMetrics.chatPickups = self.performanceMetrics.chatPickups + 1
@@ -409,9 +607,24 @@ local function LiveUnitLookup(unitToken)
     if not UnitExists(unitToken) then
         return nil, nil
     end
-    local name = UnitName(unitToken)
+    local name, second = UnitName(unitToken)
     local _, class = UnitClass(unitToken)
-    return name, class
+    return Plain(name), Plain(class), Plain(second)
+end
+
+local function SameName(name, second, wanted, wantedMain)
+    if type(name) ~= "string" then return false end
+    local lowered = name:lower()
+    if lowered == wanted or lowered == wantedMain then return true end
+    return type(second) == "string" and second ~= "" and lowered .. " " .. second:lower() == wanted
+end
+
+local function ScanTokens(tokens, last, lookupFn, wanted, wantedMain)
+    for index = 1, last do
+        local name, unitClass, second = lookupFn(tokens[index])
+        if SameName(name, second, wanted, wantedMain) then return unitClass, true end
+    end
+    return nil, false
 end
 
 local function ResolveClassFromUnits(playerName, numParty, numRaid, cache, cacheSize, maxCacheSize, lookupFn)
@@ -420,24 +633,11 @@ local function ResolveClassFromUnits(playerName, numParty, numRaid, cache, cache
         return cached.class, "hit"
     end
 
-    local candidates = { "target", "focus", "mouseover" }
-    for i = 1, numParty do
-        table_insert(candidates, "party" .. i)
-        table_insert(candidates, "party" .. i .. "target")
-    end
-    for i = 1, math_min(numRaid, MAX_RAID_SCAN) do
-        table_insert(candidates, "raid" .. i)
-        table_insert(candidates, "raid" .. i .. "target")
-    end
-
-    local class = nil
-    for _, unit in ipairs(candidates) do
-        local name, unitClass = lookupFn(unit)
-        if name == playerName then
-            class = unitClass
-            break
-        end
-    end
+    local wanted = playerName:lower()
+    local wantedMain = wanted:match("^[^%s%-]+") or wanted
+    local class, found = ScanTokens(FIXED_TOKENS, #FIXED_TOKENS, lookupFn, wanted, wantedMain)
+    if not found then class, found = ScanTokens(PARTY_TOKENS, math_min(numParty, 4) * 2, lookupFn, wanted, wantedMain) end
+    if not found then class = ScanTokens(RAID_TOKENS, math_min(numRaid, MAX_RAID_SCAN) * 2, lookupFn, wanted, wantedMain) end
 
     local evictedName = nil
     if cacheSize >= maxCacheSize then
@@ -463,6 +663,9 @@ function FlagAlerts:GetPlayerClassByName(playerName)
 
         return cached.class
     end
+
+    local scored = SA_Scoreboard.ClassFor(SoundAlerter.scoreboardClasses, playerName)
+    if scored then return scored end
 
     self:CleanupCacheEntry(playerName)
 
@@ -584,7 +787,8 @@ end
 
 function FlagAlerts:TriggerFlagAlert(playerName, playerClass, eventType, carrierTeam)
 
-    self:QueueAudio(playerClass, eventType)
+    local myTeam = self:GetMyTeam()
+    self:QueueAudio(playerClass, eventType, carrierTeam ~= nil and carrierTeam == myTeam)
 
     if sadb.flagToastsEnabled then
         self:ShowFlagToast(playerName, playerClass, eventType, carrierTeam)
@@ -596,42 +800,93 @@ function FlagAlerts:TriggerFlagAlert(playerName, playerClass, eventType, carrier
 
 end
 
-function FlagAlerts:QueueAudio(playerClass, eventType)
-    table_insert(self.audioQueue, { class = playerClass, action = eventType })
+function FlagAlerts:QueueAudio(playerClass, eventType, friendly)
+    local classAudioFile = playerClass and SoundAlerter.CLASS_AUDIO_MAP[playerClass]
+    local lead
+    if classAudioFile then
+        lead = self:VoicePath(classAudioFile)
+    elseif not friendly then
+        lead = self:VoicePath("Enemy")
+    end
+    self:QueueVoice(lead, self:VoicePath(self:GetObjectiveAudioFile(eventType)), nil, OBJECTIVE_AUDIO_DELAY)
+end
+
+function FlagAlerts:QueueVoice(lead, objective, baseIndex, delay)
+    if sadb.statistics and sadb.statistics.enabled then
+        local Statistics = SoundAlerter:GetModule("Statistics")
+        if Statistics then Statistics:RecordAlert("flagAlerts") end
+    end
+    local queue = self.audioQueue
+    local slots = queue.slots
+    local now = GetTime()
+    if baseIndex then
+        for offset = 0, queue.count - 1 do
+            local item = slots[(queue.head + offset - 1) % QUEUE_CAPACITY + 1]
+            if item.base == baseIndex then
+                item.lead, item.objective, item.at, item.delay = lead, objective, now, delay
+                return
+            end
+        end
+    end
+    if queue.count >= QUEUE_CAPACITY then
+        local oldest = slots[queue.head]
+        slots[queue.head] = nil
+        queue.free[#queue.free + 1] = oldest
+        queue.head = queue.head % QUEUE_CAPACITY + 1
+        queue.count = queue.count - 1
+    end
+    local free = queue.free
+    local item = free[#free]
+    if item then free[#free] = nil else item = {} end
+    item.lead, item.objective, item.base, item.at, item.delay = lead, objective, baseIndex, now, delay
+    slots[(queue.head + queue.count - 1) % QUEUE_CAPACITY + 1] = item
+    queue.count = queue.count + 1
     self:ProcessAudioQueue()
 end
 
 function FlagAlerts:ProcessAudioQueue()
     if self.audioInProgress then return end
-    if #self.audioQueue == 0 then return end
+    local queue = self.audioQueue
+    local slots, free = queue.slots, queue.free
+    local now = GetTime()
+    local item
+    while queue.count > 0 do
+        local candidate = slots[queue.head]
+        slots[queue.head] = nil
+        queue.head = queue.head % QUEUE_CAPACITY + 1
+        queue.count = queue.count - 1
+        if now - candidate.at <= QUEUE_STALE then
+            item = candidate
+            break
+        end
+        free[#free + 1] = candidate
+    end
+    if not item then return end
 
     self.audioInProgress = true
-    local audioEvent = table_remove(self.audioQueue, 1)
+    local lead, delay = item.lead, item.delay
+    self.pendingObjective = item.objective
+    item.lead, item.objective, item.base = nil, nil, nil
+    free[#free + 1] = item
 
-    local classAudioFile = audioEvent.class and SoundAlerter.CLASS_AUDIO_MAP[audioEvent.class]
-    if classAudioFile then
-        SoundAlerter:PlayVoice(sadb.sapath .. classAudioFile .. ".mp3", "Master")
+    if lead then
+        SoundAlerter:PlayVoice(lead, "Master")
+        self:ScheduleTimer("PlayObjective", delay or OBJECTIVE_AUDIO_DELAY)
     else
-        SoundAlerter:PlayVoice(sadb.sapath .. "Enemy.mp3", "Master")
+        self:PlayObjective()
     end
+end
 
-    if sadb.statistics and sadb.statistics.enabled then
-        local Statistics = SoundAlerter:GetModule("Statistics")
-        if Statistics then
-            Statistics:RecordAlert("flagAlerts")
-        end
-    end
+function FlagAlerts:PlayObjective()
+    local objective = self.pendingObjective
+    self.pendingObjective = nil
+    if objective then SoundAlerter:PlayVoice(objective, "Master") end
+    self:ScheduleTimer("AdvanceQueue", OBJECTIVE_GAP)
+end
 
-    local objectiveFile = self:GetObjectiveAudioFile(audioEvent.action)
-
-    self:ScheduleTimer(function()
-        SoundAlerter:PlayVoice(sadb.sapath .. objectiveFile .. ".mp3", "Master")
-
-        self:ScheduleTimer(function()
-            self.audioInProgress = false
-            self:ProcessAudioQueue()
-        end, 2.0)
-    end, OBJECTIVE_AUDIO_DELAY)
+function FlagAlerts:AdvanceQueue()
+    self.audioInProgress = false
+    self:ProcessAudioQueue()
 end
 
 local PREVIEW_SPACING = 3.5
@@ -643,6 +898,17 @@ function FlagAlerts:Preview(eventType, class)
     self:ScheduleTimer(function()
         SoundAlerter:PlayVoice(sadb.sapath .. objectiveFile .. ".mp3", "Master")
     end, OBJECTIVE_AUDIO_DELAY)
+end
+
+function FlagAlerts:PreviewBase(action)
+    SoundAlerter:PlayVoice(self:VoicePath(BASE_VOICE[1]), "Master")
+    self.previewObjective = self:VoicePath(BASE_ACTION_VOICE[action].enemy)
+    self:ScheduleTimer("PlayPreviewObjective", BASE_GAP[1])
+end
+
+function FlagAlerts:PlayPreviewObjective()
+    if self.previewObjective then SoundAlerter:PlayVoice(self.previewObjective, "Master") end
+    self.previewObjective = nil
 end
 
 function FlagAlerts:PreviewAll(class)
@@ -664,30 +930,26 @@ function FlagAlerts:GetObjectiveAudioFile(eventType)
 end
 
 function FlagAlerts:SendFlagChatAlert(playerName, playerClass, eventType)
+    local key = FLAG_CHAT_KEY[eventType]
+    local template = key and sadb[key]
+    if not SA_AlertText.Ready(template, "battleground") then return end
+    local values = chatValues
+    values.class = playerClass and CLASS_NAMES[playerClass] or playerClass or ""
+    values.player = SanitizeMacroText(playerName)
+    values.action = FLAG_ACTION_TEXT[eventType]
+    values.base, values.outcome = "", ""
+    SoundAlerter:SendChatGroups(SA_ProxChat.Clean(SA_AlertText.Render(template, values)), "battleground")
+end
 
-    if self.inCombat then
-        self.performanceMetrics.chatAlertsSuppressed = self.performanceMetrics.chatAlertsSuppressed + 1
-
-        SoundAlerter:Debug("FlagAlerts", "Chat alert suppressed (combat taint protection): %s %s", playerName, eventType)
-        return
-    end
-
-    local template = sadb.flagChatText or "#class# has the flag!"
-
-    local actionText
-    if eventType == "PICKUP" then actionText = "picked up flag"
-    elseif eventType == "DROP" then actionText = "dropped flag"
-    elseif eventType == "CAPTURE" then actionText = "captured flag"
-    elseif eventType == "RETURN" then actionText = "returned flag"
-    end
-
-    local safePlayerName = SanitizeMacroText(playerName)
-
-    local message = string_gsub(template, "#class#", playerClass or "Enemy")
-    message = string_gsub(message, "#player#", safePlayerName)
-    message = string_gsub(message, "#action#", actionText or "flag event")
-
-    SoundAlerter:SendChat(message, { sadb.flagChatChannel or "SAY" })
+function FlagAlerts:SendBaseChatAlert(playerName, action, side, label)
+    local template = sadb[BASE_CHAT_KEY[action]]
+    if not SA_AlertText.Ready(template, "battleground") then return end
+    local values = chatValues
+    values.class, values.action = "", ""
+    values.player = SanitizeMacroText(playerName)
+    values.base = label
+    values.outcome = BASE_CHAT_OUTCOME[action][side]
+    SoundAlerter:SendChatGroups(SA_ProxChat.Clean(SA_AlertText.Render(template, values)), "battleground")
 end
 
 function FlagAlerts:CleanupCacheEntry(playerName)
@@ -1034,7 +1296,7 @@ function FlagAlerts:UpdateFlagToastLayout()
     engine:UpdateLayout()
 end
 
-function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTeam)
+function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTeam, titleOverride, detailOverride)
     local sadb = SoundAlerter.db1.profile
 
     local toast = engine:Acquire(self.inCombat)
@@ -1059,7 +1321,9 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
         toast.icon:SetTexture(classIconPath)
     else
         local flagIcon
-        if carrierTeam == "ALLIANCE_TEAM" then
+        if titleOverride then
+            flagIcon = FLAG_ICONS.NEUTRAL_FLAG
+        elseif carrierTeam == "ALLIANCE_TEAM" then
             flagIcon = FLAG_ICONS.HORDE_FLAG
         elseif carrierTeam == "HORDE_TEAM" then
             flagIcon = FLAG_ICONS.ALLIANCE_FLAG
@@ -1071,7 +1335,9 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
     toast.icon:Show()
 
     local titleText
-    if eventType == "PICKUP" then
+    if titleOverride then
+        titleText = titleOverride
+    elseif eventType == "PICKUP" then
         titleText = "FLAG CARRIER!"
     elseif eventType == "DROP" then
         titleText = "FLAG DROPPED!"
@@ -1084,8 +1350,8 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
     end
     toast.titleText:SetText(titleText)
 
-    local detailText = playerName
-    if playerClass and playerClass ~= "UNKNOWN" then
+    local detailText = detailOverride or playerName
+    if not detailOverride and playerClass and playerClass ~= "UNKNOWN" then
         detailText = playerClass .. " - " .. playerName
     end
     toast.detailText:SetText(detailText)
@@ -1096,7 +1362,7 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
     toast.userData.carrierTeam = carrierTeam
     toast.userData.timestamp = GetTime()
 
-    if toast.secureButton and not InCombatLockdown() then
+    if toast.secureButton and playerName and not InCombatLockdown() then
         ArmSecureButton(toast.secureButton, playerName)
     end
 

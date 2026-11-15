@@ -7,6 +7,8 @@ dbDefaults = {
 		flatWindow = true,
 		menuAnimations = true,
 
+		enemyFinder = {},
+
 		findSpell = {
 			autocomplete = false,
 			fuzzy = false,
@@ -76,8 +78,8 @@ dbDefaults = {
 		fearselffriend = true,
 		hexselffriend = true,
 		sapselffriend = true,
+		polyselffriend = true,
 
-		caonlyTF = true,
 		vanishTF = true,
 		stealthTF = true,
 		prowlTF = true,
@@ -92,7 +94,13 @@ dbDefaults = {
 		chatdownfriend = false,
 		interruptself = false,
 		trinketalert = false,
-		chatgroups = {["SAY"] = false, ["PARTY"] = true, ["RAID"] = false, ["BATTLEGROUND"] = true, ["NONE"] = false,},
+		chatAreaChannels = {
+			spells = { SAY = false, PARTY = true, RAID = false, BATTLEGROUND = true },
+			proximity = { SAY = false, PARTY = true, RAID = false, BATTLEGROUND = true },
+			battleground = { SAY = false, PARTY = true, RAID = false, BATTLEGROUND = true },
+			custom = { SAY = false, PARTY = true, RAID = false, BATTLEGROUND = true },
+		},
+		chatLayout = 0,
 
 		chatauraApplied = false,
 		chatauraRemoved = false,
@@ -112,6 +120,7 @@ dbDefaults = {
 		sapfriendtext = "#friend# is Sapped!",
 
 		bubbleenemytext = "#enemy# bubbled!",
+		ccDownChat = "#spell# down on #enemy#",
 		trinketalerttext = "[#enemy#] Trinketted!",
 
 		custom = {},
@@ -123,7 +132,7 @@ dbDefaults = {
 		proximitySanctuary = false,
 		proximityCooldown = 60,
 		proximityChat = false,
-		proximityChatText = "[#class#] #player# detected nearby!",
+		proximityChatText = "#class# #player# (#level# #race#) near #place#",
 		overrideNameplateRange = false,
 		nameplateRange = 60,
 		proximityAllyVision = false,
@@ -157,6 +166,7 @@ dbDefaults = {
 		updateNotice = true,
 		welcomeLine = true,
 		engineAuraSounds = false,
+		battleVoices = true,
 		hiddenSpells = true,
 		showTotemPlates = false,
 		watchlistEnabled = false,
@@ -252,6 +262,7 @@ dbDefaults = {
 			showSpellIcon = false,
 			showLatency = false,
 			showLockIcon = true,
+			hoverTooltip = true,
 			animQuality = "normal",
 			segments = true,
 			channelPulse = true,
@@ -419,6 +430,9 @@ dbDefaults = {
 		flagDropAudio = true,
 		flagCaptureAudio = true,
 		flagReturnAudio = false,
+		baseAssaultAudio = true,
+		baseTakenAudio = true,
+		baseDefendAudio = true,
 
 		flagToastsEnabled = true,
 		flagToastsUseClassIcons = true,
@@ -438,8 +452,13 @@ dbDefaults = {
 		flagFriendlyTexture = "Solid",
 
 		flagChatEnabled = false,
-		flagChatText = "#class# has the flag!",
-		flagChatChannel = "SAY",
+		flagPickupChat = "#class# #player# has the flag!",
+		flagDropChat = "#class# #player# dropped the flag",
+		flagCaptureChat = "#player# captured the flag!",
+		flagReturnChat = "#player# returned the flag",
+		baseAssaultChat = "#base# #outcome# - #player#",
+		baseTakenChat = "#base# #outcome#",
+		baseDefendChat = "#base# #outcome# - #player#",
 
 		flagOnlyEnemyTeam = true,
 		flagOnlyFriendlyTeam = false,

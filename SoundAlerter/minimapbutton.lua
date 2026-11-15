@@ -68,7 +68,7 @@ function MinimapButton:ShowMenu(owner)
         { "Proximity alerts", function() return profile().proximityEnabled end, "proximity" },
         { "Battleground alerts", function() return profile().battlegroundAlertsEnabled end, "battleground" },
         { "Snoozed", SA_Actions.Snoozed, "snooze" },
-        { "Chat alerts", function() return profile().chatalerts end, "chat" },
+        { "Chat alerts", function() return not profile().chatalerts end, "chat" },
         { "Notices", function() return SoundAlerter.Notices and SoundAlerter.Notices.db and SoundAlerter.Notices.db.enabled end, "notices" },
         { "Bars locked", function() local _, states = SA_Actions.Lockable() return not Model.AnyUnlocked(states) end, "lockbars" },
     }

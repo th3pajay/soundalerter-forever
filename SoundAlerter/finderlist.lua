@@ -2,6 +2,118 @@ SA_FinderList = {}
 
 local List = SA_FinderList
 
+local string_find, string_sub, string_byte = string.find, string.sub, string.byte
+
+local editRowA, editRowB, editRowC = {}, {}, {}
+
+function List.SubsequenceSpan(name, termChars, termLen)
+    local pos, first = 1, nil
+    for i = 1, termLen do
+        local found = string_find(name, termChars[i], pos, true)
+        if not found then
+            return nil
+        end
+        first = first or found
+        pos = found + 1
+    end
+    return pos - first
+end
+
+function List.EditDistanceWithin(termBytes, termLen, word, wordLen, maxDist)
+    if wordLen - termLen > maxDist or termLen - wordLen > maxDist then
+        return nil
+    end
+
+    local prev2, prev, curr = editRowA, editRowB, editRowC
+    for j = 0, wordLen do
+        prev[j] = j
+    end
+
+    for i = 1, termLen do
+        curr[0] = i
+        local rowMin = i
+        local termByte = termBytes[i]
+        for j = 1, wordLen do
+            local wordByte = string_byte(word, j)
+            local best = prev[j] + 1
+            local candidate = curr[j - 1] + 1
+            if candidate < best then
+                best = candidate
+            end
+            candidate = prev[j - 1] + (termByte == wordByte and 0 or 1)
+            if candidate < best then
+                best = candidate
+            end
+            if i > 1 and j > 1 and termByte == string_byte(word, j - 1) and termBytes[i - 1] == wordByte then
+                candidate = prev2[j - 2] + 1
+                if candidate < best then
+                    best = candidate
+                end
+            end
+            curr[j] = best
+            if best < rowMin then
+                rowMin = best
+            end
+        end
+        if rowMin > maxDist then
+            return nil
+        end
+        prev2, prev, curr = prev, curr, prev2
+    end
+
+    local distance = prev[wordLen]
+    if distance <= maxDist then
+        return distance
+    end
+    return nil
+end
+
+function List.BestEditDistance(termBytes, termLen, name, maxDist)
+    local nameLen = #name
+    local best = List.EditDistanceWithin(termBytes, termLen, name, nameLen, maxDist)
+    if not string_find(name, " ", 1, true) then
+        return best
+    end
+
+    local start = 1
+    while start <= nameLen do
+        local stop = string_find(name, " ", start, true) or (nameLen + 1)
+        local wordLen = stop - start
+        if wordLen > 0 and wordLen - termLen <= maxDist and termLen - wordLen <= maxDist then
+            local distance = List.EditDistanceWithin(termBytes, termLen, string_sub(name, start, stop - 1), wordLen, maxDist)
+            if distance and (not best or distance < best) then
+                best = distance
+            end
+        end
+        start = stop + 1
+    end
+    return best
+end
+
+local scoreChars, scoreBytes = {}, {}
+
+local function StartsWord(text, char)
+    return string_sub(text, 1, 1) == char or string_find(text, " " .. char, 1, true) ~= nil
+end
+
+function List.Score(text, term)
+    local termLen = #term
+    if termLen == 0 then return 0 end
+    local pos = string_find(text, term, 1, true)
+    if pos then return pos + (#text - termLen) / 100 end
+    if termLen < 3 or not StartsWord(text, string_sub(term, 1, 1)) then return nil end
+    for i = 1, termLen do
+        scoreChars[i] = string_sub(term, i, i)
+        scoreBytes[i] = string_byte(term, i)
+    end
+    local span = List.SubsequenceSpan(text, scoreChars, termLen)
+    if span and span <= termLen * 2 then return 1000 + span + (#text - termLen) / 100 end
+    if termLen < 4 then return nil end
+    local distance = List.BestEditDistance(scoreBytes, termLen, text, termLen >= 7 and 2 or 1)
+    if distance then return 2000 + distance * 100 + math.abs(#text - termLen) / 100 end
+    return nil
+end
+
 List.WIDTH = 820
 List.MIN_WIDTH = 640
 List.HEIGHT = 560

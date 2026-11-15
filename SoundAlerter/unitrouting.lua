@@ -61,6 +61,48 @@ function SA_Plates.Enemies()
     return enemies
 end
 
+local NAME_KEY_LIMIT = 512
+local NAME_BYTE = 78
+local nameKeys = {}
+local nameKeyCount = 0
+
+local function NameKey(main, second)
+    local seconds = nameKeys[main]
+    if not seconds then
+        if nameKeyCount >= NAME_KEY_LIMIT then
+            for key in pairs(nameKeys) do nameKeys[key] = nil end
+            nameKeyCount = 0
+        end
+        seconds = {}
+        nameKeys[main] = seconds
+        nameKeyCount = nameKeyCount + 1
+    end
+    local slot = second or ""
+    local key = seconds[slot]
+    if not key then
+        key = slot == "" and ("N:" .. main:lower()) or ("N:" .. main:lower() .. "-" .. slot:lower())
+        seconds[slot] = key
+    end
+    return key
+end
+
+function SA_Plates.UnitKey(unit)
+    local guid = UnitGUID(unit)
+    if type(guid) == "string" and not issecretvalue(guid) then return guid, false end
+    local name, second = UnitName(unit)
+    if type(name) ~= "string" or issecretvalue(name) or name == "" then return nil end
+    if type(second) ~= "string" or issecretvalue(second) or second == "" then second = nil end
+    return NameKey(name, second), true
+end
+
+function SA_Plates.IsNameKey(key)
+    return type(key) == "string" and key:byte(1) == NAME_BYTE
+end
+
+function SA_Plates.NameKeyCount()
+    return nameKeyCount
+end
+
 local ENEMY_UNIT = {}
 
 local function Kind(unit)

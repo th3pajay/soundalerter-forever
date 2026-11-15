@@ -5,6 +5,9 @@ local EVENTS = {
     { "flagDropAudio", "Drops", "DROP", "Flag drops", "A flag is dropped." },
     { "flagCaptureAudio", "Captures", "CAPTURE", "Flag captures", "A flag is captured." },
     { "flagReturnAudio", "Returns", "RETURN", "Flag returns", "A flag is returned to base." },
+    { "baseAssaultAudio", "Base assaults", "ASSAULT", "Base assaults", "An Arathi Basin base is assaulted." },
+    { "baseTakenAudio", "Bases taken", "TAKEN", "Bases taken", "An Arathi Basin base is taken." },
+    { "baseDefendAudio", "Base defends", "DEFEND", "Base defends", "An Arathi Basin base is defended." },
 }
 local TEAMS = { { "enemy", "Enemy team" }, { "friendly", "Friendly team" }, { "both", "Both teams" } }
 local PREVIEW_CLASSES = {
@@ -12,7 +15,6 @@ local PREVIEW_CLASSES = {
     { "DRUID", "Druid" }, { "PALADIN", "Paladin" }, { "WARLOCK", "Warlock" }, { "SHAMAN", "Shaman" },
 }
 local TEXTURES = { { "Solid", "Solid (Default)" }, { "DialogBox", "Dialog Box" } }
-local CHANNELS = { { "SAY", "Say" }, { "PARTY", "Party" }, { "RAID", "Raid" }, { "BATTLEGROUND", "Battleground" } }
 local ENEMY_RED = { 0.35, 0.05, 0.05, 0.95 }
 local FRIENDLY_GREEN = { 0.05, 0.3, 0.08, 0.95 }
 
@@ -75,6 +77,11 @@ end
 local function previewEvent(eventType)
     local active = flags()
     if active then active:Preview(eventType, active.previewClass or "ROGUE") end
+end
+
+local function previewBase(action)
+    local active = flags()
+    if active then active:PreviewBase(action) end
 end
 
 local function testToasts()
@@ -148,7 +155,7 @@ function SoundAlerter:BuildFlagOptions()
     local spec = Page.Spec({
         title = "Battleground Alerts",
         icon = "Interface\\Icons\\INV_BannerPVP_02",
-        blurb = "Tracks battleground objectives. Supported: Warsong Gulch and Twin Peaks (flag pickup, drop and capture), Eye of the Storm (pickup and drop only). Arathi Basin and Alterac Valley are coming soon. Battlegrounds only.",
+        blurb = "Tracks battleground objectives. Supported: Warsong Gulch and Twin Peaks (flag pickup, drop and capture), Eye of the Storm (pickup and drop only), Arathi Basin (base assaulted, taken and defended). Alterac Valley is coming soon. Battlegrounds only.",
         get = view,
         set = write,
         defaults = function()
@@ -161,6 +168,9 @@ function SoundAlerter:BuildFlagOptions()
             Page.Playable(Page.Toggle("f.flagDropAudio", "Flag drops", "A flag is dropped.", false, "Flag events"), function() previewEvent("DROP") end),
             Page.Playable(Page.Toggle("f.flagCaptureAudio", "Flag captures", "A flag is captured.", false, "Flag events"), function() previewEvent("CAPTURE") end),
             Page.Playable(Page.Toggle("f.flagReturnAudio", "Flag returns", "A flag is returned to base.", false, "Flag events"), function() previewEvent("RETURN") end),
+            Page.Playable(Page.Toggle("f.baseAssaultAudio", "Base assaults", "Arathi Basin: a base is assaulted or claimed. You hear the base name, then \"attacked\" (enemy) or \"assaulted\" (your team), such as \"Stables attacked\".", false, "Arathi Basin bases"), function() previewBase("ASSAULT") end),
+            Page.Playable(Page.Toggle("f.baseTakenAudio", "Bases taken", "Arathi Basin: a team takes control of a base. You hear the base name, then \"lost\" (enemy) or \"captured\" (your team), such as \"Gold Mine lost\".", false, "Arathi Basin bases"), function() previewBase("TAKEN") end),
+            Page.Playable(Page.Toggle("f.baseDefendAudio", "Base defends", "Arathi Basin: an assaulted base is won back. You hear the base name, then \"retaken\" (enemy) or \"defended\" (your team), such as \"Farm defended\".", false, "Arathi Basin bases"), function() previewBase("DEFEND") end),
             Page.Action("Play all", "Hear every flag event once, one after another, ignoring the switches.", function()
                 local active = flags()
                 if active then active:PreviewAll(active.previewClass or "ROGUE") end
@@ -177,8 +187,8 @@ function SoundAlerter:BuildFlagOptions()
             Page.When("f.flagTeamBackgroundColors", Page.Select("f.flagFriendlyTexture", "Friendly team: background texture", "Texture pattern for friendly flag carrier toasts, combined with the green color.", TEXTURES, true, "Visual alerts")),
             Page.When("f.flagToastsEnabled", Page.Range("f.flagToasts.positionX", "Horizontal position", "0 is the center of the screen, negative is left, positive is right.", -600, 600, 10, true, "Visual alerts")),
             Page.When("f.flagToastsEnabled", Page.Range("f.flagToasts.positionY", "Vertical position", "0 is the top of the screen, negative is lower (recommended -200 to -400). Default -300, below the proximity alerts.", -800, 200, 10, true, "Visual alerts")),
-            Page.When("f.flagChatEnabled", Page.Text("f.flagChatText", "Chat message template", "Placeholders: #class# is the enemy class name, #player# is the player name, #action# is the action (picked up flag, captured flag, and so on). Example: [#class#] #player# #action#!", true, "Chat")),
-            Page.When("f.flagChatEnabled", Page.Select("f.flagChatChannel", "Chat channel", "Which channel to send flag alerts to.", CHANNELS, true, "Chat")),
+            Page.When("f.flagChatEnabled", Page.Block("Chat channels and text", function() return SA_VoiceModel.AreaSummary(SoundAlerter.db1.profile, "battleground") .. " Each flag and base event has its own text. Lines are sent during combat too." end, false, "Chat")),
+            Page.When("f.flagChatEnabled", Page.Action("Open chat settings", "Pick channels for battleground lines and edit their text.", function() SA_Actions.OpenChatSettings("battleground") end, false, "Chat")),
             Page.Action("Show performance metrics", "Display processing time, cache hit rate and other performance data.", function()
                 local active = flags()
                 if active then

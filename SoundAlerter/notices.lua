@@ -207,7 +207,7 @@ function SoundAlerter:BuildNoticesOptions()
     local Page = SoundAlerter.Page
     local rows = {
         Page.Toggle("flash", "Flash the taskbar icon", "Flash the game's taskbar icon when a notice fires, for when the game is in the background.", false, "How it alerts"),
-        Page.Toggle("chat", "Print a chat line", "Print a short line in your chat window when a notice fires.", false, "How it alerts"),
+        Page.Toggle("chat", "Print in my chat window", "Print a short line in your own chat window when a notice fires. Nobody else sees it.", false, "How it alerts"),
         Page.Action("Play all", "Hear every notice once, ignoring the switches.", function()
             local active = module()
             if active then active:Test("all") end

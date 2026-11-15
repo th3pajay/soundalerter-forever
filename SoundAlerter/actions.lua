@@ -22,6 +22,14 @@ local function openPage(key)
     pcall(dialog.SelectGroup, dialog, "SoundAlerter", key)
 end
 
+Actions.OpenPage = openPage
+
+function Actions.OpenChatSettings(area)
+    SoundAlerter.voicePageTab = "chat"
+    SoundAlerter.voicePageArea = area
+    openPage("Spells")
+end
+
 function Actions.Snoozed()
     local until_ = SoundAlerter.snoozeUntil
     return until_ and until_ > GetTime() or false
@@ -60,6 +68,7 @@ end
 local function toggleBattleground()
     local current = profile()
     current.battlegroundAlertsEnabled = not current.battlegroundAlertsEnabled
+    if SoundAlerter.FlagAlerts and SoundAlerter.FlagAlerts.UpdateEventRegistration then SoundAlerter.FlagAlerts:UpdateEventRegistration() end
     say("Battleground Alerts: " .. onOff(current.battlegroundAlertsEnabled))
 end
 
@@ -70,7 +79,7 @@ end
 local function toggleChat()
     local current = profile()
     current.chatalerts = not current.chatalerts
-    say("Chat alerts: " .. onOff(current.chatalerts))
+    say("Chat alerts: " .. onOff(not current.chatalerts))
 end
 
 local function toggleNotices()

@@ -288,6 +288,10 @@ function Engine:BuildFrame(index, isSecure)
     toast:EnableMouse(true)
     toast:RegisterForClicks("LeftButtonDown")
     toast:SetScript("OnClick", function(frame)
+        if not frame.isSecure and config.onModifiedClick and IsControlKeyDown() and not IsShiftKeyDown() then
+            config.onModifiedClick(frame)
+            return
+        end
         if frame.isSecure or not config.canDismissOnClick() then
             return
         end

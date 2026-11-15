@@ -18,6 +18,11 @@ local TILE_TEXT = {
     open = { "Close Spell Finder", "Click again to close the window" },
 }
 local TILE_ICON = "Interface\\Icons\\INV_Misc_Book_09"
+local ENEMY_TILE_TEXT = {
+    closed = { "Open Enemy Finder", "Search enemies spotted in the last 10 minutes" },
+    open = { "Close Enemy Finder", "Click again to close the window" },
+}
+local ENEMY_TILE_ICON = "Interface\\Icons\\Ability_Hunter_SniperShot"
 local ROW_KV = 20
 local ROW_TIMING = 24
 local ROW_LEGEND = 22
@@ -235,7 +240,8 @@ function Dev:AddTiming(card, mode)
     return timing
 end
 
-local function NewFinderTile(parent, onClick)
+local function NewFinderTile(parent, onClick, texts, iconPath)
+    texts = texts or TILE_TEXT
     local frame = CreateFrame("Button", nil, parent)
     frame:SetHeight(TILE_HEIGHT)
     local fill = Paint(frame, COLOR.line, 0.55)
@@ -253,7 +259,7 @@ local function NewFinderTile(parent, onClick)
     well:SetSize(32, 32)
     well:SetPoint("LEFT", frame, "LEFT", 10, 0)
     local icon = frame:CreateTexture(nil, "OVERLAY")
-    icon:SetTexture(TILE_ICON)
+    icon:SetTexture(iconPath or TILE_ICON)
     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     icon:SetSize(26, 26)
     icon:SetPoint("CENTER", well, "CENTER", 0, 0)
@@ -262,11 +268,11 @@ local function NewFinderTile(parent, onClick)
     arrow:SetText(">")
     local title = Text(frame, 13, COLOR.text)
     title:SetPoint("TOPLEFT", well, "TOPRIGHT", 10, -2)
-    title:SetText(TILE_TEXT.closed[1])
+    title:SetText(texts.closed[1])
     local subtitle = Text(frame, 11, COLOR.muted)
     subtitle:SetPoint("BOTTOMLEFT", well, "BOTTOMRIGHT", 10, 2)
     subtitle:SetPoint("RIGHT", arrow, "LEFT", -8, 0)
-    subtitle:SetText(TILE_TEXT.closed[2])
+    subtitle:SetText(texts.closed[2])
     frame:SetScript("OnClick", onClick)
     frame:HookScript("OnEnter", function()
         edge:Show()
@@ -283,7 +289,7 @@ local function NewFinderTile(parent, onClick)
         open = open and true or false
         if open == self.open then return end
         self.open = open
-        local text = open and TILE_TEXT.open or TILE_TEXT.closed
+        local text = open and texts.open or texts.closed
         title:SetText(text[1])
         subtitle:SetText(text[2])
     end
@@ -307,6 +313,29 @@ function Dev:BuildFinderCard(parent)
         set = function(value) spec.setFlag("autocomplete", value) end,
         tip = "Up to 8 spell-name suggestions under the search box while typing (2+ characters, prefix match). Tab accepts the first or highlighted one, Up and Down move the highlight." })
     return card
+end
+
+function Dev:BuildEnemyFinderCard(parent)
+    local spec = self.spec
+    local card = NewCard(parent, "Enemy Finder")
+    card.action = NewFinderTile(card.frame, function()
+        if spec.toggleEnemyFinder then spec.toggleEnemyFinder() end
+        card.action:Set(spec.enemyFinderOpen and spec.enemyFinderOpen())
+    end, ENEMY_TILE_TEXT, ENEMY_TILE_ICON)
+    card.rows[#card.rows + 1] = card.action
+    self.enemyStatus = self:AddKv(card)
+    return card
+end
+
+function Dev:ApplyEnemyFinder()
+    local spec = self.spec
+    self.enemyCard.action:Set(spec.enemyFinderOpen and spec.enemyFinderOpen())
+    local count = spec.enemyCount and spec.enemyCount()
+    if count == nil then
+        self.enemyStatus:Set({ "Global sightings", "off", "warn" })
+    else
+        self.enemyStatus:Set({ "Spotted, last 10 minutes", count .. (count == 1 and " enemy" or " enemies") })
+    end
 end
 
 function Dev:BuildDebugCard(parent)
@@ -367,6 +396,7 @@ function Dev:BuildView()
     local child = view.child
     self.heading = NewHeading(child, "TOOLS")
     self.finderCard = self:BuildFinderCard(child)
+    self.enemyCard = self:BuildEnemyFinderCard(child)
     self.debugCard = self:BuildDebugCard(child)
     self.databaseCard = self:BuildDatabaseCard(child)
     self.performanceCard = self:BuildPerformanceCard(child)
@@ -388,6 +418,7 @@ function Dev:Layout()
     self.heading:SetPoint("TOPLEFT", child, "TOPLEFT", 4, 0)
     local y = 22
     local left = PlaceCard(self.finderCard, child, 0, y, half)
+    left = left + GAP + PlaceCard(self.enemyCard, child, 0, y + left + GAP, half)
     left = left + GAP + PlaceCard(self.debugCard, child, 0, y + left + GAP, half)
     local right = PlaceCard(self.databaseCard, child, half + GAP, y, half)
     self.performanceTop = y + right + GAP
@@ -611,6 +642,7 @@ function Dev:Tick(force, memory)
         self:ApplyInfo(info)
     end
     self.finderCard.action:Set(self.spec.finderOpen())
+    self:ApplyEnemyFinder()
     local description = self.spec.description()
     local descriptionSignature = description.built and (description.indexed .. "|" .. description.empty .. "|" .. tostring(description.running) .. "|" .. math.floor(description.kb)) or "none"
     if force or descriptionSignature ~= self.descriptionSignature then
@@ -746,6 +778,9 @@ function SoundAlerter:BuildSpellFinderOptions()
         setDebug = function(value) tools:SetDebug(value) end,
         toggleFinder = function() SoundAlerter:ToggleSpellFinder() end,
         finderOpen = function() return SoundAlerter:IsFinderOpen() end,
+        toggleEnemyFinder = function() SoundAlerter:ToggleEnemyFinder() end,
+        enemyFinderOpen = function() return SoundAlerter:IsEnemyFinderOpen() end,
+        enemyCount = function() return SoundAlerter:EnemyFinderCount() end,
         clearDescriptions = function() SoundAlerter:ClearDescriptionIndex() end,
         rebuildInfo = function() return tools:RebuildInfo() end,
         rebuild = function() tools:Rebuild() end,
@@ -759,7 +794,7 @@ function SoundAlerter:BuildSpellFinderOptions()
         type = 'group',
         name = "Developer Tools",
         icon = "Interface\\Icons\\INV_Misc_Spyglass_02",
-        desc = "Spell Finder, spell database and debug tools.",
+        desc = "Spell Finder, Enemy Finder, spell database and debug tools.",
         order = 5,
         args = {
             page = {

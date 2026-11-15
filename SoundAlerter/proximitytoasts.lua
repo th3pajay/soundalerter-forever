@@ -136,6 +136,22 @@ local ACCENT = {1, 0.49, 0.04}
 local THREAT_COLORS = {HIGH = {1, 0.3, 0.3}, MEDIUM = {1, 0.65, 0.2}, LOW = {0.7, 0.7, 0.7}}
 local CELL_X = {10, 70, 190}
 local CELL_LABELS = {"Level", "Distance", "Group"}
+local PLAIN_TAG = {0.85, 0.87, 0.92}
+local WATCH_RED = {1, 0.16, 0.16}
+local WATCH_TAG = "WATCHED"
+local BORDER_RED = {0.8, 0.2, 0.2}
+
+local function PaintWatch(toast, view)
+    local tint = view.watched and WATCH_RED or (view.style == "threat" and (THREAT_COLORS[view.threatLevel] or THREAT_COLORS.LOW)) or PLAIN_TAG
+    toast.tagText:SetText(view.watched and WATCH_TAG or view.tag or "")
+    toast.tagText:SetTextColor(tint[1], tint[2], tint[3])
+end
+
+local function PaintBorder(toast, view)
+    if SoundAlerter.db1.profile.proximityToasts.rainbowBorder then return end
+    local tint = view.watched and WATCH_RED or BORDER_RED
+    toast:SetBackdropBorderColor(tint[1], tint[2], tint[3], 1)
+end
 
 local function ClassTextColor(className)
     local color = className and RAID_CLASS_COLORS[className]
@@ -186,7 +202,6 @@ local function ApplyView(toast, view)
     toast.auraIcons[1]:ClearAllPoints()
     toast.spellIcon:ClearAllPoints()
 
-    toast.tagText:SetText(view.tag or "")
     toast.titleText:SetFontObject(GameFontNormalSmall)
     toast.titleText:SetTextColor(0.72, 0.74, 0.8)
     toast.titleText:SetText(view.title or "")
@@ -210,8 +225,6 @@ local function ApplyView(toast, view)
         toast.titleText:SetPoint("TOPLEFT", toast.detailText, "BOTTOMLEFT", 0, -4)
         toast.titleText:SetPoint("RIGHT", toast, "RIGHT", -10, 0)
         toast.tagText:SetPoint("TOPRIGHT", toast, "TOPRIGHT", -10, -14)
-        local tint = THREAT_COLORS[view.threatLevel] or THREAT_COLORS.LOW
-        toast.tagText:SetTextColor(tint[1], tint[2], tint[3])
         toast.auraIcons[1]:SetPoint("TOPLEFT", toast, "TOPLEFT", 86, -54)
         toast.spellIcon:SetPoint("TOPRIGHT", toast, "TOPRIGHT", -TOAST_EDGE, -54)
         for i = 1, 3 do
@@ -227,7 +240,6 @@ local function ApplyView(toast, view)
         toast.titleText:SetPoint("RIGHT", toast, "RIGHT", -100, 0)
         toast.detailText:SetPoint("TOPLEFT", toast.titleText, "BOTTOMLEFT", 0, -2)
         toast.tagText:SetPoint("TOPRIGHT", toast, "TOPRIGHT", -10, -12)
-        toast.tagText:SetTextColor(0.85, 0.87, 0.92)
         toast.auraIcons[1]:SetPoint("TOPLEFT", toast, "TOPLEFT", 262, -52)
         toast.spellIcon:SetPoint("TOPRIGHT", toast, "TOPRIGHT", -TOAST_EDGE, -30)
         local values = {view.levelShort or "-", view.band or "-", view.groupText or "-"}
@@ -254,6 +266,7 @@ local function ApplyView(toast, view)
             bar:SetShown(view.band ~= nil)
         end
     end
+    PaintWatch(toast, view)
 
     local auras = view.auras or {}
     for i = 1, MAX_AURA_ICONS do
@@ -356,8 +369,18 @@ local function BuildContent(toast)
     toast.spellText:Hide()
 end
 
+local function ToggleWatch(toast)
+    local unitName = toast.userData and toast.userData.unitName
+    if unitName then SoundAlerter:ToggleWatchName(unitName) end
+end
+
 local function HookSecureButton(secureButton, toast)
+    secureButton:SetAttribute("ctrl-type1", "sawatch")
     secureButton:SetScript("PreClick", function(self)
+        if IsControlKeyDown() then
+            if not IsShiftKeyDown() then ToggleWatch(toast) end
+            return
+        end
         if InCombatLockdown() or not IsShiftKeyDown() then return end
         local unitName = toast.userData and toast.userData.unitName
         if unitName and SoundAlerter.db1.profile.proximityToasts.enableFocusTarget then
@@ -426,7 +449,7 @@ local function TickBorder(toast, now)
     if SoundAlerter.db1.profile.proximityToasts.rainbowBorder then
         local r, g, b = SA_Toast.RainbowColor(now)
         toast:SetBackdropBorderColor(r, g, b, 1)
-    elseif toast.view and toast.view.high then
+    elseif toast.view and toast.view.high and not toast.view.watched then
         local pulse = 0.55 + 0.45 * math.abs(math.sin(now * 3))
         toast:SetBackdropBorderColor(1, 0.25 * pulse, 0.2 * pulse, 1)
     end
@@ -453,6 +476,7 @@ local engine = SA_Toast.New({
     tickBorder = TickBorder,
     buildContent = BuildContent,
     onSecureCreated = HookSecureButton,
+    onModifiedClick = ToggleWatch,
     onRelease = ReleaseContent,
     copyContent = CopyContent,
 })
@@ -617,7 +641,24 @@ local function CollectAuras(unitToken)
     return list
 end
 
-function ProximityToasts:ShowToast(unitName, className, distance, guid, level, unitToken, customTitle, nearbyCount, secondName)
+function ProximityToasts:RefreshWatched()
+    local active = engine.active
+    for i = 1, #active do
+        local toast = active[i]
+        local view, data = toast.view, toast.userData
+        if view and data then
+            local watched = (SoundAlerter:IsWatchedGuid(data.guid) or SoundAlerter:IsWatchedName(data.unitName)) and true or false
+            if watched ~= (view.watched or false) then
+                view.watched = watched
+                PaintWatch(toast, view)
+                PaintBorder(toast, view)
+                FitName(toast, view)
+            end
+        end
+    end
+end
+
+function ProximityToasts:ShowToast(unitName, className, distance, guid, level, unitToken, customTitle, nearbyCount, secondName, watched)
     local sadb = SoundAlerter.db1.profile
 
     if not self.initialized then
@@ -666,10 +707,6 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
         toast:SetBackdropColor(0, 0, 0, 0.85)
     end
 
-    if not sadb.proximityToasts.rainbowBorder then
-        toast:SetBackdropBorderColor(0.8, 0.2, 0.2, 1)
-    end
-
     if nearbyCount == 0 then nearbyCount = 1 end
 
     local Style = SA_ToastStyle
@@ -688,6 +725,7 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
         tag = "NEARBY",
         sideLabel = className and className:upper() or "ENEMY",
         auras = sadb.proximityToasts.showAuraIcons and CollectAuras(unitToken) or {},
+        watched = watched and true or false,
     }
     if style == "threat" then
         local threatLevel, _, why = Style.Threat(className, distance, nearbyCount)
@@ -706,6 +744,7 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
     end
     toast.view = view
     ApplyView(toast, view)
+    PaintBorder(toast, view)
 
     if toast.userData then
         toast.userData.unitName = unitName
@@ -937,6 +976,7 @@ function SoundAlerter.ProximityToasts:PrintHelp()
     DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFF/sa toast swapmetrics|r - Show frame swap performance data")
     DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFF/sa toast enable|r - Enable toast notifications")
     DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFF/sa toast enableclick|r - Enable click-to-target functionality")
+    DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFFCtrl-click a toast|r - Watch or unwatch that player, also in combat")
     DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFF/sa toast init|r - Manually initialize toast system")
     if SoundAlerter.db1.profile.debugmode then
         DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFF/sa toast test [duration]|r - [debug] Show test toast (optional duration in seconds)")

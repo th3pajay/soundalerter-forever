@@ -41,6 +41,110 @@ function Model.SoundKeys(event, keys)
     return keys
 end
 
+Model.EVENT_LABEL = {
+    ["Gained"] = "Enemy gains it",
+    ["Faded"] = "It ends",
+    ["Cast start"] = "Starts casting",
+    ["Cast"] = "Uses it",
+    ["On you"] = "Lands on you",
+    ["On friend"] = "Lands on a friend",
+    ["On enemy"] = "Lands on an enemy",
+    ["CC faded"] = "Your CC ends",
+    ["Interrupts you"] = "Interrupts you",
+}
+
+Model.EVENT_HELP = {
+    ["Gained"] = "An enemy gains this buff or cooldown.",
+    ["Faded"] = "The enemy buff or cooldown ends.",
+    ["Cast start"] = "An enemy starts casting this spell.",
+    ["Cast"] = "An enemy uses this ability.",
+    ["On you"] = "This lands on you.",
+    ["On friend"] = "This lands on your arena partner or a friend.",
+    ["On enemy"] = "This lands on an enemy because of you or your partner.",
+    ["CC faded"] = "Your crowd control on an enemy ends.",
+    ["Interrupts you"] = "You are interrupted. Plays the lockout sound.",
+}
+
+function Model.EventLabel(event)
+    return Model.EVENT_LABEL[event] or event
+end
+
+Model.SPELL_PLACES = {
+    { key = "world", label = "World" },
+    { key = "bg", label = "Battleground" },
+    { key = "arena", label = "Arena" },
+}
+
+Model.ZONE_ROWS = {
+    { key = "field", label = "World PvP", name = "world PvP" },
+    { key = "battleground", label = "Battlegrounds", name = "battlegrounds" },
+    { key = "arena", label = "Arenas", name = "arenas" },
+}
+
+Model.WHO = {
+    { key = "myself", label = "Target & focus", hint = "Only your target and focus trigger spell alerts." },
+    { key = "enemyinrange", label = "All enemies in range", hint = "Any enemy on a nameplate near you can trigger them." },
+}
+
+function Model.Who(db)
+    return db.enemyinrange and "enemyinrange" or "myself"
+end
+
+function Model.SetWho(db, key)
+    db.myself = key == "myself"
+    db.enemyinrange = key == "enemyinrange"
+end
+
+function Model.WhoHint(db)
+    local who = Model.Who(db)
+    for _, row in ipairs(Model.WHO) do
+        if row.key == who then return row.hint end
+    end
+    return ""
+end
+
+function Model.ZoneHint(db)
+    local off = {}
+    for _, row in ipairs(Model.ZONE_ROWS) do
+        if not db[row.key] then off[#off + 1] = row.name end
+    end
+    if #off == #Model.ZONE_ROWS then return "Spell alerts are silent everywhere.", true end
+    if #off > 0 then return "Silent in " .. table.concat(off, " and ") .. ".", false end
+    return "Alerts play in every PvP zone.", false
+end
+
+Model.AVAILABILITY = {
+    addon = { color = { 0.239, 0.863, 0.592 }, label = "SoundAlerter plays it here." },
+    game = { color = { 0.443, 0.835, 1 }, label = "The game plays it here (Let the game voice enemy buffs). Not counted in Statistics." },
+    blocked = { color = { 1, 0.36, 0.36 }, label = "The game hides this from addons here, so it stays silent." },
+    untested = { color = { 1, 0.72, 0.3 }, label = "Not tested here yet." },
+}
+Model.AVAILABILITY_ORDER = { "addon", "game", "blocked", "untested" }
+Model.AVAILABILITY_LEGEND = { addon = "SoundAlerter", game = "the game plays it", blocked = "hidden there", untested = "not tested yet" }
+
+local ENEMY_EVENT = { ["Gained"] = true, ["Faded"] = true, ["Cast start"] = true, ["Cast"] = true, ["On enemy"] = true, ["CC faded"] = true }
+
+function Model.Availability(event, place, db)
+    if place == "world" then return "addon" end
+    if event == "Gained" then
+        if db.battleVoices then return "game" end
+        return place == "bg" and "blocked" or "untested"
+    end
+    if place == "bg" and ENEMY_EVENT[event] then return "blocked" end
+    return "untested"
+end
+
+Model.DRAWERS = {
+    { key = "arena", label = "Arena extras" },
+    { key = "interrupts", label = "Interrupts" },
+    { key = "loss", label = "Loss of control voice" },
+    { key = "engine", label = "Game voices and procs" },
+}
+
+function Model.ClassCount(db, group)
+    return Model.Count(db, group.spells)
+end
+
 Model.CLASS_ORDER = { "Druid", "Hunter", "Mage", "Paladin", "Priest", "Rogue", "Shaman", "Warlock", "Warrior", "Races", "Other" }
 
 local EVENT_INDEX = {}
@@ -274,14 +378,11 @@ Model.PRESETS = {
             if model.allKeys[key] then db[key] = false end
         end
     end },
-    { id = "hitsme", name = "Only what hits me", note = "On you and Interrupts you", apply = function(db, model)
+    { id = "hitsme", name = "Only what hits me", note = "Lands on you and Interrupts you", apply = function(db, model)
         setEvents(db, model, { "On you", "Interrupts you" })
     end },
-    { id = "bigcooldowns", name = "Big cooldowns only", note = "Gained and Faded buffs", apply = function(db, model)
+    { id = "bigcooldowns", name = "Big cooldowns", note = "Enemy gains it and It ends", apply = function(db, model)
         setEvents(db, model, { "Gained", "Faded" })
-    end },
-    { id = "silence", name = "Silence all", note = "everything off", apply = function(db, model)
-        for key in pairs(model.allKeys) do db[key] = false end
     end },
 }
 
@@ -318,7 +419,7 @@ Model.INTERRUPT_ROWS = {
     { key = "interruptReadyVoice", label = "Say when interrupt is ready", hint = "Uses the cooldown learned from your own casts, else the spell's usual cooldown." },
 }
 
-Model.LOSS_MASTER = { key = "lossOfControlVoice", label = "Enable", hint = "Speaks the control effect that hits you." }
+Model.LOSS_MASTER = { key = "lossOfControlVoice", label = "Speak control effects on you", hint = "Stun, fear, root and the rest, from the game's own data." }
 
 Model.LOSS_ROWS = {
     { key = "lossOfControlDedupe", label = "Skip if a spell alert just spoke" },
@@ -334,6 +435,7 @@ Model.LOSS_ROWS = {
 Model.INTERRUPT_MIN = { key = "interruptMinCast", label = "Minimum cast time", hint = "Ignore interrupts of shorter casts. 0 announces all.", min = 0, max = 3, step = 0.1, unit = " s" }
 Model.INTERRUPT_PETS = { key = "interruptPets", label = "Count pet interrupts" }
 Model.PROC_ROW = { key = "procVoices", label = "Say my procs", hint = "Says the spell when one of yours lights up. /sa procs lists which have a voice." }
+Model.BATTLE_ROW = { key = "battleVoices", label = "Let the game voice enemy buffs in BGs and arenas", hint = "The game hides enemy spells there, so it plays these voices itself on target, focus and nameplates. Not counted in Statistics." }
 Model.ENGINE_ROW = { key = "engineAuraSounds", label = "Let the game play debuff alerts", hint = "Experimental. Covers you and an enemy target or focus. Skips Statistics. /sa aurasound tests it." }
 
 Model.CHANNELS = {
@@ -341,7 +443,15 @@ Model.CHANNELS = {
     { key = "PARTY", label = "Party" },
     { key = "RAID", label = "Raid" },
     { key = "BATTLEGROUND", label = "Battleground" },
-    { key = "NONE", label = "None (chat alerts off)" },
+}
+
+Model.MASTER_ROW = { key = "chatalerts", label = "Send chat alerts", hint = "Posts a short line to your group when something happens. Off silences every area below.", invert = true }
+
+Model.PLACES = {
+    { key = "solo", label = "Solo, world", group = false, raid = false, instance = false, instanceGroup = false },
+    { key = "party", label = "Party, world", group = true, raid = false, instance = false, instanceGroup = false },
+    { key = "bg", label = "Battleground", group = true, raid = true, instance = true, instanceGroup = true },
+    { key = "arena", label = "Arena", group = true, raid = false, instance = true, instanceGroup = true },
 }
 
 Model.CHAT_EVENTS = {
@@ -355,63 +465,311 @@ Model.CHAT_EVENTS = {
     { key = "fearenemy", label = "Fear on enemy", spell = 5484 },
     { key = "fearselffriend", label = "Fear on you or a friend", spell = 5484 },
     { key = "sapenemy", label = "Sap on enemy", spell = 6770 },
-    { key = "polyenemy", label = "Polymorph", spell = 118 },
+    { key = "sapselffriend", label = "Sap on you or a friend", spell = 6770 },
+    { key = "polyenemy", label = "Polymorph on enemy", spell = 118 },
+    { key = "polyselffriend", label = "Polymorph on you or a friend", spell = 118 },
     { key = "bubbleenemy", label = "Divine Shield", spell = 642 },
     { key = "trinketalert", label = "PvP trinket", spell = 1259718 },
     { key = "interruptenemy", label = "You interrupt an enemy" },
     { key = "interruptemote", label = "Roar when you interrupt" },
     { key = "interruptself", label = "An enemy interrupts you" },
-    { key = "chatdownfriend", label = "Enemy debuff down (from a friend)" },
+    { key = "chatdownfriend", label = "Your CC on an enemy ended" },
     { key = "chatauraApplied", label = "Enemy defensives and buffs" },
     { key = "chatauraRemoved", label = "Enemy defensives expired" },
     { key = "chatcastStart", label = "Enemy cast start" },
 }
 
 Model.CHAT_FILTERS = {
-    { key = "stealthTF", label = "Stealth: ignore target and focus", requires = "stealthenemy" },
-    { key = "prowlTF", label = "Prowl: ignore target and focus", requires = "prowlenemy" },
-    { key = "vanishTF", label = "Vanish: ignore target and focus", requires = "vanishenemy" },
+    { key = "stealthTF", label = "Stealth: skip my target and focus", requires = "stealthenemy" },
+    { key = "prowlTF", label = "Prowl: skip my target and focus", requires = "prowlenemy" },
+    { key = "vanishTF", label = "Vanish: skip my target and focus", requires = "vanishenemy" },
 }
 
-Model.CHAT_TARGET_ONLY = { key = "caonlyTF", label = "Target and focus only", hint = "Announce only when your target or focus is the source." }
+Model.CHAT_GROUPS = {
+    { key = "ccself", label = "CC on you or a friend",
+      events = { "blindselffriend", "hexselffriend", "fearselffriend", "polyselffriend", "sapselffriend" },
+      texts = { "selfchat", "friendchat", "sapselftext", "sapfriendtext" } },
+    { key = "ccenemy", label = "Your team's CC on an enemy",
+      events = { "blindenemy", "hexenemy", "fearenemy", "sapenemy", "polyenemy", "chatdownfriend" },
+      texts = { "enemychat", "ccDownChat" } },
+    { key = "stealth", label = "Stealth",
+      events = { "stealthenemy", "prowlenemy", "vanishenemy" },
+      filters = { "stealthTF", "prowlTF", "vanishTF" },
+      texts = { "enemychat" } },
+    { key = "cooldowns", label = "Enemy cooldowns",
+      events = { "bubbleenemy", "trinketalert", "chatauraApplied", "chatauraRemoved", "chatcastStart" },
+      texts = { "bubbleenemytext", "trinketalerttext", "enemybuffchat", "auraRemovedChat", "castStartChat" } },
+    { key = "interrupts", label = "Interrupts",
+      events = { "interruptenemy", "interruptself", "interruptemote" },
+      texts = { "InterruptEnemyText", "InterruptSelfText" } },
+}
+
+Model.SHARED_TEXT = { enemychat = "Shared by CC on an enemy and Stealth" }
+
+Model.CHAT_AREAS = {
+    { key = "spells", label = "Spell alerts", icon = "Interface\\Icons\\Spell_Nature_Polymorph", hint = "CC, stealth, enemy cooldowns and interrupts." },
+    { key = "proximity", label = "Proximity", icon = "Interface\\Icons\\Ability_Hunter_SniperShot", toggle = "proximityChat", page = "ProximityAlerts", pageLabel = "Proximity Alerts", hint = "Enemies spotted near you. Several within 1.5 s become one line." },
+    { key = "battleground", label = "Battlegrounds", icon = "Interface\\Icons\\INV_BannerPVP_02", toggle = "flagChatEnabled", page = "BattlegroundAlerts", pageLabel = "Battleground Alerts", hint = "Flag and base events." },
+    { key = "custom", label = "Custom alerts", icon = "Interface\\Icons\\INV_Misc_Note_01", page = "custom", pageLabel = "Custom Alerts", hint = "Each custom alert has its own chat switch and text. This card only sets where those lines go." },
+}
 
 Model.CHAT_TEXTS = {
-    { key = "enemychat", label = "To enemy", hint = "#spell# up on #enemy# reads [Blind] up on Enemyname." },
-    { key = "friendchat", label = "From enemy to friend", hint = "#enemy# casted #spell# on #friend#." },
-    { key = "selfchat", label = "From enemy to you", hint = "#enemy# casted #spell# on me!" },
-    { key = "enemybuffchat", label = "Enemy buffs and cooldowns", hint = "#enemy# casted #spell#." },
-    { key = "auraRemovedChat", label = "Enemy defensives expired", hint = "#spell# wore off #enemy#." },
-    { key = "castStartChat", label = "Enemy cast start", hint = "#enemy# is casting #spell#." },
-    { key = "InterruptEnemyText", label = "You interrupt an enemy", hint = "Also knows #interruptedspellname#.", requires = "interruptenemy" },
-    { key = "InterruptSelfText", label = "An enemy interrupts you", hint = "Also knows #interruptedspellname#.", requires = "interruptself" },
-    { key = "sapselftext", label = "Sap on you", hint = "#spell# on me!", requires = "sapselffriend" },
-    { key = "sapfriendtext", label = "Sap on a friend", hint = "#friend# is Sapped!", requires = "sapselffriend" },
-    { key = "trinketalerttext", label = "PvP trinket", hint = "#enemy# casted #spell#!", requires = "trinketalert" },
+    { key = "enemychat", area = "spells", label = "CC or stealth on an enemy", hint = "#spell# up on #enemy# reads [Blind] up on Enemyname." },
+    { key = "friendchat", area = "spells", label = "CC on a friend", hint = "#enemy# casted #spell# on #friend#." },
+    { key = "selfchat", area = "spells", label = "CC on you", hint = "#enemy# casted #spell# on me!" },
+    { key = "ccDownChat", area = "spells", label = "Your CC on an enemy ended", hint = "#spell# down on #enemy#.", requires = "chatdownfriend" },
+    { key = "bubbleenemytext", area = "spells", label = "Divine Shield", hint = "#enemy# bubbled!", requires = "bubbleenemy" },
+    { key = "enemybuffchat", area = "spells", label = "Enemy buffs and cooldowns", hint = "#enemy# casted #spell#.", requires = "chatauraApplied" },
+    { key = "auraRemovedChat", area = "spells", label = "Enemy defensives expired", hint = "#spell# wore off #enemy#.", requires = "chatauraRemoved" },
+    { key = "castStartChat", area = "spells", label = "Enemy cast start", hint = "#enemy# is casting #spell#.", requires = "chatcastStart" },
+    { key = "InterruptEnemyText", area = "spells", label = "You interrupt an enemy", hint = "#enemy#, #spell# and #interruptedspellname#.", requires = "interruptenemy" },
+    { key = "InterruptSelfText", area = "spells", label = "An enemy interrupts you", hint = "#enemy#, #spell# and #interruptedspellname#.", requires = "interruptself" },
+    { key = "sapselftext", area = "spells", label = "Sap on you", hint = "#spell# on me!", requires = "sapselffriend" },
+    { key = "sapfriendtext", area = "spells", label = "Sap on a friend", hint = "#friend# is Sapped!", requires = "sapselffriend" },
+    { key = "trinketalerttext", area = "spells", label = "PvP trinket", hint = "#enemy# Trinketted!", requires = "trinketalert" },
+    { key = "proximityChatText", area = "proximity", label = "Enemy spotted", hint = "#class#, #player#, #level#, #race# and #place#. Enemies seen within 1.5 s are merged into one line.", requires = "proximityChat" },
+    { key = "flagPickupChat", area = "battleground", label = "Flag picked up", hint = "#class# and #player#.", requires = "flagChatEnabled" },
+    { key = "flagDropChat", area = "battleground", label = "Flag dropped", hint = "#class# and #player#.", requires = "flagChatEnabled" },
+    { key = "flagCaptureChat", area = "battleground", label = "Flag captured", hint = "#class# and #player#.", requires = "flagChatEnabled" },
+    { key = "flagReturnChat", area = "battleground", label = "Flag returned", hint = "#class# and #player#.", requires = "flagChatEnabled" },
+    { key = "baseAssaultChat", area = "battleground", label = "Base assaulted", hint = "#base#, #outcome# (attacked or assaulted) and #player#.", requires = "flagChatEnabled" },
+    { key = "baseTakenChat", area = "battleground", label = "Base taken", hint = "#base#, #outcome# (lost or captured) and #player#.", requires = "flagChatEnabled" },
+    { key = "baseDefendChat", area = "battleground", label = "Base defended", hint = "#base#, #outcome# (retaken or defended) and #player#.", requires = "flagChatEnabled" },
 }
 
 Model.CHAT_SAMPLE = {
     enemy = "Cutthroat", target = "Starmistx", friend = "Starmistx", spell = "[Polymorph]",
     interruptedspellname = "[Polymorph]", interruptedspell = "[Polymorph]",
+    class = "Rogue", player = "Cutthroat", level = "60", race = "Undead", place = "Stables 45,61",
+    base = "Stables", outcome = "attacked",
 }
 
-Model.CHAT_PREVIEW = {
-    { "To enemy", "enemychat" },
-    { "Enemy to friend", "friendchat" },
-    { "Enemy to you", "selfchat" },
-    { "Enemy cooldown", "enemybuffchat" },
-    { "Defensive expired", "auraRemovedChat" },
-    { "Cast start", "castStartChat" },
-    { "You interrupt", "InterruptEnemyText" },
-    { "You are interrupted", "InterruptSelfText" },
-}
+local CHANNEL_LABEL = {}
+for _, channel in ipairs(Model.CHANNELS) do CHANNEL_LABEL[channel.key] = channel.label end
+local TEXT_ROW, EVENT_ROW, AREA_ROW = {}, {}, {}
+for _, row in ipairs(Model.CHAT_TEXTS) do TEXT_ROW[row.key] = row end
+for _, row in ipairs(Model.CHAT_EVENTS) do EVENT_ROW[row.key] = row end
+for _, row in ipairs(Model.CHAT_FILTERS) do EVENT_ROW[row.key] = row end
+for _, area in ipairs(Model.CHAT_AREAS) do AREA_ROW[area.key] = area end
+Model.TEXT_ROW, Model.EVENT_ROW, Model.AREA_ROW = TEXT_ROW, EVENT_ROW, AREA_ROW
 
-function Model.ChatPreview(db, expand)
-    local lines = {}
-    for _, entry in ipairs(Model.CHAT_PREVIEW) do
-        local text = expand(db[entry[2]], Model.CHAT_SAMPLE)
-        if text ~= "" then lines[#lines + 1] = { entry[1], text } end
+local tagCache = {}
+function Model.Tags(textKey)
+    local tags = tagCache[textKey]
+    if tags then return tags end
+    tags = {}
+    local row = TEXT_ROW[textKey]
+    local seen = {}
+    for tag in ((row and row.hint) or ""):gmatch("#(%l+)#") do
+        if not seen[tag] then
+            seen[tag] = true
+            tags[#tags + 1] = tag
+        end
     end
-    return lines
+    tagCache[textKey] = tags
+    return tags
+end
+
+function Model.AreaLabel(key)
+    local area = AREA_ROW[key]
+    return area and area.label or key
+end
+
+function Model.Channels(db, area)
+    local all = db.chatAreaChannels
+    if type(all) ~= "table" then
+        all = {}
+        db.chatAreaChannels = all
+    end
+    local own = all[area]
+    if type(own) ~= "table" then
+        own = {}
+        all[area] = own
+    end
+    return own
+end
+
+function Model.ToggleChannel(db, area, channel)
+    local own = Model.Channels(db, area)
+    own[channel] = not own[channel]
+end
+
+function Model.CopyChannels(db, from)
+    local source = Model.Channels(db, from)
+    for _, area in ipairs(Model.CHAT_AREAS) do
+        if area.key ~= from then
+            local target = Model.Channels(db, area.key)
+            for _, channel in ipairs(Model.CHANNELS) do target[channel.key] = source[channel.key] and true or false end
+        end
+    end
+end
+
+function Model.ChannelNames(db, area)
+    local own = Model.Channels(db, area)
+    local names = {}
+    for _, channel in ipairs(Model.CHANNELS) do
+        if own[channel.key] then names[#names + 1] = channel.label end
+    end
+    return names
+end
+
+function Model.AreaSummary(db, area)
+    local names = Model.ChannelNames(db, area)
+    local where = #names > 0 and table.concat(names, ", ") or "only your own chat window"
+    return "Sends to " .. where .. ". Channels and message text are set in Voice Alerts, Chat Alerts tab."
+end
+
+function Model.GroupCount(db, group)
+    local on = 0
+    for _, key in ipairs(group.events) do
+        if db[key] then on = on + 1 end
+    end
+    return on, #group.events
+end
+
+function Model.SetGroup(db, group, value)
+    for _, key in ipairs(group.events) do db[key] = value and true or false end
+end
+
+function Model.SetAllChat(db, value)
+    for _, row in ipairs(Model.CHAT_EVENTS) do db[row.key] = value and true or false end
+end
+
+function Model.AreaOn(db, area)
+    if area.toggle then return db[area.toggle] and true or false end
+    if area.key == "spells" then return (Model.ChatEventCount(db)) > 0 end
+    return (Model.CustomChatCount(db)) > 0
+end
+
+function Model.Resolve(channel, place)
+    if channel == "BATTLEGROUND" then
+        if place.instanceGroup then return "INSTANCE_CHAT" end
+        return nil, "needs a battleground or arena group"
+    elseif channel == "SAY" then
+        if place.instance then return "SAY" end
+        return nil, "the game only allows it inside instances"
+    elseif channel == "PARTY" then
+        if place.group then return "PARTY" end
+        return nil, "you are not in a group"
+    elseif channel == "RAID" then
+        if place.raid then return "RAID" end
+        return nil, "you are not in a raid"
+    end
+    return channel
+end
+
+function Model.Routes(db, area, place)
+    local own = Model.Channels(db, area)
+    local targets, skipped = {}, {}
+    for _, channel in ipairs(Model.CHANNELS) do
+        if own[channel.key] then
+            local target, why = Model.Resolve(channel.key, place)
+            if target then targets[#targets + 1] = target else skipped[#skipped + 1] = { channel.label, why } end
+        end
+    end
+    local picked = {}
+    for index, target in ipairs(SA_ChatTargets.Pick(targets)) do picked[index] = target end
+    return picked, skipped, #targets > #picked
+end
+
+function Model.TargetLabel(target)
+    return target == "INSTANCE_CHAT" and "Battleground" or CHANNEL_LABEL[target] or target
+end
+
+local CUSTOM_SAMPLE = "Shadowmeld on #enemy#!"
+
+function Model.SampleTemplate(db, area)
+    if area.key == "spells" then
+        for _, group in ipairs(Model.CHAT_GROUPS) do
+            for _, key in ipairs(group.events) do
+                if db[key] and key ~= "interruptemote" and key ~= "chatdownfriend" then
+                    local text = group.texts[1]
+                    for _, textKey in ipairs(group.texts) do
+                        if TEXT_ROW[textKey].requires == key then
+                            text = textKey
+                            break
+                        end
+                    end
+                    local event = EVENT_ROW[key]
+                    local spellName = event.spell and (event.label:gsub(" on .*$", "")) or nil
+                    return db[text], spellName
+                end
+            end
+        end
+        return nil
+    end
+    if area.key == "custom" then return CUSTOM_SAMPLE end
+    for _, row in ipairs(Model.CHAT_TEXTS) do
+        if row.area == area.key then return db[row.key] end
+    end
+    return nil
+end
+
+local CHAT_LINE = {
+    SAY = "|cffffffff[%s] says: %s|r",
+    PARTY = "|cffaaaaff[Party] [%s]: %s|r",
+    RAID = "|cffff7f00[Raid] [%s]: %s|r",
+    INSTANCE_CHAT = "|cffff7d00[Battleground] [%s]: %s|r",
+}
+local LOCAL_LINE = "|cff33ff99SoundAlerter|r: %s"
+local sampleValues = {}
+
+function Model.Sample(db, area, place, player, expand)
+    if db.chatalerts then return "|cff8a93a3Chat alerts are off.|r" end
+    if not Model.AreaOn(db, area) then return "|cff8a93a3This area is off, nothing is sent.|r" end
+    local template, spellName = Model.SampleTemplate(db, area)
+    if not template or template == "" then return "|cff8a93a3Nothing switched on yet.|r" end
+    for key, value in pairs(Model.CHAT_SAMPLE) do sampleValues[key] = value end
+    if spellName then sampleValues.spell = "[" .. spellName .. "]" end
+    local text = expand(template, sampleValues):gsub("%s+%-%s*$", "")
+    local targets = Model.Routes(db, area.key, place)
+    if #targets == 0 then
+        local why = #Model.ChannelNames(db, area.key) == 0 and "No channel picked" or "None of these channels work here"
+        return "|cffffb84d" .. why .. ": only you see it.|r\n" .. LOCAL_LINE:format(text)
+    end
+    local lines = {}
+    for index, target in ipairs(targets) do lines[index] = CHAT_LINE[target]:format(player, text) end
+    return table.concat(lines, "\n")
+end
+
+function Model.ChannelNote(db, area, place)
+    local targets, skipped, merged = Model.Routes(db, area, place)
+    local parts = {}
+    if merged then parts[1] = "Battleground already reaches your party and raid here, so they are not sent twice." end
+    for _, entry in ipairs(skipped) do parts[#parts + 1] = entry[1] .. " is skipped here: " .. entry[2] .. "." end
+    return table.concat(parts, " "), #targets == 0
+end
+
+function Model.SendingCount(db)
+    if db.chatalerts then return 0, #Model.CHAT_AREAS end
+    local count = 0
+    for _, area in ipairs(Model.CHAT_AREAS) do
+        if Model.AreaOn(db, area) and #Model.ChannelNames(db, area.key) > 0 then count = count + 1 end
+    end
+    return count, #Model.CHAT_AREAS
+end
+
+function Model.PlaceFor(inInstance, instanceType, inGroup)
+    if inInstance and instanceType == "pvp" then return "bg" end
+    if inInstance and instanceType == "arena" then return "arena" end
+    if inGroup then return "party" end
+    return "solo"
+end
+
+function Model.Place(key)
+    for _, place in ipairs(Model.PLACES) do
+        if place.key == key then return place end
+    end
+    return Model.PLACES[1]
+end
+
+function Model.CustomChatCount(db)
+    local on, total = 0, 0
+    for _, alert in pairs(db.custom or {}) do
+        total = total + 1
+        if alert.chatAlert then on = on + 1 end
+    end
+    return on, total
 end
 
 function Model.ChatEventCount(db)
@@ -488,10 +846,12 @@ function Model.ResetKeys(model)
     for _, row in ipairs(Model.LOSS_ROWS) do add(row.key) end
     add(Model.INTERRUPT_MIN.key)
     add(Model.INTERRUPT_PETS.key)
+    add(Model.BATTLE_ROW.key)
     add(Model.ENGINE_ROW.key)
     add(Model.PROC_ROW.key)
-    add(Model.CHAT_TARGET_ONLY.key)
-    add("chatgroups")
+    for _, row in ipairs(Model.ZONE_ROWS) do add(row.key) end
+    for _, row in ipairs(Model.WHO) do add(row.key) end
+    add("chatAreaChannels")
     for _, row in ipairs(Model.CHAT_EVENTS) do add(row.key) end
     for _, row in ipairs(Model.CHAT_FILTERS) do add(row.key) end
     for _, row in ipairs(Model.CHAT_TEXTS) do add(row.key) end

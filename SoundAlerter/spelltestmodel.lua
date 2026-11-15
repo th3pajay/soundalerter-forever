@@ -15,7 +15,26 @@ local function percent(part, whole)
 end
 
 function Model.NewRun(now, build)
-    return { startedAt = now, build = build, groups = {}, groupCount = 0, spells = {}, spellCount = 0, zones = {}, samples = 0 }
+    return { startedAt = now, build = build, groups = {}, groupCount = 0, spells = {}, spellCount = 0, zones = {}, identity = {}, samples = 0 }
+end
+
+local function recordIdentity(run, zone, sample)
+    if not ENEMY_UNIT_KINDS[sample.unitKind] then return end
+    local tally = run.identity[zone]
+    if not tally then
+        tally = { total = 0, guid = 0, name = 0, enemy = 0, enemyGuid = 0, enemyName = 0, enemyLevel = 0, enemyCompareHidden = 0 }
+        run.identity[zone] = tally
+    end
+    tally.total = tally.total + 1
+    if sample.guidReadable then tally.guid = tally.guid + 1 end
+    if sample.nameReadable then tally.name = tally.name + 1 end
+    if sample.isEnemy then
+        tally.enemy = tally.enemy + 1
+        if sample.guidReadable then tally.enemyGuid = tally.enemyGuid + 1 end
+        if sample.nameReadable then tally.enemyName = tally.enemyName + 1 end
+        if sample.levelReadable then tally.enemyLevel = (tally.enemyLevel or 0) + 1 end
+        if sample.compareHidden then tally.enemyCompareHidden = (tally.enemyCompareHidden or 0) + 1 end
+    end
 end
 
 function Model.Stop(run, now)
@@ -28,13 +47,15 @@ function Model.Record(run, sample)
     local group = run.groups[key]
     if not group then
         if run.groupCount >= MAX_GROUPS then return end
-        group = { event = sample.event, unitKind = sample.unitKind, secrets = secrets, total = 0, spellReadable = 0, classReadable = 0, enemy = 0, player = 0, payloadReadable = 0, extraSeen = 0, extraReadable = 0 }
+        group = { event = sample.event, unitKind = sample.unitKind, secrets = secrets, total = 0, spellReadable = 0, classReadable = 0, guidReadable = 0, nameReadable = 0, enemy = 0, player = 0, payloadReadable = 0, extraSeen = 0, extraReadable = 0 }
         run.groups[key] = group
         run.groupCount = run.groupCount + 1
     end
     group.total = group.total + 1
     if sample.spellReadable then group.spellReadable = group.spellReadable + 1 end
     if sample.classReadable then group.classReadable = group.classReadable + 1 end
+    if sample.guidReadable then group.guidReadable = group.guidReadable + 1 end
+    if sample.nameReadable then group.nameReadable = group.nameReadable + 1 end
     if sample.isEnemy then group.enemy = group.enemy + 1 end
     if sample.isPlayer then group.player = group.player + 1 end
     if sample.payloadReadable then group.payloadReadable = group.payloadReadable + 1 end
@@ -44,6 +65,7 @@ function Model.Record(run, sample)
     run.samples = run.samples + 1
     local zone = sample.zone or "unknown"
     run.zones[zone] = (run.zones[zone] or 0) + 1
+    if run.identity then recordIdentity(run, zone, sample) end
 
     if sample.spellReadable and type(sample.spellID) == "number" then
         local spell = run.spells[sample.spellID]
@@ -92,7 +114,7 @@ function Model.Report(run, now, maxGroups)
     local list = sortedGroups(run)
     for index = 1, math.min(#list, maxGroups or 14) do
         local group = list[index]
-        local line = string.format("%s | %s | %s: %d events, spell %d%%, class %d%%, enemy %d%%", group.event, group.unitKind, group.secrets, group.total, percent(group.spellReadable, group.total), percent(group.classReadable, group.total), percent(group.enemy, group.total))
+        local line = string.format("%s | %s | %s: %d events, spell %d%%, class %d%%, guid %d%%, name %d%%, enemy %d%%", group.event, group.unitKind, group.secrets, group.total, percent(group.spellReadable, group.total), percent(group.classReadable, group.total), percent(group.guidReadable or 0, group.total), percent(group.nameReadable or 0, group.total), percent(group.enemy, group.total))
         if group.event == "UNIT_AURA" then
             line = line .. string.format(", payload %d%%", percent(group.payloadReadable, group.total))
         elseif group.extraSeen > 0 then
@@ -101,6 +123,17 @@ function Model.Report(run, now, maxGroups)
         lines[#lines + 1] = line
     end
     if #list > (maxGroups or 14) then lines[#lines + 1] = string.format("... and %d more groups saved", #list - (maxGroups or 14)) end
+
+    local identityZones = {}
+    for zone in pairs(run.identity or {}) do identityZones[#identityZones + 1] = zone end
+    table.sort(identityZones)
+    for _, zone in ipairs(identityZones) do
+        local tally = run.identity[zone]
+        lines[#lines + 1] = string.format("Identity in %s: %d events on target, focus, nameplate or arena units, guid %d%%, name %d%% | enemy flag %d%%, enemy guid %d%%, enemy name %d%%, enemy level %d%%, enemy target-compare hidden %d%%",
+            zone, tally.total, percent(tally.guid, tally.total), percent(tally.name, tally.total), percent(tally.enemy, tally.total),
+            percent(tally.enemyGuid, tally.enemy), percent(tally.enemyName, tally.enemy),
+            percent(tally.enemyLevel or 0, tally.enemy), percent(tally.enemyCompareHidden or 0, tally.enemy))
+    end
 
     local seen = {}
     for id, spell in pairs(run.spells) do seen[#seen + 1] = { id = id, spell = spell } end

@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.3.22
+
+## Battlegrounds find their voice
+
+Casting bars
+- Mouse over the target or focus casting bar during a cast to see the full spell tooltip: name, rank, cost, cast time and description. It works for enemy spells the game hides too, because the game draws the tooltip itself.
+- The bar only catches the mouse while a cast is up, so clicks and camera drags pass through the rest of the time. Turn it off with "Spell tooltip on hover" on the Casting Bars page.
+
+Voice alerts
+- Every voice alert now starts about 0.15 seconds sooner: the silence before each recording was trimmed. The voices and their endings are unchanged, cut without re-encoding.
+- Switching a spell on or off on the Voice Alerts page now reaches the game-played voices at once. Before, "Let the game play debuff alerts" only picked up the change on the next target or zone change.
+- The Spell Alerts tab is rebuilt spells first: the class list and the spells are right at the top instead of below two screens of settings. Each spell is one row with its events as switches you click directly, a play button on hover and a box that switches them all; the expand badge is gone, and search no longer stops at 40 results. Arena extras, interrupts, loss of control and the game voice switches moved into "More options" drawers at the bottom, closed until you open them.
+- A "Where and who" strip at the top sets the zones spell alerts play in (World PvP, Battlegrounds, Arenas) and who triggers them (target and focus, or all enemies in range), the same settings as in Quick Start. "Preview as" (World, Battleground, Arena) marks every event: played by SoundAlerter, played by the game, hidden by the game there, or not tested yet. In a battleground only "Enemy gains it" can play, through the game; arenas are still marked as not tested.
+- Events have plain names: Enemy gains it, It ends, Starts casting, Uses it, Lands on you, Lands on a friend, Lands on an enemy, Your CC ends, Interrupts you. "Silence whole categories" is replaced by an on/off switch on each event chip above the list (on means it plays), and clicking the chip's name shows only the spells with that event. Event kinds that are off dim their switches on every spell. The "Silence all" preset is gone, since switching every event chip off does the same.
+
+Global Sightings / Enemy Finder
+- A single report now counts in full: no more "one report, not confirmed yet" note, and single reports are no longer dimmed on the map, the minimap or the zone card. "Hot" counts every recent sighting.
+- The continent card shows only that continent: Kalimdor no longer lists Eastern Kingdoms zones, and its enemy, zone and watcher counts match. Azeroth still shows everything.
+- New map and minimap markers: each enemy is a class crest in a dark disc, sharp at any zoom. A ring around it empties as the sighting ages, a small notch points where they were heading, an eye marks classes that can stealth, and enemies standing on the same spot share one crest with a count badge (the tooltip says how many more). Continent rings show the top three class crests around the count, with a red diamond when higher-level enemies are there.
+- New installs see a small "Global sightings on" note under the minimap. Hover it for the details and Keep or Turn off; closing it keeps sharing on. Nothing is sent until you choose, and logging out without choosing keeps it on. Existing installs are not asked again.
+- New Enemy Finder in Developer Tools: search every enemy spotted in the last 10 minutes by name (typos are fine), class, race or zone, and see where they are, where they came from, when they were seen, how many players reported them and how far away. It refreshes every 5 seconds while open. Click the Name, Zone, Level or Seen header to sort; click again to reverse, a third time to go back to best match.
+
+Chat alerts
+- Proximity chat lines say more: "Druid Leafy (60 Night Elf) near Stables 45,61", with the level, race, subzone and your map position. Enemies seen within 1.5 seconds of each other are sent as one line, for example "3 enemies near Stables 45,61: Druid, Rogue, Mage". Your own template can use the new #level#, #race# and #place# tags.
+- Chat alerts are limited to about one line every 1.5 seconds (three at once), so a busy fight cannot flood your group or get you muted. Voices and toasts are never held back. /sa stats shows lines sent, merged, held back and blocked by the game.
+- The "Chat alerts" item in the minimap menu and key binding showed the opposite of its real state. It is now ticked when chat alerts are on.
+- The Chat Alerts tab of Voice Alerts is rebuilt around one card per area: spell alerts, proximity, battlegrounds and custom alerts. Each card shows whether it is on, where its lines go and a sample of the line, and opens to its channels, what it announces and its texts. One "Send chat alerts" switch at the top turns everything on or off. Each area picks its own channels (Say, Party, Raid, Battleground) and "Use for all areas" copies them to the others; the old default channel set and its "None" choice are gone, and your current channels are carried over to every area. The Proximity and Battleground pages keep their chat switch, and their "Open chat settings" opens their own card.
+- "Preview as" (solo, party, battleground, arena) shows where each line really goes. It starts at where you are now. Channels that cannot work there are dimmed and explained: Say only works inside instances, Party needs a group, Raid a raid, Battleground a battleground or arena group, and in a battleground or arena the Battleground channel already reaches your party and raid, so they are not sent twice. When no channel is left the line is printed only in your own chat window, and the card says so. "Print sample lines in my chat" shows one sample per area.
+- Spell announcements are grouped by situation, each group with its own switch and count: CC on you or a friend, your team's CC on an enemy, stealth, enemy cooldowns and interrupts. Each group holds its switches and the texts it uses. Every chat line can be edited, now including Divine Shield, "X down on Y", proximity and each battleground event, with clickable tags and a Default button, and the sample updates as you type. The "CC landed" text is shared by CC on an enemy and stealth, and both places say so.
+- Silencing a sound category no longer silences its chat lines (interrupts, enemy buffs and cooldowns, cast start). Chat has its own switches and the "Send chat alerts" switch.
+- Chat switch fixes: Fear on an enemy is announced for every rank, not just one. Sap on you or a friend has its own switch. "Polymorph" is split into "Polymorph on enemy" (now announced when it lands) and "Polymorph on you or a friend". The "Target and focus only" switch, which never did anything, is removed. The Notices switch is renamed "Print in my chat window", since nobody else sees it.
+
+![Where each chat line goes, by area and by where you are](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/chat-hub.png)
+
+Watchlist
+- Watched players now get a red WATCHED tag and border on their proximity toast, and one voice instead of the watchlist voice followed by the class voice.
+- Ctrl-click a proximity toast to watch that player, or Ctrl-click again to stop. It works in combat and does not change your target.
+- Global sightings check your watchlist: a watched player reported in your zone gets the watchlist voice and a toast that says who spotted them. Enemy Finder shows watched enemies on a red row wherever they are, and Ctrl-click on a row watches or unwatches.
+
+Battlegrounds
+- Enemy buffs and cooldowns are voiced in battlegrounds and arenas. The game hides enemy spells there, so SoundAlerter could not hear them; now, when you enter, it hands the game every enemy buff and cooldown you have switched on (Divine Shield, Ice Block, Evasion, trinket and the rest) and the game plays your voice pack itself when an enemy on your target, your focus or one of the first 20 nameplates gains one. It is set up out of combat, before the gates open, and removed when you leave; a spell switched on or off during a fight takes effect after it. The game cannot tell friend from foe here, so an ally on your target or a friendly nameplate can trigger a voice too. These voices are not counted in Statistics, and the Visuals note says so. On by default; turn it off with "Let the game voice enemy buffs in BGs and arenas" under Voice Alerts, Engine and procs. Tested in a battleground, not yet in an arena.
+- A teammate returning your flag no longer sounds like "Enemy... flag returned". The class voice now finds players by their full two-part name and from the battleground scoreboard, and when the class is still unknown, your own team's events skip the "enemy" voice.
+- Proximity alerts and the watchlist now work in battlegrounds. The game hides enemy player IDs there, so these alerts were silent; enemies are now recognised by name instead. "Enemy targets you" still cannot work in battlegrounds, because the game also hides who an enemy is targeting. The class comes from the battleground scoreboard when the game hides it, an enemy whose class stays unknown is announced as "enemy", and a hidden level no longer stops the alert. These alerts are not shared with your group, since teammates in the same battleground see the enemy too.
+- Arathi Basin base alerts: when a base is assaulted, taken or defended you hear the base name and then one word for what happened, said from your side: "Stables attacked", "Gold Mine lost", "Farm retaken" for the enemy, "Stables assaulted", "Gold Mine captured", "Farm defended" for your team. The toast reads the same ("STABLES ATTACKED", with the player below), and so does the default chat line. Each event has its own switch and preview on the Battleground Alerts page, and the team filter applies. Eleven new voices (the five base names and six outcome words) are included; the pause after the base name follows its length, from 0.65 s for Farm to a full second for Stables.
+- Flag and base chat lines now go to the chat channels set on the Voice Alerts page (Party and Battleground by default) instead of Say, and they are no longer held back during combat. Each flag and base event has its own text: a return says "Grim returned the flag" instead of "Rogue has the flag!", and a lost base reads "Gold Mine lost". A flag text you changed before is kept as the pickup text.
+- Battleground alert voices queue smarter: at most four wait their turn, anything older than five seconds is skipped, and a newer event for the same base replaces the older one.
+
+![Who plays each alert in world PvP, battlegrounds and arenas](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/bg-voices.png)
+
+![How Arathi Basin base alerts sound](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/base-voices.png)
+
+Statistics
+- The spell diagram on the Visuals tab is honest about battlegrounds: its battleground circle is dimmed and labelled "hidden by the game", and hovering the label explains that the game hides enemy spells from addons there and does not report the voices it plays, so neither can be counted. The Global tab says the same under its battleground ranking.
+- New Classes view on the Visuals tab: switch between Spells and Classes above the diagram. Each crest is a class in the class colour with the number of enemy players you met only in arenas, only in battlegrounds, only in world PvP or in several of them. It works in battlegrounds too, since proximity alerts recognise enemies there by name. Hover a crest for the players, click a class in the legend to hide it. Below, one bar per zone shows the class mix of every enemy player you met there, counted once per player and zone from now on; the crests come from your 100 most seen enemies, which is all the statistics keep by name. The Snapshot panel is a little taller to fit it.
+
+![The Visuals tab: battlegrounds marked hidden by the game, and the new Classes view](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/venn-classes.png)
+
 ## 0.3.14
 
 ## Dungeon interruptions
@@ -13,7 +70,7 @@ Interrupts
 
 Chat alerts
 - "From enemy to friend" and "Sap on a friend" work again: when a party member is Sapped, Blinded, Polymorphed, Hexed or Feared, your group gets the line. They follow the "on you or a friend" switches.
-- "From enemy to you" names the caster instead of starting with a blank: "An enemy casted [Blind] on me!". Both lines say "An enemy" when the caster is unknown.
+- "From enemy to you" names the caster instead of starting with a blank: "An enemy cast [Blind] on me!". Both lines say "An enemy" when the caster is unknown.
 - Both Sap texts now sit under the Sap switch that actually sends them.
 - Turning chat alerts off now also silences custom alert and proximity chat lines, which used to send anyway.
 - A backslash typed into a chat message is now removed in every alert, not only the interrupt lines.

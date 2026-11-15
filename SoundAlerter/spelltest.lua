@@ -41,6 +41,17 @@ local function Describe(sample, unit)
     sample.classReadable = type(Plain(class)) == "string"
     sample.isEnemy = Plain(UnitIsEnemy("player", unit)) == true
     sample.isPlayer = Plain(UnitIsPlayer(unit)) == true
+    local guid = UnitGUID(unit)
+    sample.guidReadable = type(guid) == "string" and not issecretvalue(guid)
+    local name = UnitName(unit)
+    sample.nameReadable = type(name) == "string" and not issecretvalue(name)
+    local level = UnitLevel(unit)
+    sample.levelReadable = type(level) == "number" and not issecretvalue(level)
+    local gate = C_Secrets and C_Secrets.ShouldUnitComparisonBeSecret
+    if gate then
+        local ok, hidden = pcall(gate, SA_TargetToken[unit], "player")
+        sample.compareHidden = not ok or Plain(hidden) ~= false
+    end
 end
 
 local function ReadAura(sample, info)
@@ -137,7 +148,7 @@ function SpellTest:Clear()
 end
 
 function SpellTest:PrintHelp()
-    self.addon:Print("  |cffFFFFFF/sa spelltest on|off|report|clear|r - Record what the client hands the addon for spell casts and auras (no player names are saved)")
+    self.addon:Print("  |cffFFFFFF/sa spelltest on|off|report|clear|r - Record what the client hands the addon for spell casts, auras and enemy identity (no player names are saved)")
 end
 
 function SpellTest:HandleCommand(input)

@@ -185,6 +185,39 @@ function QuickStart.SightingsNoticeDue(global, profile, isSupported)
     return profile.globalSightings and "tell" or "skip"
 end
 
+QuickStart.CONSENT_TITLE = "Global sightings on"
+QuickStart.CONSENT_TEXT = "Shares the enemies you see and your rough map square with SoundAlerter users of your faction on this realm. Nothing is sent until you choose."
+QuickStart.CONSENT_OFF = "Global sightings off. Turn it back on: /sa, Proximity Alerts, Global sightings."
+
+function QuickStart.SeedSightingsConsent(global, existing)
+    if global.sightingsConsent == nil then global.sightingsConsent = existing and "done" or "new" end
+end
+
+function QuickStart.SightingsHeld(global)
+    local consent = global and global.sightingsConsent
+    return consent == "new" or consent == "pending"
+end
+
+function QuickStart.SightingsConsentDue(global, profile, isSupported)
+    local consent = global.sightingsConsent
+    if consent == "new" and isSupported and profile.globalSightings then
+        global.sightingsConsent = "pending"
+        return "ask"
+    end
+    if consent == "new" or consent == "pending" then
+        global.sightingsConsent = "done"
+        return "keep"
+    end
+    return nil
+end
+
+function QuickStart.AnswerSightings(global, profile, keep)
+    if not QuickStart.SightingsHeld(global) then return false end
+    global.sightingsConsent = "done"
+    if not keep then profile.globalSightings = false end
+    return true
+end
+
 function QuickStart.SeedStatsNotice(global, existing)
     if global.statsNoticeDone == nil then global.statsNoticeDone = not existing end
 end
@@ -276,14 +309,40 @@ local VERSION_COLOR = "|cffffd100"
 local DIM = "|cffa0a0a0"
 
 QuickStart.WHATS_NEW = {
-    version = "0.3.14",
-    headline = "New voice alerts, Forever diminishing returns, Statistics dashboard",
+    version = "0.3.22",
+    headline = "BG cooldown voices, chat hub, class crests",
     items = {
-        "New voice alerts: Windfury Totem, Voice of Truth, Feedback, Rapid Fire, Feign Death and more.",
-        "Diminishing Returns uses Forever's own categories and can say \"immune\".",
-        "The Statistics overview is a dashboard with a session or all-time switch.",
-        "Interrupt alerts work in dungeons, and your chat shows the interrupted spell's icon and link.",
-        "SoundAlerter is in the minimap AddOns menu, with its own icon.",
+        "Casting bar spell tooltips on hover",
+        "Bars catch the mouse only during casts",
+        "Voice alerts start 0.15 s sooner",
+        "Spell toggles update game voices at once",
+        "Spell Alerts tab puts spells first",
+        "Where, who and preview on Spell Alerts",
+        "Plain event names with on/off chips",
+        "Single sighting reports count in full",
+        "Continent card lists only its zones",
+        "Class crest map and minimap markers",
+        "Opt-out note under the minimap",
+        "Enemy Finder in Developer Tools",
+        "Watched players get a WATCHED toast",
+        "Ctrl-click a toast to watch",
+        "Watched sightings alert and show red",
+        "Enemy cooldown voices in BGs and arenas",
+        "Own flag returns no longer say enemy",
+        "Proximity alerts work in battlegrounds",
+        "Arathi base voices: Stables attacked",
+        "Smarter battleground voice queue",
+        "Venn marks battlegrounds as hidden",
+        "Class Venn of enemies by zone",
+        "Flag and base lines use your channels",
+        "Detailed, merged proximity chat lines",
+        "Chat alerts never flood your group",
+        "Chat alerts menu shows the real state",
+        "Chat cards with channels per area",
+        "Preview where each chat line goes",
+        "Grouped announcements, every line editable",
+        "Muting sounds keeps chat lines",
+        "Chat switch fixes for CC spells",
     },
 }
 

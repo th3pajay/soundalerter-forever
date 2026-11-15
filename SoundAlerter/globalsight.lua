@@ -64,10 +64,6 @@ function SA_GlobalSight.Day(serverTime)
     return math_floor(serverTime / 86400)
 end
 
-function SA_GlobalSight.Confirmed(record)
-    return record.selfSeen or (record.reporterCount or 0) >= 2
-end
-
 function SA_GlobalSight.NewTag()
     return string_format("%06x", math.random(0, 0xFFFFFF))
 end
@@ -168,7 +164,7 @@ function SA_GlobalSight.Merge(store, sight, reporter, now, isSelf)
         local mismatch = record.class ~= sight.class or record.name ~= sight.name
         if mismatch and not isSelf then return nil, false end
         if mismatch or Drifted(record, sight) then
-            record.reporterCount, record.selfSeen = 0, false
+            record.reporterCount = 0
             record.anchorMapID, record.anchorCx, record.anchorCy = sight.mapID, sight.cx, sight.cy
         end
         local changed = record.mapID ~= sight.mapID or record.cx ~= sight.cx or record.cy ~= sight.cy
@@ -188,7 +184,6 @@ function SA_GlobalSight.Merge(store, sight, reporter, now, isSelf)
         end
         record.guid, record.firstSeen, record.reporterCount = guid, now, 0
         record.prevMapID, record.prevCx, record.prevCy = nil, nil, nil
-        record.selfSeen = false
         record.anchorMapID, record.anchorCx, record.anchorCy = sight.mapID, sight.cx, sight.cy
         store.records[guid] = record
         store.count = store.count + 1
@@ -196,7 +191,6 @@ function SA_GlobalSight.Merge(store, sight, reporter, now, isSelf)
     record.name, record.class, record.level, record.race = sight.name, sight.class, sight.level, sight.race
     record.mapID, record.cx, record.cy, record.band, record.source = sight.mapID, sight.cx, sight.cy, sight.band, sight.source
     record.lastSeen, record.reportedAt = now, sight.t
-    if isSelf then record.selfSeen = true end
     local reporters, known = record.reporters, false
     for i = 1, record.reporterCount do
         if reporters[i] == reporter then known = true break end
@@ -317,6 +311,7 @@ for i = 1, 40 do RAID_TARGETS[#RAID_TARGETS + 1] = "raid" .. i .. "target" end
 local tag = G.NewTag()
 local store, sentState, bucket
 local active = false
+local held = false
 local ticker
 local nextSweep, nextPresence = 0, 0
 local decoded, own, best = {}, {}, {}
@@ -326,7 +321,7 @@ local profilerClock = debugprofilestop
 
 local function ResetCounters()
     counters.merged, counters.presence, counters.own, counters.conflicts = 0, 0, 0, 0
-    counters.sent, counters.sentPresence, counters.swept = 0, 0, 0
+    counters.sent, counters.sentPresence, counters.swept, counters.watched = 0, 0, 0, 0
     counters.decodeTotal, counters.decodeMax, counters.decodeCount = 0, 0, 0
 end
 ResetCounters()
@@ -438,6 +433,7 @@ local function Tick()
     elseif IsInGroup and IsInGroup() then
         for i = 1, #GROUP_TARGETS do Observe(GROUP_TARGETS[i], "A", now) end
     end
+    if held then return end
     if best.priority > 0 then
         local mapID, cx, cy = TickCell()
         if mapID then SendBest(now, mapID, cx, cy) end
@@ -470,11 +466,16 @@ local function OnMessage(text, sender, _, now)
         if G.Presence(store, sender, message.mapID, now) then counters.presence = counters.presence + 1 end
         return true
     end
-    if not G.Merge(store, message, sender, now, false) then
+    local record = G.Merge(store, message, sender, now, false)
+    if not record then
         counters.conflicts = counters.conflicts + 1
         return false
     end
     counters.merged = counters.merged + 1
+    if SoundAlerter:WatchState().active and SoundAlerter:StampWatched(record) then
+        counters.watched = counters.watched + 1
+        if record.mapID == TickCell() then SoundAlerter:AlertGlobalWatch(record, sender) end
+    end
     return true
 end
 
@@ -513,6 +514,9 @@ function SoundAlerter:UpdateGlobalSight()
     local profile = self.db1 and self.db1.profile
     local quality = QUALITY[profile and profile.globalQuality] or QUALITY.normal
     receivePerSecond, presencePerSecond, sweepInterval = quality.receive, quality.presence, quality.sweep
+    local wasHeld = held
+    held = SA_QuickStart.SightingsHeld(self.db1 and self.db1.global)
+    if wasHeld and not held then nextPresence = GetTime() + math.random(5, 15) end
     if profile and profile.globalSightings and Messaging.Supported() then Start() else Stop() end
     if self.UpdateGlobalMap then self:UpdateGlobalMap() end
     if self.UpdateGlobalStats then self:UpdateGlobalStats() end
@@ -556,7 +560,7 @@ function SoundAlerter:GlobalSightCommand(rest)
         local c = Messaging.Counters(item[2])
         self:Print(string.format("Messages, %s: received %d, accepted %d, rejected %d, over budget %d, over sender limit %d, ignored %d, in combat %d; sent %d, failed %d (%d throttled)", item[1], c.received, c.accepted, c.rejected, c.overBudget, c.overSender, c.ignored, c.combat, c.sent, c.failed, c.throttled))
     end
-    self:Print(string.format("Sightings: merged %d, presence %d, own %d, conflicting %d; sent %d sightings, %d presence; tracked enemies %d (pool %d), swept %d", counters.merged, counters.presence, counters.own, counters.conflicts, counters.sent, counters.sentPresence, store.count, #store.pool, counters.swept))
+    self:Print(string.format("Sightings: merged %d, presence %d, own %d, conflicting %d, watched %d; sent %d sightings, %d presence; tracked enemies %d (pool %d), swept %d", counters.merged, counters.presence, counters.own, counters.conflicts, counters.watched, counters.sent, counters.sentPresence, store.count, #store.pool, counters.swept))
     self:Print(string.format("Decode %.3f ms average, %.3f ms max", average, counters.decodeMax))
     if stats then
         self:Print(string.format("This zone, last 5 min: %d enemies, %d watchers", stats.enemies, stats.watchers))

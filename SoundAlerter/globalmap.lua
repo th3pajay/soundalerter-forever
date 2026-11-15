@@ -4,6 +4,8 @@ SA_GlobalMap = {}
 local ENTER_ZOOM, LEAVE_ZOOM = 3, 2.6
 local FULL_AGE, GONE_AGE = 120, 600
 local ZONE_TYPE = 3
+local WORLD_TYPE = 1
+local INSIDE_STEPS = 8
 
 SA_GlobalMap.GONE_AGE = GONE_AGE
 SA_GlobalMap.TIERS = {
@@ -25,6 +27,37 @@ function SA_GlobalMap.Alpha(age, step)
         return 0.25
     end
     return 1 - (age - FULL_AGE) / (GONE_AGE - FULL_AGE) * 0.85
+end
+
+local ARC_STEPS, MARK_FLOOR = 12, 0.55
+local ATLAS_COLS, ATLAS_ROWS = 8, 4
+
+SA_GlobalMap.ARC_STEPS = ARC_STEPS
+SA_GlobalMap.CREST = {
+    WARRIOR = 0, PALADIN = 1, HUNTER = 2, ROGUE = 3, PRIEST = 4, DEATHKNIGHT = 5, SHAMAN = 6, MAGE = 7,
+    WARLOCK = 8, MONK = 9, DRUID = 10, DEMONHUNTER = 11, EVOKER = 12,
+}
+SA_GlobalMap.CELL = { FALLBACK = 13, ARC = 14, EYE = 26, BADGE = 27, PULSE = 28, DISC = 29, DIAMOND = 30, GLOW = 31 }
+SA_GlobalMap.COORDS = {}
+for index = 0, ATLAS_COLS * ATLAS_ROWS - 1 do
+    local col, row = index % ATLAS_COLS, math.floor(index / ATLAS_COLS)
+    SA_GlobalMap.COORDS[index] = { col / ATLAS_COLS, (col + 1) / ATLAS_COLS, row / ATLAS_ROWS, (row + 1) / ATLAS_ROWS }
+end
+
+function SA_GlobalMap.ArcStep(age)
+    if age >= GONE_AGE then return 0 end
+    if age <= 0 then return ARC_STEPS end
+    return math.ceil((1 - age / GONE_AGE) * ARC_STEPS)
+end
+
+function SA_GlobalMap.MarkAlpha(age, step)
+    local alpha = SA_GlobalMap.Alpha(age, step)
+    if alpha <= 0 then return 0 end
+    return alpha < MARK_FLOOR and MARK_FLOOR or alpha
+end
+
+function SA_GlobalMap.CellKey(mapID, cx, cy)
+    return mapID * 10000 + cx * 100 + cy
 end
 
 function SA_GlobalMap.Mode(previous, stitched, zoom, mapType)
@@ -99,9 +132,25 @@ function SA_GlobalMap.Higher(level, mine)
     return type(mine) == "number" and level >= mine + 3
 end
 
-function SA_GlobalMap.Verdict(count, nearGroup, confirmed)
+function SA_GlobalMap.Inside(zone, host, infoOf)
+    if zone == host then return true end
+    local hostInfo = infoOf(host)
+    if not hostInfo then return false end
+    if type(hostInfo.mapType) == "number" and hostInfo.mapType <= WORLD_TYPE then return true end
+    local id = zone
+    for _ = 1, INSIDE_STEPS do
+        local info = infoOf(id)
+        local parent = info and info.parentMapID
+        if type(parent) ~= "number" or parent == 0 or parent == id then return false end
+        if parent == host then return true end
+        id = parent
+    end
+    return false
+end
+
+function SA_GlobalMap.Verdict(count, nearGroup)
     if count == 0 then return "Quiet" end
-    if (confirmed or count) >= HOT_COUNT or (nearGroup and nearGroup >= HOT_GROUP) then return "Hot" end
+    if count >= HOT_COUNT or (nearGroup and nearGroup >= HOT_GROUP) then return "Hot" end
     return "Active"
 end
 
@@ -156,17 +205,25 @@ do
 local SoundAlerter = SoundAlerter
 local M = SA_GlobalMap
 
-local DOT_TEXTURE = "Interface\\AddOns\\SoundAlerter\\Textures\\circle"
+local MARKS = "Interface\\AddOns\\SoundAlerter\\Textures\\gs_marks"
+local NOTCH_TEXTURE = "Interface\\AddOns\\SoundAlerter\\Textures\\gs_notch"
+local CREST, CELL, COORDS = M.CREST, M.CELL, M.COORDS
 local FLAT = "Interface\\Buttons\\WHITE8X8"
-local DOT_SIZE = 9
+local WATCH_COLOR = { r = 1, g = 0.16, b = 0.16 }
+local WATCH_ROW_ALPHA = 0.32
+local DOT_SIZE = 17
 local WINDOW = 300
 local HOT = 5
-local UNCONFIRMED_ALPHA = 0.45
-local RING_SIZE, RING_PIPS, RING_PIP, RING_RADIUS = 24, 12, 5, 9
+local RING_SIZE, RING_CRESTS, RING_CREST, RING_CREST_RADIUS, RING_GLOW = 26, 3, 10, 15, 1.7
+local RING_CREST_ANGLES = { -50, 0, 50 }
 local MERGE_DISTANCE = 26
 local TIP_ZONES = 8
 local GROUP_LIMIT = 60
-local ARROW_TEXTURE = "Interface\\AddOns\\SoundAlerter\\Textures\\gs_arrow"
+local NOTCH_SCALE, EYE_SCALE, EYE_AT, BADGE_SCALE, BADGE_AT = 32 / 28, 0.36, 0.19, 0.44, 0.8
+local ARC_COLOR = { 0.91, 0.93, 0.96, 0.85 }
+local BADGE_COLOR = { 1, 0.62, 0.11 }
+local RIM_COLOR = { 1, 0.85, 0.63 }
+local HIGHER_COLOR = { 1, 0.35, 0.29 }
 local VERDICT_COLOR = { Quiet = { 0.5, 0.83, 0.54 }, Active = { 1, 0.82, 0.29 }, Hot = { 1, 0.35, 0.29 } }
 local FRESH = 20
 local QUIET_AFTER_MOVE = 0.4
@@ -182,7 +239,8 @@ local dotsShown, ringsShown = 0, 0
 local mode = "rings"
 local clusters = {}
 local markersOn = false
-local pipClass, pipExact, pipGive, pipSource = {}, {}, {}, nil
+local crestTop = {}
+local cellLead, cellCount, cellKeys = {}, {}, {}
 local hostShown, scaleShown, quietUntil = nil, nil, 0
 local sinceCheck, lastDraw, nextRefresh, nextPanel, forceDraw = 0, -1e9, 0, 0, true
 local panelZone
@@ -216,6 +274,24 @@ local function ZoneName(mapID)
         names[mapID] = name
     end
     return name
+end
+
+local insideMemo = {}
+
+local function InsideHost(zone, host)
+    local getInfo = C_Map and C_Map.GetMapInfo
+    if not getInfo then return true end
+    local byHost = insideMemo[host]
+    if not byHost then
+        byHost = {}
+        insideMemo[host] = byHost
+    end
+    local known = byHost[zone]
+    if known == nil then
+        known = M.Inside(zone, host, getInfo)
+        byHost[zone] = known
+    end
+    return known
 end
 
 local function Stitched()
@@ -278,8 +354,8 @@ local function ShowTip(owner)
     local level = record.level and tostring(record.level) or "??"
     GameTooltip:AddLine(level .. " " .. (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[record.class] or record.class), 1, 1, 1)
     GameTooltip:AddLine("Last seen " .. M.Ago(now - record.lastSeen), 0.8, 0.8, 0.8)
-    if not SA_GlobalSight.Confirmed(record) then
-        GameTooltip:AddLine("One report, not confirmed yet", 0.6, 0.65, 0.7)
+    if owner.badgeOn and owner.shownCount then
+        GameTooltip:AddLine("+" .. (owner.shownCount - 1) .. " more enemies on this spot", 1, 0.62, 0.11)
     end
     if tier.tip >= 2 then
         local count = record.reporterCount or 1
@@ -312,23 +388,146 @@ local function NewPulse(texture, scale, duration, fromAlpha)
     return pulse
 end
 
+local function Cell(texture, index)
+    local c = COORDS[index]
+    texture:SetTexCoord(c[1], c[2], c[3], c[4])
+end
+
+local function MarkTexture(frame, drawLayer, sublevel, index)
+    local texture = frame:CreateTexture(nil, drawLayer, nil, sublevel)
+    texture:SetTexture(MARKS)
+    if index then Cell(texture, index) end
+    return texture
+end
+
+local function NewMarker(parent)
+    local mark = CreateFrame("Button", nil, parent)
+    mark.body = MarkTexture(mark, "OVERLAY", 0)
+    mark.body:SetAllPoints(mark)
+    mark.arc = MarkTexture(mark, "OVERLAY", 1)
+    mark.arc:SetAllPoints(mark)
+    mark.arc:SetVertexColor(ARC_COLOR[1], ARC_COLOR[2], ARC_COLOR[3], ARC_COLOR[4])
+    mark.arc:Hide()
+    mark:SetScript("OnEnter", ShowTip)
+    mark:SetScript("OnLeave", HideTip)
+    return mark
+end
+
+local function PlaceEye(mark, size)
+    local eye = mark.eye
+    eye:SetSize(size * EYE_SCALE, size * EYE_SCALE)
+    eye:ClearAllPoints()
+    eye:SetPoint("CENTER", mark, "TOPLEFT", size * EYE_AT, -size * EYE_AT)
+end
+
+local function PlaceBadge(mark, size)
+    local side = size * BADGE_SCALE
+    mark.badge:SetSize(side, side)
+    mark.badge:ClearAllPoints()
+    mark.badge:SetPoint("CENTER", mark, "TOPLEFT", size * BADGE_AT, -size * BADGE_AT)
+    local font = math.max(6, math.floor(side * 0.78 + 0.5))
+    if mark.fontSize ~= font then
+        mark.fontSize = font
+        mark.count:SetFont(STANDARD_TEXT_FONT, font, "OUTLINE")
+    end
+end
+
+local function PlaceNotch(mark, size)
+    mark.notch:SetSize(size * NOTCH_SCALE, size * NOTCH_SCALE)
+end
+
+local function NewEye(mark)
+    mark.eye = MarkTexture(mark, "OVERLAY", 3, CELL.EYE)
+    PlaceEye(mark, mark.size)
+end
+
+local function NewBadge(mark)
+    mark.badge = MarkTexture(mark, "OVERLAY", 4, CELL.BADGE)
+    mark.badge:SetVertexColor(BADGE_COLOR[1], BADGE_COLOR[2], BADGE_COLOR[3], 1)
+    mark.count = mark:CreateFontString(nil, "OVERLAY")
+    mark.count:SetDrawLayer("OVERLAY", 5)
+    mark.count:SetPoint("CENTER", mark.badge, "CENTER", 0, 0)
+    PlaceBadge(mark, mark.size)
+end
+
+local function NewNotch(mark)
+    mark.notch = mark:CreateTexture(nil, "OVERLAY", nil, 2)
+    mark.notch:SetTexture(NOTCH_TEXTURE)
+    mark.notch:SetPoint("CENTER", mark, "CENTER", 0, 0)
+    PlaceNotch(mark, mark.size)
+end
+
+local function StyleMarker(mark, record, size, count, age, bearing)
+    if mark.size ~= size then
+        mark.size = size
+        mark:SetSize(size, size)
+        if mark.eye then PlaceEye(mark, size) end
+        if mark.badge then PlaceBadge(mark, size) end
+        if mark.notch then PlaceNotch(mark, size) end
+    end
+    local class = record.class
+    if mark.class ~= class then
+        mark.class = class
+        Cell(mark.body, CREST[class] or CELL.FALLBACK)
+        local color = ClassColor(class)
+        mark.body:SetVertexColor(color.r, color.g, color.b, 1)
+        if mark.ring then mark.ring:SetVertexColor(color.r, color.g, color.b, 1) end
+        if M.STEALTH[class] then
+            if not mark.eye then NewEye(mark) end
+            mark.eye:Show()
+        elseif mark.eye then
+            mark.eye:Hide()
+        end
+    end
+    local step = M.ArcStep(age)
+    if mark.step ~= step then
+        mark.step = step
+        if step > 0 then
+            Cell(mark.arc, CELL.ARC + step - 1)
+            mark.arc:Show()
+        else
+            mark.arc:Hide()
+        end
+    end
+    if count > 1 then
+        if not mark.badge then NewBadge(mark) end
+        if mark.shownCount ~= count then
+            mark.shownCount = count
+            mark.count:SetText(count > 9 and "9+" or count)
+        end
+        if not mark.badgeOn then
+            mark.badgeOn = true
+            mark.badge:Show()
+            mark.count:Show()
+        end
+    elseif mark.badgeOn then
+        mark.badgeOn = false
+        mark.badge:Hide()
+        mark.count:Hide()
+    end
+    if bearing then
+        if not mark.notch then NewNotch(mark) end
+        if mark.bearing ~= bearing then
+            mark.bearing = bearing
+            mark.notch:SetRotation(-bearing)
+        end
+        if not mark.notchOn then
+            mark.notchOn = true
+            mark.notch:Show()
+        end
+    elseif mark.notchOn then
+        mark.notchOn = false
+        mark.notch:Hide()
+    end
+end
+
 local function NewDot()
-    local dot = CreateFrame("Button", nil, layer)
-    dot.icon = dot:CreateTexture(nil, "OVERLAY")
-    dot.icon:SetTexture(DOT_TEXTURE)
-    dot.icon:SetAllPoints(dot)
-    dot.ring = dot:CreateTexture(nil, "OVERLAY", nil, 1)
-    dot.ring:SetTexture(DOT_TEXTURE)
+    local dot = NewMarker(layer)
+    dot.ring = MarkTexture(dot, "ARTWORK", 0, CELL.PULSE)
     dot.ring:SetBlendMode("ADD")
     dot.ring:SetAllPoints(dot)
     dot.ring:Hide()
-    dot.arrow = dot:CreateTexture(nil, "OVERLAY", nil, 2)
-    dot.arrow:SetTexture(ARROW_TEXTURE)
-    dot.arrow:SetVertexColor(1, 1, 1, 0.9)
-    dot.arrow:Hide()
     dot.pulse = NewPulse(dot.ring, 2.4, 1.2, 0.9)
-    dot:SetScript("OnEnter", ShowTip)
-    dot:SetScript("OnLeave", HideTip)
     return dot
 end
 
@@ -371,33 +570,31 @@ end
 local function NewRing()
     local ring = CreateFrame("Button", nil, layer)
     ring:SetSize(RING_SIZE, RING_SIZE)
-    ring.glow = ring:CreateTexture(nil, "BACKGROUND")
-    ring.glow:SetTexture(DOT_TEXTURE)
+    ring.glow = MarkTexture(ring, "BACKGROUND", 0, CELL.GLOW)
     ring.glow:SetVertexColor(1, 0.3, 0.25, 1)
     ring.glow:SetBlendMode("ADD")
-    ring.glow:SetAllPoints(ring)
+    ring.glow:SetSize(RING_SIZE * RING_GLOW, RING_SIZE * RING_GLOW)
+    ring.glow:SetPoint("CENTER", ring, "CENTER", 0, 0)
     ring.glow:Hide()
-    ring.disc = ring:CreateTexture(nil, "BORDER")
-    ring.disc:SetTexture(DOT_TEXTURE)
-    ring.disc:SetVertexColor(0.04, 0.05, 0.06, 0.9)
+    ring.disc = MarkTexture(ring, "BORDER", 0, CELL.DISC)
+    ring.disc:SetVertexColor(RIM_COLOR[1], RIM_COLOR[2], RIM_COLOR[3], 1)
     ring.disc:SetAllPoints(ring)
-    ring.pips = {}
-    for i = 1, RING_PIPS do
-        local pip = ring:CreateTexture(nil, "ARTWORK")
-        pip:SetTexture(DOT_TEXTURE)
-        pip:SetSize(RING_PIP, RING_PIP)
-        local angle = (i - 1) / RING_PIPS * 2 * math.pi
-        pip:SetPoint("CENTER", ring, "CENTER", math.sin(angle) * RING_RADIUS, math.cos(angle) * RING_RADIUS)
-        ring.pips[i] = pip
+    ring.crests = {}
+    for i = 1, RING_CRESTS do
+        local crest = MarkTexture(ring, "ARTWORK", 0)
+        crest:SetSize(RING_CREST, RING_CREST)
+        local angle = math.rad(RING_CREST_ANGLES[i])
+        crest:SetPoint("CENTER", ring, "CENTER", math.sin(angle) * RING_CREST_RADIUS, math.cos(angle) * RING_CREST_RADIUS)
+        crest:Hide()
+        ring.crests[i] = crest
     end
     ring.count = ring:CreateFontString(nil, "OVERLAY")
     ring.count:SetFontObject("GameFontHighlightSmall")
     ring.count:SetPoint("CENTER", ring, "CENTER", 0, 0)
-    ring.tick = ring:CreateTexture(nil, "OVERLAY")
-    ring.tick:SetTexture(DOT_TEXTURE)
-    ring.tick:SetVertexColor(1, 0.2, 0.2, 1)
-    ring.tick:SetSize(7, 7)
-    ring.tick:SetPoint("CENTER", ring, "TOPRIGHT", -1, -1)
+    ring.tick = MarkTexture(ring, "OVERLAY", 1, CELL.DIAMOND)
+    ring.tick:SetVertexColor(HIGHER_COLOR[1], HIGHER_COLOR[2], HIGHER_COLOR[3], 1)
+    ring.tick:SetSize(9, 9)
+    ring.tick:SetPoint("CENTER", ring, "CENTER", 10, -10)
     ring.tick:Hide()
     ring.pulse = NewPulse(ring.glow, 1.7, 1.4, 0.8)
     ring:SetScript("OnEnter", ShowRingTip)
@@ -405,61 +602,44 @@ local function NewRing()
     return ring
 end
 
-local function ByPip(a, b)
-    if pipSource[a] ~= pipSource[b] then return pipSource[a] > pipSource[b] end
-    return a < b
+local function Better(class, count, other, classes)
+    local otherCount = classes[other]
+    return count > otherCount or (count == otherCount and class < other)
 end
 
-local function AssignPips(ring, classes, total)
+local function AssignCrests(ring, classes)
     local n = 0
     for class, count in pairs(classes) do
-        if count > 0 and n < RING_PIPS then
-            n = n + 1
-            pipClass[n] = class
-        end
-    end
-    for i = n + 1, #pipClass do pipClass[i] = nil end
-    pipSource = classes
-    table.sort(pipClass, ByPip)
-    local given = 0
-    for i = 1, n do
-        local exact = classes[pipClass[i]] / total * RING_PIPS
-        pipExact[i] = exact
-        pipGive[i] = math.max(1, math.floor(exact))
-        given = given + pipGive[i]
-    end
-    while given ~= RING_PIPS do
-        local best, bestGap
-        for i = 1, n do
-            local gap = pipExact[i] - pipGive[i]
-            if given < RING_PIPS then
-                if not bestGap or gap > bestGap then best, bestGap = i, gap end
-            elseif pipGive[i] > 1 and (not bestGap or gap < bestGap) then
-                best, bestGap = i, gap
+        if count > 0 then
+            local slot
+            if n < RING_CRESTS then
+                n = n + 1
+                slot = n
+            elseif Better(class, count, crestTop[n], classes) then
+                slot = n
+            end
+            if slot then
+                while slot > 1 and Better(class, count, crestTop[slot - 1], classes) do
+                    crestTop[slot] = crestTop[slot - 1]
+                    slot = slot - 1
+                end
+                crestTop[slot] = class
             end
         end
-        if not best then break end
-        pipGive[best] = pipGive[best] + (given < RING_PIPS and 1 or -1)
-        given = given + (given < RING_PIPS and 1 or -1)
     end
-    local pip, index = 0, 1
-    for i = 1, RING_PIPS do
-        while index <= n and pip >= pipGive[index] do
-            index, pip = index + 1, 0
-        end
-        local texture = ring.pips[i]
-        local class = pipClass[index]
-        if class then
-            pip = pip + 1
-            if texture.class ~= class then
-                texture.class = class
+    for i = 1, RING_CRESTS do
+        local texture = ring.crests[i]
+        local class = i <= n and crestTop[i] or nil
+        if texture.class ~= class then
+            texture.class = class
+            if class then
+                Cell(texture, CREST[class] or CELL.FALLBACK)
                 local color = ClassColor(class)
                 texture:SetVertexColor(color.r, color.g, color.b, 1)
+                texture:Show()
+            else
+                texture:Hide()
             end
-            texture:Show()
-        else
-            texture.class = nil
-            texture:Hide()
         end
     end
 end
@@ -482,14 +662,13 @@ local function ShowRowTip(owner)
     local now = GetTime()
     for i = 1, row.count do
         local record = row.members[i]
-        local color = ClassColor(record.class)
+        local color = SoundAlerter:StampWatched(record) and WATCH_COLOR or ClassColor(record.class)
         local level = type(record.level) == "number" and record.level >= 0 and tostring(record.level) or "??"
         GameTooltip:AddDoubleLine(record.name .. "  " .. level, M.Short(now - record.lastSeen) .. " ago", color.r, color.g, color.b, 0.7, 0.7, 0.7)
         if record.reporterCount and record.reporterCount >= 2 then
             GameTooltip:AddLine("  seen by " .. record.reporterCount .. " players", 0.6, 0.65, 0.7)
         end
         if M.STEALTH[record.class] then GameTooltip:AddLine("  can stealth", 1, 0.96, 0.41) end
-        if not SA_GlobalSight.Confirmed(record) then GameTooltip:AddLine("  one report, not confirmed yet", 0.6, 0.65, 0.7) end
     end
     GameTooltip:Show()
 end
@@ -603,16 +782,17 @@ local function Heading(record, width, height)
     return M.Bearing(dx, dy)
 end
 
-local function SetArrow(texture, bearing)
-    if not bearing then
-        texture:Hide()
-        return
+local function GroupCells(list, limit, leads, counts, keys)
+    for key in pairs(leads) do leads[key] = nil end
+    for key in pairs(counts) do counts[key] = nil end
+    for i = 1, limit do
+        local record = list[i]
+        local key = M.CellKey(record.mapID, record.cx, record.cy)
+        keys[i] = key
+        local lead = leads[key]
+        if not lead or record.lastSeen > lead.lastSeen then leads[key] = record end
+        counts[key] = (counts[key] or 0) + 1
     end
-    if texture.bearing ~= bearing then
-        texture.bearing = bearing
-        texture:SetRotation(-bearing)
-    end
-    texture:Show()
 end
 
 local function ByGroup(a, b)
@@ -645,7 +825,7 @@ local function DrawPanel(store, zone, now)
     local expanded = Expanded()
     for class in pairs(mix) do mix[class] = 0 end
     for i = 1, #ordered do ordered[i] = nil end
-    local count, previous, confirmed, stealth, higher = 0, 0, 0, 0, 0
+    local count, previous, stealth, higher = 0, 0, 0, 0
     local mine = UnitLevel and UnitLevel("player")
     for _, record in pairs(store.records) do
         if record.mapID == zone then
@@ -656,7 +836,6 @@ local function DrawPanel(store, zone, now)
                 if M.Higher(record.level, mine) then higher = higher + 1 end
                 ordered[count] = record
                 mix[record.class] = (mix[record.class] or 0) + 1
-                if SA_GlobalSight.Confirmed(record) then confirmed = confirmed + 1 end
             end
             if record.firstSeen <= now - WINDOW and age <= WINDOW * 2 then previous = previous + 1 end
         end
@@ -674,15 +853,12 @@ local function DrawPanel(store, zone, now)
             local dx, dy = Offset(lead, px, py, width, height)
             distance = math.sqrt(dx * dx + dy * dy)
             if not nearest or distance < nearest then nearest, nearestDir = distance, M.Dir(dx, dy) end
-            local sure = 0
-            for k = 1, #members do
-                if SA_GlobalSight.Confirmed(members[k]) then sure = sure + 1 end
-            end
-            if sure >= 3 and distance <= M.HOT_RANGE and (not nearGroup or sure > nearGroup) then nearGroup = sure end
+            local size = #members
+            if size >= 3 and distance <= M.HOT_RANGE and (not nearGroup or size > nearGroup) then nearGroup = size end
         end
         groupDistance[g] = distance or false
     end
-    local verdict = M.Verdict(count, nearGroup, confirmed)
+    local verdict = M.Verdict(count, nearGroup)
     local color = VERDICT_COLOR[verdict]
     local data = zoneData
     local name = ZoneName(zone)
@@ -736,11 +912,7 @@ local function DrawPanel(store, zone, now)
         entry.chip = true
         entry.ago = SA_GlobalPanel.AgeText(now - lead.lastSeen)
         entry.bearing = Heading(lead, width, height)
-        local sure = false
-        for k = 1, size do
-            if SA_GlobalSight.Confirmed(members[k]) then sure = true break end
-        end
-        entry.alpha = sure and 1 or 0.55
+        entry.alpha = 1
     end
     SA_GlobalPanel.Draw(panel, data)
 end
@@ -761,15 +933,19 @@ local function DrawDots(store, host, canvas, now, tier, stitched)
     local shown = 0
     local limit = math.min(count, tier.cap)
     local key = stitched and -host or host
+    GroupCells(ordered, limit, cellLead, cellCount, cellKeys)
     for i = 1, limit do
         local record = ordered[i]
+        local cell = cellKeys[i]
         local x, y
-        if record.projHost == key and record.projMap == record.mapID and record.projCx == record.cx and record.projCy == record.cy then
-            x, y = record.projX, record.projY
-        else
-            x, y = Project(record.mapID, (record.cx + 0.5) / 100, (record.cy + 0.5) / 100, host, stitched)
-            record.projHost, record.projMap, record.projCx, record.projCy = key, record.mapID, record.cx, record.cy
-            record.projX, record.projY = x or false, y or false
+        if cellLead[cell] == record then
+            if record.projHost == key and record.projMap == record.mapID and record.projCx == record.cx and record.projCy == record.cy then
+                x, y = record.projX, record.projY
+            else
+                x, y = Project(record.mapID, (record.cx + 0.5) / 100, (record.cy + 0.5) / 100, host, stitched)
+                record.projHost, record.projMap, record.projCx, record.projCy = key, record.mapID, record.cx, record.cy
+                record.projX, record.projY = x or false, y or false
+            end
         end
         if x and y then
             shown = shown + 1
@@ -779,42 +955,27 @@ local function DrawDots(store, host, canvas, now, tier, stitched)
                 dots[shown] = dot
             end
             dot.record = record
-            if dot.size ~= size then
-                dot.size = size
-                dot:SetSize(size, size)
-            end
+            local age = now - record.lastSeen
+            StyleMarker(dot, record, size, cellCount[cell], age, Heading(record))
             local px, py = x * width, -y * height
             if dot.px ~= px or dot.py ~= py then
                 dot.px, dot.py = px, py
                 dot:ClearAllPoints()
                 dot:SetPoint("CENTER", layer, "TOPLEFT", px, py)
             end
-            if dot.class ~= record.class then
-                dot.class = record.class
-                local color = ClassColor(record.class)
-                dot.icon:SetVertexColor(color.r, color.g, color.b, 1)
-                dot.ring:SetVertexColor(color.r, color.g, color.b, 1)
-            end
-            if dot.arrowSize ~= size then
-                dot.arrowSize = size
-                dot.arrow:SetSize(size * 1.2, size * 1.2)
-            end
-            local bearing = Heading(record)
-            if bearing and (dot.arrowBearing ~= bearing or dot.arrowAt ~= size) then
-                dot.arrowBearing, dot.arrowAt = bearing, size
-                dot.arrow:ClearAllPoints()
-                dot.arrow:SetPoint("CENTER", dot, "CENTER", math.sin(bearing) * size, math.cos(bearing) * size)
-            end
-            SetArrow(dot.arrow, bearing)
-            local alpha = M.Alpha(now - record.lastSeen, tier.step) * (SA_GlobalSight.Confirmed(record) and 1 or UNCONFIRMED_ALPHA)
+            local alpha = M.MarkAlpha(age, tier.step)
             if dot.alpha ~= alpha then
                 dot.alpha = alpha
                 dot:SetAlpha(alpha)
             end
-            if tier.pulse and now - record.lastSeen < FRESH then
-                dot.ring:Show()
-                if not dot.pulse:IsPlaying() then dot.pulse:Play() end
-            elseif dot.ring:IsShown() then
+            if tier.pulse and age < FRESH then
+                if not dot.pulseOn then
+                    dot.pulseOn = true
+                    dot.ring:Show()
+                    dot.pulse:Play()
+                end
+            elseif dot.pulseOn then
+                dot.pulseOn = false
                 dot.pulse:Stop()
                 dot.ring:Hide()
             end
@@ -860,8 +1021,9 @@ local function DrawRings(store, host, canvas, now, tier, stitched, showRings)
     for class in pairs(worldMix) do worldMix[class] = 0 end
     for _, record in pairs(store.records) do
         local age = now - record.lastSeen
-        if record.firstSeen <= now - WINDOW and age <= WINDOW * 2 then worldPrevious = worldPrevious + 1 end
-        if age <= WINDOW then
+        if age > WINDOW * 2 or (not stitched and not InsideHost(record.mapID, host)) then age = nil end
+        if age and record.firstSeen <= now - WINDOW then worldPrevious = worldPrevious + 1 end
+        if age and age <= WINDOW then
             worldTotal = worldTotal + 1
             if M.STEALTH[record.class] then worldStealth = worldStealth + 1 end
             if M.Higher(record.level, mine) then worldHigher = worldHigher + 1 end
@@ -931,12 +1093,15 @@ local function DrawRings(store, host, canvas, now, tier, stitched, showRings)
             ring:ClearAllPoints()
             ring:SetPoint("CENTER", layer, "TOPLEFT", cluster.x, cluster.y)
         end
-        AssignPips(ring, cluster.classes, cluster.total)
+        AssignCrests(ring, cluster.classes)
         if ring.shownTotal ~= cluster.total then
             ring.shownTotal = cluster.total
             ring.count:SetText(cluster.total > 99 and "99+" or cluster.total)
         end
-        ring.tick:SetShown(cluster.higher)
+        if ring.higher ~= cluster.higher then
+            ring.higher = cluster.higher
+            ring.tick:SetShown(cluster.higher)
+        end
         if tier.ringPulse and cluster.total >= HOT then
             ring.glow:Show()
             if not ring.pulse:IsPlaying() then ring.pulse:Play() end
@@ -955,7 +1120,7 @@ local function ByZoneCount(a, b)
     return a.mapID < b.mapID
 end
 
-local function DrawWorldPanel(store, host)
+local function DrawWorldPanel(store, host, stitched)
     local option = PanelOption("globalPanelWorld")
     if option == "off" then
         if panel then SA_GlobalPanel.Hide(panel) end
@@ -974,7 +1139,9 @@ local function DrawWorldPanel(store, host)
     for i = zoneCount + 1, #zoneList do zoneList[i] = nil end
     table.sort(zoneList, ByZoneCount)
     local watchers = 0
-    for _, number in pairs(store.watcherCounts) do watchers = watchers + number end
+    for zoneID, number in pairs(store.watcherCounts) do
+        if stitched or InsideHost(zoneID, host) then watchers = watchers + number end
+    end
     local verdict = M.WorldVerdict(worldTotal)
     local color = VERDICT_COLOR[verdict]
     local data = worldData
@@ -1065,7 +1232,7 @@ local function Draw()
         HideFrom(dots, 1, dotsShown)
         dotsShown = 0
         DrawRings(store, host, canvas, now, tier, stitched, markersOn)
-        DrawWorldPanel(store, host)
+        DrawWorldPanel(store, host, stitched)
     end
 end
 
@@ -1124,20 +1291,15 @@ local function Attach()
     end
 end
 
-local PIN_SIZE, RIM_SIZE, RIM_ALPHA = 8, 6, 0.55
+local PIN_SIZE, RIM_SIZE, RIM_ALPHA = 15, 11, 0.55
 local GATHER_EVERY = 1
 local pinFrame
 local pins, pinsShown = {}, 0
 local nearby, nearbyCount, gatherZone, nextGather, sincePin = {}, 0, nil, 0, 0
+local pinLead, pinCount, pinKeys = {}, {}, {}
 
 local function NewPin()
-    local pin = CreateFrame("Button", nil, pinFrame)
-    pin.icon = pin:CreateTexture(nil, "OVERLAY")
-    pin.icon:SetTexture(DOT_TEXTURE)
-    pin.icon:SetAllPoints(pin)
-    pin:SetScript("OnEnter", ShowTip)
-    pin:SetScript("OnLeave", HideTip)
-    return pin
+    return NewMarker(pinFrame)
 end
 
 local function HidePins()
@@ -1164,17 +1326,10 @@ local function GatherNearby(store, zone, now)
     for index = count + 1, nearbyCount do nearby[index] = nil end
     nearbyCount = count
     if count > 1 then table.sort(nearby, ByRecent) end
+    GroupCells(nearby, count, pinLead, pinCount, pinKeys)
 end
 
-local function PlacePin(pin, size, color, alpha, x, y)
-    if pin.lastSize ~= size then
-        pin.lastSize = size
-        pin:SetSize(size, size)
-    end
-    if pin.lastColor ~= color then
-        pin.lastColor = color
-        pin.icon:SetVertexColor(color.r, color.g, color.b)
-    end
+local function PlacePin(pin, alpha, x, y)
     if pin.lastAlpha ~= alpha then
         pin.lastAlpha = alpha
         pin:SetAlpha(alpha)
@@ -1220,8 +1375,9 @@ local function DrawPins()
     for index = 1, nearbyCount do
         if shown >= tier.pins then break end
         local record = nearby[index]
+        local cell = pinKeys[index]
         local x, y, rim
-        if record.mapID == zone and store.records[record.guid] == record then
+        if pinLead[cell] == record and record.mapID == zone and store.records[record.guid] == record then
             local dx, dy = Offset(record, px, py, width, height)
             x, y, rim = M.MinimapSpot(dx, -dy, radius, facing)
         end
@@ -1233,10 +1389,13 @@ local function DrawPins()
                 pins[shown] = pin
             end
             pin.record = record
-            local alpha = M.Alpha(now - record.lastSeen, tier.step)
-            if not SA_GlobalSight.Confirmed(record) then alpha = alpha * UNCONFIRMED_ALPHA end
+            local age = now - record.lastSeen
+            local bearing = Heading(record)
+            if bearing and facing then bearing = bearing + facing end
+            StyleMarker(pin, record, rim and RIM_SIZE or PIN_SIZE, pinCount[cell], age, bearing)
+            local alpha = M.MarkAlpha(age, tier.step)
             if rim then alpha = alpha * RIM_ALPHA end
-            PlacePin(pin, rim and RIM_SIZE or PIN_SIZE, ClassColor(record.class), alpha, x * half, y * half)
+            PlacePin(pin, alpha, x * half, y * half)
         end
     end
     HideFrom(pins, shown + 1, pinsShown)
@@ -1287,4 +1446,379 @@ function SoundAlerter:UpdateGlobalMap()
         pinFrame:Hide()
     end
 end
+
+local Enemy = {
+    REFRESH = 5,
+    TITLE = "SoundAlerter - Enemy Finder",
+    CLASS_ICONS = "Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES",
+    SETTINGS = { scope = "names", fuzzy = true, autocomplete = false, descending = false },
+    results = {}, scores = {}, lower = {}, lowerCount = 0, classLower = {}, zoneLower = {},
+}
+
+function Enemy.Lower(text)
+    local cached = Enemy.lower[text]
+    if cached then return cached end
+    if Enemy.lowerCount >= 2000 then
+        wipe(Enemy.lower)
+        Enemy.lowerCount = 0
+    end
+    cached = string.lower(text)
+    Enemy.lower[text] = cached
+    Enemy.lowerCount = Enemy.lowerCount + 1
+    return cached
+end
+
+function Enemy.ClassName(class)
+    return LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[class] or class or "?"
+end
+
+function Enemy.ClassLower(class)
+    local cached = Enemy.classLower[class]
+    if not cached then
+        cached = string.lower(Enemy.ClassName(class))
+        Enemy.classLower[class] = cached
+    end
+    return cached
+end
+
+function Enemy.ZoneLower(mapID)
+    local cached = Enemy.zoneLower[mapID]
+    if not cached then
+        cached = string.lower(ZoneName(mapID))
+        Enemy.zoneLower[mapID] = cached
+    end
+    return cached
+end
+
+function Enemy.Score(record, term)
+    if term == "" then return 0 end
+    local score = SA_FinderList.Score(Enemy.Lower(record.name or ""), term)
+    if score then return score end
+    if string.find(Enemy.ClassLower(record.class), term, 1, true) then return 3000 end
+    if type(record.race) == "string" and string.find(Enemy.Lower(record.race), term, 1, true) then return 3100 end
+    if string.find(Enemy.ZoneLower(record.mapID), term, 1, true) then return 3200 end
+    return nil
+end
+
+Enemy.COLUMNS = {
+    { key = "seen", label = "Seen", width = 54, gap = 0 },
+    { key = "level", label = "Level", width = 60, gap = 10 },
+    { key = "zone", label = "Zone", width = 70, gap = 8 },
+    { key = "name", label = "Name", align = "LEFT", offset = 38 },
+}
+
+Enemy.sortKey = nil
+Enemy.sortDescending = false
+
+local function EnemyLevel(record)
+    local level = record.level
+    if type(level) == "number" and level >= 0 then return level end
+    return 1000
+end
+
+local SORT_VALUE = {
+    name = function(record) return Enemy.Lower(record.name or "") end,
+    zone = function(record) return Enemy.ZoneLower(record.mapID) end,
+    level = EnemyLevel,
+    seen = function(record) return -record.lastSeen end,
+}
+
+local function ByEnemyScore(a, b)
+    local scores = Enemy.scores
+    if scores[a] ~= scores[b] then return scores[a] < scores[b] end
+    return a.lastSeen > b.lastSeen
+end
+
+local function ByEnemyColumn(a, b)
+    local value = SORT_VALUE[Enemy.sortKey]
+    local left, right = value(a), value(b)
+    if left ~= right then
+        if Enemy.sortDescending then return left > right end
+        return left < right
+    end
+    return ByEnemyScore(a, b)
+end
+
+function Enemy.SortState()
+    return Enemy.sortKey, Enemy.sortDescending
+end
+
+function Enemy.OnSort(key)
+    if Enemy.sortKey ~= key then
+        Enemy.sortKey = key
+        Enemy.sortDescending = false
+    elseif not Enemy.sortDescending then
+        Enemy.sortDescending = true
+    else
+        Enemy.sortKey = nil
+        Enemy.sortDescending = false
+    end
+end
+
+function Enemy.Store()
+    local profile = SoundAlerter.db1 and SoundAlerter.db1.profile
+    if not (profile and profile.globalSightings) then return nil end
+    return SoundAlerter:GlobalSightStore()
+end
+
+function Enemy.Search(window, term, keepGuid)
+    local results, scores = Enemy.results, Enemy.scores
+    for i = #results, 1, -1 do results[i] = nil end
+    wipe(scores)
+    local store = Enemy.Store()
+    local count = 0
+    if store then
+        local now = GetTime()
+        term = string.lower(term or "")
+        for _, record in pairs(store.records) do
+            if now - record.lastSeen <= M.GONE_AGE then
+                local score = Enemy.Score(record, term)
+                if score then
+                    count = count + 1
+                    results[count] = record
+                    scores[record] = score
+                end
+            end
+        end
+        table.sort(results, Enemy.sortKey and ByEnemyColumn or ByEnemyScore)
+    end
+    window:ShowResults(results, count, term)
+    if keepGuid then
+        for i = 2, count do
+            if results[i].guid == keepGuid then
+                window:Select(i)
+                break
+            end
+        end
+    end
+end
+
+function Enemy.Count()
+    local store = Enemy.Store()
+    if not store then return nil end
+    local now, count = GetTime(), 0
+    for _, record in pairs(store.records) do
+        if now - record.lastSeen <= M.GONE_AGE then count = count + 1 end
+    end
+    return count
+end
+
+function Enemy.Icon(texture, class)
+    local coords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[class]
+    if coords then
+        texture:SetTexture(Enemy.CLASS_ICONS)
+        texture:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+    else
+        texture:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+        texture:SetTexCoord(0, 1, 0, 1)
+    end
+end
+
+function Enemy.LevelText(record)
+    local level = record.level
+    if type(level) == "number" and level >= 0 then return tostring(level) end
+    return "??"
+end
+
+function Enemy.Where(mapID, cx, cy)
+    local name = ZoneName(mapID)
+    if name == "" then name = "Unknown zone" end
+    if type(cx) == "number" and type(cy) == "number" then return name .. "  " .. cx .. ", " .. cy end
+    return name
+end
+
+function Enemy.WatchTint(row, on)
+    local tint = row.watch
+    if not tint then
+        if not on then return end
+        tint = row.frame:CreateTexture(nil, "BORDER")
+        tint:SetAllPoints(row.frame)
+        tint:SetColorTexture(WATCH_COLOR.r, WATCH_COLOR.g, WATCH_COLOR.b, WATCH_ROW_ALPHA)
+        row.watch = tint
+    elseif row.watchOn == on then
+        return
+    end
+    row.watchOn = on
+    tint:SetShown(on)
+end
+
+function Enemy.BindRow(row, record)
+    Enemy.WatchTint(row, SoundAlerter:StampWatched(record) and true or false)
+    Enemy.Icon(row.icon, record.class)
+    row.name:SetText(record.name or "?")
+    row.rank:SetText(Enemy.LevelText(record))
+    row.tag:SetText(ZoneName(record.mapID))
+    row.id:SetText(M.Short(GetTime() - record.lastSeen))
+end
+
+function Enemy.RowTip(record)
+    local color = ClassColor(record.class)
+    GameTooltip:AddLine(record.name or "?", color.r, color.g, color.b)
+    GameTooltip:AddLine(Enemy.LevelText(record) .. " " .. Enemy.ClassName(record.class), 1, 1, 1)
+    GameTooltip:AddLine(Enemy.Where(record.mapID, record.cx, record.cy), 0.8, 0.8, 0.8)
+    GameTooltip:AddLine("Last seen " .. M.Ago(GetTime() - record.lastSeen), 0.6, 0.65, 0.7)
+    if record.watched then GameTooltip:AddLine("On your watchlist", WATCH_COLOR.r, WATCH_COLOR.g, WATCH_COLOR.b) end
+    GameTooltip:AddLine("Ctrl-click to " .. (record.watched and "unwatch" or "watch"), 0.55, 0.58, 0.64)
+end
+
+function Enemy.FillDetail(window, fields, record)
+    if not record then
+        fields.icon:Hide()
+        fields.title:SetText("")
+        fields.subtitle:SetText("")
+        fields.facts:SetText("")
+        fields.props:SetText("")
+        fields.id:SetText("")
+        fields.description:SetText("Select an enemy to see everything known about them. Ctrl-click a row to watch or unwatch.")
+        window:SetButtons(false, false)
+        return
+    end
+    local now = GetTime()
+    local color = ClassColor(record.class)
+    fields.icon:Show()
+    Enemy.Icon(fields.icon, record.class)
+    fields.title:SetText(record.name or "?")
+    fields.title:SetTextColor(color.r, color.g, color.b)
+    local race = type(record.race) == "string" and record.race ~= "" and (record.race .. " ") or ""
+    fields.subtitle:SetText("Level " .. Enemy.LevelText(record) .. " " .. race .. Enemy.ClassName(record.class))
+    local facts = "Where: " .. Enemy.Where(record.mapID, record.cx, record.cy)
+    if record.prevMapID and (record.prevMapID ~= record.mapID or record.prevCx ~= record.cx or record.prevCy ~= record.cy) then
+        facts = facts .. "\nCame from: " .. Enemy.Where(record.prevMapID, record.prevCx, record.prevCy)
+    end
+    facts = facts .. "\nLast seen " .. M.Ago(now - record.lastSeen) .. ", first seen " .. M.Ago(now - record.firstSeen)
+    fields.facts:SetText(facts)
+    local count = record.reporterCount or 1
+    if count < 1 then count = 1 end
+    local store = Enemy.Store()
+    local watchers = store and store.watcherCounts[record.mapID] or 0
+    fields.props:SetText("Seen by " .. count .. (count == 1 and " player" or " players")
+        .. "\nDistance: " .. (BAND_TEXT[record.band] or "unknown")
+        .. "\nVia " .. (SOURCE_TEXT[record.source] or "unknown")
+        .. "\nWatching this zone: " .. watchers)
+    local notes = SoundAlerter:StampWatched(record) and "|cffFF2929On your watchlist.|r" or ""
+    if M.STEALTH[record.class] then notes = notes ~= "" and (notes .. "\nCan stealth.") or "Can stealth." end
+    local mine = UnitLevel and UnitLevel("player")
+    local levelNote
+    if type(record.level) ~= "number" or record.level < 0 then
+        levelNote = "Level unknown: likely far above yours."
+    elseif M.Higher(record.level, mine) then
+        levelNote = "Higher level than you."
+    end
+    if levelNote then notes = notes ~= "" and (notes .. "\n" .. levelNote) or levelNote end
+    fields.description:SetText(notes)
+    fields.id:SetText(record.name or "")
+    window:SetButtons(true, false)
+end
+
+function Enemy.Status(count)
+    if not Enemy.Store() then return "Global sightings is off" end
+    count = count or 0
+    return count .. (count == 1 and " enemy" or " enemies") .. " in the last 10 minutes"
+end
+
+function Enemy.Empty(term)
+    if not Enemy.Store() then return "Global sightings is off. Turn it on under Global sightings to collect enemies spotted by your faction." end
+    if term and term ~= "" then return "No recent enemy matches \"" .. term .. "\"." end
+    return "No enemies spotted in the last 10 minutes."
+end
+
+function Enemy.Refresh()
+    local window = Enemy.window
+    if not (window and window.frame:IsShown()) then return end
+    local selected = window.selectedSpell
+    Enemy.Search(window, window:Text(), selected and selected.guid)
+end
+
+function Enemy.ToggleWatch(record)
+    if record and record.name then SoundAlerter:ToggleWatchName(record.name) end
+end
+
+function Enemy.Shown(window)
+    if not Enemy.ticker then Enemy.ticker = C_Timer.NewTicker(Enemy.REFRESH, Enemy.Refresh) end
+    window:RunSearch()
+end
+
+function Enemy.Hidden()
+    if Enemy.ticker then
+        Enemy.ticker:Cancel()
+        Enemy.ticker = nil
+    end
+end
+
+function Enemy.Host()
+    return {
+        title = Enemy.TITLE,
+        placeholder = "Name, class, race or zone",
+        controls = false,
+        listAll = true,
+        columns = Enemy.COLUMNS,
+        sortState = Enemy.SortState,
+        onSort = Enemy.OnSort,
+        copyLabel = "Copy name",
+        copyToast = "Name selected, press Ctrl+C",
+        settings = function() return Enemy.SETTINGS end,
+        rankOptions = function() return {} end,
+        search = function(window, term) Enemy.Search(window, term) end,
+        suggest = function() return {} end,
+        status = Enemy.Status,
+        empty = Enemy.Empty,
+        detail = function(window, record) window:SetDetail(record) end,
+        bindRow = Enemy.BindRow,
+        rowTip = Enemy.RowTip,
+        rowModifiedClick = Enemy.ToggleWatch,
+        fillDetail = Enemy.FillDetail,
+        set = function() end,
+        setScope = function() end,
+        after = function(delay, fn) return SoundAlerter:ScheduleTimer(fn, delay) end,
+        cancel = function(handle) SoundAlerter:CancelTimer(handle, true) end,
+        savePosition = function(point, relative, x, y)
+            local profile = SoundAlerter.db1 and SoundAlerter.db1.profile
+            if not profile then return end
+            profile.enemyFinder = profile.enemyFinder or {}
+            profile.enemyFinder.position = { point = point, relative = relative, x = x, y = y }
+        end,
+        onShown = Enemy.Shown,
+        onHidden = Enemy.Hidden,
+    }
+end
+
+function SoundAlerter:RefreshEnemyFinder()
+    Enemy.Refresh()
+end
+
+function SoundAlerter:IsEnemyFinderOpen()
+    return Enemy.window ~= nil and Enemy.window.frame:IsShown()
+end
+
+function SoundAlerter:EnemyFinderCount()
+    return Enemy.Count()
+end
+
+function SoundAlerter:ToggleEnemyFinder()
+    if self:IsEnemyFinderOpen() then
+        Enemy.window:Hide()
+        return
+    end
+    if not Enemy.window then Enemy.window = SA_FinderWindow.Create(Enemy.Host()) end
+    local window = Enemy.window
+    local dialog = LibStub and LibStub("AceConfigDialog-3.0", true)
+    local options = dialog and dialog.OpenFrames and dialog.OpenFrames["SoundAlerter"]
+    local profile = self.db1 and self.db1.profile
+    local saved = profile and profile.enemyFinder and profile.enemyFinder.position
+    if options and options.frame then
+        local spellFinderOpen = self.IsFinderOpen and self:IsFinderOpen() or false
+        window:Dock(options.frame, spellFinderOpen)
+        if not options.frame.saEnemyFinderHooked then
+            options.frame.saEnemyFinderHooked = true
+            options.frame:HookScript("OnHide", function()
+                if Enemy.window then Enemy.window:Hide() end
+            end)
+        end
+    elseif saved and saved.point then
+        window:Place(saved.point, saved.relative, saved.x, saved.y)
+    end
+    window:Show()
+end
+
+SA_GlobalMap.Enemy = Enemy
 end

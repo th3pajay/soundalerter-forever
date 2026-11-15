@@ -263,11 +263,130 @@ function Venn.CategoryOf(spells, spellID)
     return "Other"
 end
 
-function Venn.NoteText(layout, scope)
+Venn.GAME_VOICED_NOTE = ". Game-voiced BG and arena buffs not counted"
+
+function Venn.NoteText(layout, scope, gameVoiced)
     if layout.pool == 0 then return "" end
     scope = scope or "all-time"
+    local text
     if layout.shown < layout.pool then
-        return string.format("Showing %d of %d spells - %s", layout.shown, layout.pool, scope)
+        text = string.format("Showing %d of %d spells - %s", layout.shown, layout.pool, scope)
+    else
+        text = string.format("%d spells - %s", layout.pool, scope)
     end
-    return string.format("%d spells - %s", layout.pool, scope)
+    return gameVoiced and text .. Venn.GAME_VOICED_NOTE or text
+end
+
+
+Venn.BG_HIDDEN = "hidden by the game"
+Venn.BG_HIDDEN_TIP = {
+    "The game hides enemy spells from addons in battlegrounds, so they can't be counted.",
+    "Enemy buffs are still voiced by the game there, but it doesn't tell SoundAlerter, so those aren't counted either.",
+    "See Classes for who you met there.",
+}
+
+Venn.CLASSES = {
+    { key = "DRUID", label = "Druid", short = "Dru", color = { 1, 0.49, 0.04 } },
+    { key = "HUNTER", label = "Hunter", short = "Hun", color = { 0.67, 0.83, 0.45 } },
+    { key = "MAGE", label = "Mage", short = "Mag", color = { 0.41, 0.8, 0.94 } },
+    { key = "PALADIN", label = "Paladin", short = "Pal", color = { 0.96, 0.55, 0.73 } },
+    { key = "PRIEST", label = "Priest", short = "Pri", color = { 1, 1, 1 } },
+    { key = "ROGUE", label = "Rogue", short = "Rog", color = { 1, 0.96, 0.41 } },
+    { key = "SHAMAN", label = "Shaman", short = "Sha", color = { 0, 0.44, 0.87 } },
+    { key = "WARLOCK", label = "Warlock", short = "Wlk", color = { 0.58, 0.51, 0.79 } },
+    { key = "WARRIOR", label = "Warrior", short = "War", color = { 0.78, 0.61, 0.43 } },
+    { key = "UNKNOWN", label = "Unknown", short = "?", color = { 0.49, 0.52, 0.59 } },
+}
+
+Venn.CLASS_INDEX, Venn.CLASS_COLOR, Venn.CLASS_LABEL = {}, {}, {}
+for index, class in ipairs(Venn.CLASSES) do
+    Venn.CLASS_INDEX[class.key] = index
+    Venn.CLASS_COLOR[class.key] = class.color
+    Venn.CLASS_LABEL[class.key] = class.label
+end
+
+Venn.REGION_NAME = {
+    [1] = "Arena only", [2] = "Battlegrounds only", [4] = "World PvP only",
+    [3] = "Arena and battlegrounds", [5] = "Arena and world PvP", [6] = "Battlegrounds and world PvP", [7] = "All three",
+}
+
+Venn.CLASS_NAMES = 6
+
+function Venn.ClassOf(token)
+    if Venn.CLASS_INDEX[token] then return token end
+    return "UNKNOWN"
+end
+
+local function byAlertsThenName(a, b)
+    if a[2] ~= b[2] then return a[2] > b[2] end
+    return a[1] < b[1]
+end
+
+function Venn.ClassEntries(enemies, pool)
+    pool = pool or {}
+    local entries = {}
+    local generation = (pool.generation or 0) + 1
+    pool.generation = generation
+    for name, enemy in pairs(enemies or {}) do
+        local mask = Venn.MaskOf(enemy.byZone)
+        if mask > 0 then
+            local class = Venn.ClassOf(enemy.class)
+            local key = class .. ":" .. mask
+            local entry = pool[key]
+            if not entry then
+                entry = { id = key, class = class, group = class, mask = mask, ranked = {} }
+                pool[key] = entry
+            end
+            if entry.generation ~= generation then
+                entry.generation = generation
+                entry.total = 0
+                for index = #entry.ranked, 1, -1 do entry.ranked[index] = nil end
+                entries[#entries + 1] = entry
+            end
+            entry.total = entry.total + 1
+            entry.ranked[#entry.ranked + 1] = { name, enemy.totalAlerts or 0 }
+        end
+    end
+    for key, entry in pairs(pool) do
+        if type(entry) == "table" and entry.generation ~= generation then pool[key] = nil end
+    end
+    for _, entry in ipairs(entries) do
+        table.sort(entry.ranked, byAlertsThenName)
+        local names = entry.names or {}
+        for index = #names, 1, -1 do names[index] = nil end
+        for index = 1, math.min(Venn.CLASS_NAMES, #entry.ranked) do names[index] = entry.ranked[index][1] end
+        entry.names = names
+    end
+    return entries
+end
+
+function Venn.ClassShares(classByZone)
+    local rows = {}
+    for index, zone in ipairs(Venn.ZONES) do
+        local counts = classByZone and classByZone[zone.key] or {}
+        local parts, total = {}, 0
+        for _, class in ipairs(Venn.CLASSES) do
+            local count = counts[class.key] or 0
+            if count > 0 then
+                parts[#parts + 1] = { key = class.key, count = count }
+                total = total + count
+            end
+        end
+        rows[index] = { zone = zone, parts = parts, total = total }
+    end
+    return rows
+end
+
+function Venn.ClassNoteText(layout, shares)
+    if layout.pool == 0 then return "" end
+    local players = 0
+    for index = 1, #layout.items do
+        local item = layout.items[index]
+        if item.entry then players = players + item.entry.total end
+        if item.more then
+            for _, entry in ipairs(item.hidden) do players = players + entry.total end
+        end
+    end
+    local battleground = shares and shares[2] and shares[2].total or 0
+    return string.format("%d players from your top 100. Bars: everyone met, %d in BGs.", players, battleground)
 end

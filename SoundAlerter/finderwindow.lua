@@ -16,6 +16,8 @@ local PAD = 12
 local DETAIL_WIDTH = 270
 local PANE_GAP = 8
 local FOOTER_HEIGHT = 26
+local HEADER_HEIGHT = 22
+local SORT_ARROW = "Interface\\Buttons\\UI-SortArrow"
 local SEARCH_HEIGHT = 24
 local SUGGEST_HEIGHT = 22
 local MENU_ROW = 22
@@ -47,6 +49,7 @@ local function ShowTip(owner, title, body)
 end
 
 function Window:Settings()
+    if self.host.controls == false then return self.host.settings() end
     return List.Normalize(self.host.settings(), self.host.rankOptions())
 end
 
@@ -65,7 +68,13 @@ function Window:Layout()
     self.suggestFrame:SetPoint("TOPLEFT", self.box, "BOTTOMLEFT", 0, -2)
     self.suggestFrame:SetWidth(math.min(inner, 340))
     local y = TITLE_HEIGHT + 6 + SEARCH_HEIGHT + 6
-    y = Flow(self.frame, self.controls, inner, 6, PAD, y, 26) + 2
+    if #self.controls > 0 then y = Flow(self.frame, self.controls, inner, 6, PAD, y, 26) + 2 end
+    if self.header then
+        self.header.frame:ClearAllPoints()
+        self.header.frame:SetPoint("TOPLEFT", self.frame, "TOPLEFT", PAD, -y)
+        self.header.frame:SetSize(inner - DETAIL_WIDTH - PANE_GAP - 12, HEADER_HEIGHT)
+        y = y + HEADER_HEIGHT
+    end
     local bodyHeight = HEIGHT - FOOTER_HEIGHT - y
     self.list:ClearAllPoints()
     self.list:SetPoint("TOPLEFT", self.frame, "TOPLEFT", PAD, -y)
@@ -122,11 +131,22 @@ function Window:AcquireRow(index)
     name:SetPoint("LEFT", icon, "RIGHT", 8, 0)
     name:SetPoint("RIGHT", tag, "LEFT", -6, 0)
     row = { frame = frame, selected = selected, bar = bar, icon = icon, name = name, rank = rank, id = id, tag = tag }
-    frame:SetScript("OnClick", function() self:Select(row.index) end)
+    frame:SetScript("OnClick", function()
+        if self.host.rowModifiedClick and row.spell and IsControlKeyDown() then
+            self.host.rowModifiedClick(row.spell)
+            return
+        end
+        self:Select(row.index)
+    end)
     frame:SetScript("OnEnter", function()
         local spell = row.spell
         if not spell then return end
         GameTooltip:SetOwner(frame, "ANCHOR_CURSOR")
+        if self.host.rowTip then
+            self.host.rowTip(spell)
+            GameTooltip:Show()
+            return
+        end
         local link = self.host.spellLink(spell.spellID)
         if link then
             GameTooltip:SetHyperlink(link)
@@ -144,7 +164,10 @@ end
 
 function Window:BindRow(row, spell, index)
     row.index = index
-    if row.spell ~= spell then
+    if self.host.bindRow then
+        row.spell = spell
+        self.host.bindRow(row, spell)
+    elseif row.spell ~= spell then
         row.spell = spell
         row.icon:SetTexture(self.host.icon(spell.spellID))
         row.name:SetText(spell.baseName or spell.name)
@@ -247,6 +270,10 @@ end
 
 function Window:SetDetail(info)
     local detail = self.fields
+    if self.host.fillDetail then
+        self.host.fillDetail(self, detail, info)
+        return
+    end
     if not info then
         detail.icon:Hide()
         detail.title:SetText("")
@@ -296,12 +323,12 @@ function Window:CopyId()
     if not self.selectedSpell then return end
     self.fields.id:SetFocus()
     self.fields.id:HighlightText()
-    self:Toast("ID selected, press Ctrl+C")
+    self:Toast(self.host.copyToast or "ID selected, press Ctrl+C")
 end
 
 function Window:Insert(withDescription)
     local spell = self.selectedSpell
-    if not spell then return end
+    if not spell or not self.host.insert then return end
     self.host.insert(spell, withDescription, self)
 end
 
@@ -316,7 +343,7 @@ function Window:RunSearch()
     self:CancelPending()
     local term = self:Text()
     self.lastSearchTerm = term
-    if term == "" then
+    if term == "" and not self.host.listAll then
         self:ShowHint()
         return
     end
@@ -332,6 +359,10 @@ end
 function Window:ScheduleSearch()
     self:CancelPending()
     local term = self:Text()
+    if term == "" and self.host.listAll then
+        self:RunSearch()
+        return
+    end
     if term == "" or not List.Settled(term, self:Settings().scope) then
         self.lastSearchTerm = term
         self:ShowHint()
@@ -459,7 +490,7 @@ function Window:OnEscape()
         self.box:SetText("")
         self:CancelPending()
         self.lastSearchTerm = ""
-        self:ShowHint()
+        if self.host.listAll then self:RunSearch() else self:ShowHint() end
     else
         self.box:ClearFocus()
     end
@@ -480,6 +511,11 @@ end
 
 function Window:RefreshControls()
     local settings = self:Settings()
+    if self.host.controls == false then
+        self.placeholder:SetText(self.host.placeholder or "Search")
+        self:Layout()
+        return
+    end
     self.scopeSelect:Set(settings.scope)
     self.fuzzy:Set(settings.fuzzy)
     self.autocomplete:Set(settings.autocomplete)
@@ -577,7 +613,7 @@ function Window:BuildTitle()
     fill:SetAllPoints(bar)
     local title = Text(bar, 13, COLOR.text)
     title:SetPoint("LEFT", bar, "LEFT", PAD, 0)
-    title:SetText("SoundAlerter - Find Spell")
+    title:SetText(self.host.title or "SoundAlerter - Find Spell")
     local hint = Text(bar, 11, COLOR.muted)
     hint:SetPoint("LEFT", title, "RIGHT", 10, 0)
     hint:SetText("drag to move")
@@ -655,6 +691,10 @@ function Window:BuildControls()
     local frame = self.frame
     self.controls = {}
     local function add(control) self.controls[#self.controls + 1] = control return control end
+    if self.host.controls == false then
+        self:BuildMenu()
+        return
+    end
     self.scopeSelect = add(Kit.MakeSelect(frame, { options = List.SCOPES }, function(value) self.host.setScope(value) end))
     self.fuzzy = add(Kit.MakeChip(frame, "Fuzzy", function() self:Change("fuzzy", not self:Settings().fuzzy) end))
     self.autocomplete = add(Kit.MakeChip(frame, "Autocomplete", function() self:Change("autocomplete", not self:Settings().autocomplete) end))
@@ -671,7 +711,78 @@ function Window:BuildControls()
     self.descending = add(Kit.MakeChip(frame, "Descending", function() self:Change("sortDesc", not self:Settings().descending) end))
     self.fuzzy.frame:HookScript("OnEnter", function() ShowTip(self.fuzzy.frame, "Fuzzy", "Typo-tolerant matching: abbreviations like frstblt and one or two typos. Switches the sort to Relevance.") end)
     self.fuzzy.frame:HookScript("OnLeave", HideTip)
+    self:BuildMenu()
+end
 
+function Window:RefreshHeader()
+    if not self.header then return end
+    local key, descending = self.host.sortState()
+    for column, cell in pairs(self.header.cells) do
+        local active = column == key
+        Tint(cell.label, active and COLOR.accent or COLOR.muted)
+        cell.arrow:SetShown(active)
+        if active then
+            cell.arrow:SetVertexColor(COLOR.accent[1], COLOR.accent[2], COLOR.accent[3])
+            if descending then
+                cell.arrow:SetTexCoord(0, 0.5625, 1, 0)
+            else
+                cell.arrow:SetTexCoord(0, 0.5625, 0, 1)
+            end
+        end
+    end
+end
+
+function Window:BuildHeader()
+    local frame = CreateFrame("Frame", nil, self.frame)
+    local fill = Paint(frame, COLOR.card, 1)
+    fill:SetAllPoints(frame)
+    local rule = Paint(frame, COLOR.line, 0.8)
+    rule:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+    rule:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+    rule:SetHeight(1)
+    local header = { frame = frame, cells = {} }
+    self.header = header
+    local previous
+    for _, column in ipairs(self.host.columns) do
+        local button = CreateFrame("Button", nil, frame)
+        button:SetHeight(HEADER_HEIGHT)
+        local align = column.align or "RIGHT"
+        local label = Text(button, 11, COLOR.muted, align)
+        local arrow = button:CreateTexture(nil, "ARTWORK")
+        arrow:SetTexture(SORT_ARROW)
+        arrow:SetSize(9, 9)
+        arrow:Hide()
+        if align == "RIGHT" then
+            if previous then
+                button:SetPoint("RIGHT", previous, "LEFT", -column.gap, 0)
+            else
+                button:SetPoint("RIGHT", frame, "RIGHT", -8, 0)
+            end
+            button:SetWidth(column.width)
+            label:SetPoint("RIGHT", button, "RIGHT", 0, 0)
+            arrow:SetPoint("RIGHT", label, "LEFT", -2, 0)
+            previous = button
+        else
+            button:SetPoint("LEFT", frame, "LEFT", column.offset, 0)
+            button:SetPoint("RIGHT", previous, "LEFT", -6, 0)
+            label:SetPoint("LEFT", button, "LEFT", 0, 0)
+            arrow:SetPoint("LEFT", label, "RIGHT", 2, 0)
+        end
+        label:SetText(column.label)
+        button:SetScript("OnClick", function()
+            self.host.onSort(column.key)
+            self:RefreshHeader()
+            self:RunSearch()
+        end)
+        button:SetScript("OnEnter", function() Tint(label, COLOR.text) end)
+        button:SetScript("OnLeave", function() self:RefreshHeader() end)
+        header.cells[column.key] = { label = label, arrow = arrow }
+    end
+    self:RefreshHeader()
+end
+
+function Window:BuildMenu()
+    local frame = self.frame
     self.catcher = CreateFrame("Button", nil, UIParent)
     self.catcher:SetAllPoints(UIParent)
     self.catcher:SetFrameStrata(STRATA)
@@ -766,6 +877,11 @@ function Window:BuildBody()
     fields.insertDescription = Kit.MakeButton(detail, "With description", function() self:Insert(true) end)
     fields.insertDescription.frame:SetWidth(120)
     fields.insertDescription.frame:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -12, 12)
+    if self.host.copyLabel then fields.copy.label:SetText(self.host.copyLabel) end
+    if not self.host.insert then
+        fields.insert.frame:Hide()
+        fields.insertDescription.frame:Hide()
+    end
 
     self.footerBar = CreateFrame("Frame", nil, frame)
     self.footerBar:SetHeight(FOOTER_HEIGHT)
@@ -787,6 +903,7 @@ function Window:BuildBody()
     self.toastText = Text(self.toast, 12, COLOR.text, "CENTER")
     self.toastText:SetAllPoints(self.toast)
     self.toast:Hide()
+    if self.host.columns then self:BuildHeader() end
 end
 
 function Window:Show()

@@ -54,6 +54,7 @@ do
 SA_ChatTargets = {}
 
 local COVERED_BY_INSTANCE = { PARTY = true, RAID = true }
+local seen, picked = {}, {}
 
 function SA_ChatTargets.Pick(targets)
     if #targets <= 1 then return targets end
@@ -61,7 +62,8 @@ function SA_ChatTargets.Pick(targets)
     for _, target in ipairs(targets) do
         if target == "INSTANCE_CHAT" then hasInstance = true end
     end
-    local seen, picked = {}, {}
+    for key in pairs(seen) do seen[key] = nil end
+    for index = #picked, 1, -1 do picked[index] = nil end
     for _, target in ipairs(targets) do
         if not seen[target] and not (hasInstance and COVERED_BY_INSTANCE[target]) then
             seen[target] = true
@@ -76,21 +78,111 @@ end
 do
 SA_CCChat = {}
 
-local SPELLS = {
-    [450600] = "hexselffriend",
-    [6215] = "fearselffriend", [5484] = "fearselffriend", [17928] = "fearselffriend",
-    [118] = "polyenemy", [12826] = "polyenemy", [28271] = "polyenemy", [28272] = "polyenemy",
-    [2094] = "blindselffriend",
-    [6770] = "sapselffriend", [11297] = "sapselffriend", [2070] = "sapselffriend",
+local GROUP = {
+    [450600] = "hex",
+    [5782] = "fear", [6215] = "fear", [5484] = "fear", [17928] = "fear",
+    [118] = "poly", [12826] = "poly", [28271] = "poly", [28272] = "poly",
+    [2094] = "blind",
+    [6770] = "sap", [11297] = "sap", [2070] = "sap",
 }
 
-SA_CCChat.SPELLS = SPELLS
+local ENEMY = { hex = "hexenemy", fear = "fearenemy", poly = "polyenemy", blind = "blindenemy", sap = "sapenemy" }
+local SELF_FRIEND = { hex = "hexselffriend", fear = "fearselffriend", poly = "polyselffriend", blind = "blindselffriend", sap = "sapselffriend" }
+
+SA_CCChat.GROUP = GROUP
+SA_CCChat.ENEMY = ENEMY
+SA_CCChat.SELF_FRIEND = SELF_FRIEND
 
 function SA_CCChat.Kind(spellID, settings)
-    local switch = SPELLS[spellID]
-    if not switch or not settings[switch] then return nil end
-    if switch == "sapselffriend" then return "sap" end
+    local group = GROUP[spellID]
+    if not group or not settings[SELF_FRIEND[group]] then return nil end
+    if group == "sap" then return "sap" end
     return "cc"
+end
+
+function SA_CCChat.OnEnemy(spellID, settings)
+    local group = GROUP[spellID]
+    return group ~= nil and settings[ENEMY[group]] and true or false
+end
+end
+
+do
+SA_ChatAreas = {}
+
+local KEYS = { "SAY", "PARTY", "RAID", "BATTLEGROUND" }
+local COUNT = #KEYS
+local EMPTY = {}
+local lists, signatures, sources = {}, {}, {}
+
+SA_ChatAreas.KEYS = KEYS
+SA_ChatAreas.AREAS = { "spells", "proximity", "battleground", "custom" }
+SA_ChatAreas.rebuilds = 0
+
+local function Fresh(slot, source)
+    local signature = signatures[slot]
+    if not signature or sources[slot] ~= source then return false end
+    for index = 1, COUNT do
+        if (source[KEYS[index]] and true or false) ~= signature[index] then return false end
+    end
+    return true
+end
+
+local function Build(slot, source)
+    if Fresh(slot, source) then return lists[slot] end
+    local signature = signatures[slot] or {}
+    local list = lists[slot] or {}
+    for index = #list, 1, -1 do list[index] = nil end
+    for index = 1, COUNT do
+        local key = KEYS[index]
+        local on = source[key] and true or false
+        signature[index] = on
+        if on then list[#list + 1] = key end
+    end
+    signatures[slot], lists[slot], sources[slot] = signature, list, source
+    SA_ChatAreas.rebuilds = SA_ChatAreas.rebuilds + 1
+    return list
+end
+
+function SA_ChatAreas.Channels(settings, area)
+    local all = settings.chatAreaChannels
+    local own = all and all[area]
+    if type(own) ~= "table" then return EMPTY end
+    return Build(area, own)
+end
+
+local OLD_FLAG_TEXT = "#class# has the flag!"
+local OLD_GROUPS = { PARTY = true, BATTLEGROUND = true }
+SA_ChatAreas.LAYOUT = 3
+
+function SA_ChatAreas.Migrate(profile)
+    local layout = profile.chatLayout or 0
+    if layout >= SA_ChatAreas.LAYOUT then return false end
+    if layout < 2 then
+        local flagText = profile.flagChatText
+        if type(flagText) == "string" and flagText ~= "" and flagText ~= OLD_FLAG_TEXT then
+            profile.flagPickupChat = flagText
+        end
+        if profile.polyenemy == false then profile.polyselffriend = false end
+        profile.flagChatText, profile.flagChatChannel, profile.caonlyTF = nil, nil, nil
+    end
+    local groups = rawget(profile, "chatgroups")
+    if type(groups) ~= "table" then groups = OLD_GROUPS end
+    if groups.NONE then profile.chatalerts = true end
+    local all = profile.chatAreaChannels
+    if type(all) ~= "table" then
+        all = {}
+        profile.chatAreaChannels = all
+    end
+    for _, area in ipairs(SA_ChatAreas.AREAS) do
+        if type(rawget(all, area)) ~= "table" then
+            local own = {}
+            for index = 1, COUNT do own[KEYS[index]] = groups[KEYS[index]] and true or false end
+            all[area] = own
+        end
+    end
+    profile.chatgroups = nil
+    profile.chatLayout = SA_ChatAreas.LAYOUT
+    return true
 end
 end
 
@@ -186,24 +278,31 @@ local function LocalLine(pieces, values)
     return line
 end
 
-local function Deliver(message, localLine)
-    local sent = send(message)
+local function Deliver(message, localLine, area)
+    local sent = send(message, area)
     if Present(localLine) then
         local ok, shown = pcall(showLocal, localLine)
         if ok and shown then return end
     end
-    if not sent then printPlain(message) end
+    if sent == false then printPlain(message) end
 end
 
 function SA_AlertText.Ready(enabled)
     if not enabled then return false end
-    local settings = settingsOf()
-    if settings.chatgroups.NONE then return false end
-    return not settings.chatalerts
+    return not settingsOf().chatalerts
 end
 
-function SA_AlertText.Say(template, values)
-    if not template or not SA_AlertText.Ready(true) then return end
+function SA_AlertText.Render(template, values)
+    return (SentLine(SA_AlertText.Pieces(template), values))
+end
+
+function SA_AlertText.Send(message, area)
+    if not message or message == "" or not SA_AlertText.Ready(true, area) then return end
+    Deliver(message, nil, area)
+end
+
+function SA_AlertText.Say(template, values, area)
+    if not template or not SA_AlertText.Ready(true, area) then return end
     local pieces = SA_AlertText.Pieces(template)
     local sent, hidden = SentLine(pieces, values)
     local localLine
@@ -211,7 +310,42 @@ function SA_AlertText.Say(template, values)
         local ok, line = pcall(LocalLine, pieces, values)
         if ok then localLine = line end
     end
-    Deliver(sent, localLine)
+    Deliver(sent, localLine, area)
+end
+end
+
+do
+SA_ProxChat = {}
+
+local MAX_CLASSES = 5
+local line = {}
+
+function SA_ProxChat.Clean(text)
+    text = text:gsub("%(%s+", "("):gsub("%s+%)", ")"):gsub("%s*%(%)", ""):gsub("%s%s+", " ")
+    return (text:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+%-$", ""))
+end
+
+function SA_ProxChat.Place(subzone, zone, x, y)
+    local name = (type(subzone) == "string" and subzone ~= "") and subzone or ((type(zone) == "string" and zone ~= "") and zone or nil)
+    if not name then return "" end
+    if type(x) == "number" and type(y) == "number" and (x > 0 or y > 0) then
+        return name .. " " .. math.floor(x * 100 + 0.5) .. "," .. math.floor(y * 100 + 0.5)
+    end
+    return name
+end
+
+function SA_ProxChat.Group(entries, used, total, place, className)
+    for index = #line, 1, -1 do line[index] = nil end
+    line[1] = total .. " enemies"
+    if place ~= "" then line[2] = " near " .. place end
+    line[#line + 1] = ": "
+    local shown = math.min(used, MAX_CLASSES)
+    for index = 1, shown do
+        if index > 1 then line[#line + 1] = ", " end
+        line[#line + 1] = className(entries[index].class)
+    end
+    if total > shown then line[#line + 1] = " +" .. (total - shown) end
+    return table.concat(line)
 end
 end
 
@@ -359,7 +493,12 @@ function SA_Scoreboard.Fill(map, count, getRow)
     return filled
 end
 
-function SA_Scoreboard.ClassFor(map, name)
+function SA_Scoreboard.ClassFor(map, name, second)
+    if type(second) == "string" and second ~= "" and type(name) == "string" then
+        local full = Key(name .. " " .. second)
+        local class = full and map[full]
+        if class then return class end
+    end
     local key = Key(name)
     return key and map[key] or nil
 end

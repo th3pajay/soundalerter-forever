@@ -23,9 +23,13 @@ local function GetDB()
 	return SoundAlerter.db1 and SoundAlerter.db1.profile
 end
 
+local NAME_KEY_BYTE = 78
+
 local function resolveClass(guid, name)
-	local _, class = GetPlayerInfoByGUID(guid)
-	if class then return class end
+	if guid:byte(1) ~= NAME_KEY_BYTE then
+		local _, class = GetPlayerInfoByGUID(guid)
+		if class then return class end
+	end
 	return SA_Scoreboard.ClassFor(SoundAlerter.scoreboardClasses, name)
 end
 
@@ -549,6 +553,29 @@ function Statistics:GetVennData()
 	return cachedText("venn", stats, dataVersion, 0, buildVenn)
 end
 
+local classPool = {}
+
+local function buildClassVenn()
+	local tracking = (GetDB().statistics.allTime or {}).playerTracking or {}
+	return Venn.ClassEntries(tracking.enemies, classPool)
+end
+
+local function buildClassShares()
+	return Venn.ClassShares((GetDB().statistics.allTime or {}).classByZone)
+end
+
+function Statistics:GetClassVennData()
+	local stats = trackedStatistics()
+	if not stats then return nil end
+	return cachedText("classVenn", stats, dataVersion, 0, buildClassVenn)
+end
+
+function Statistics:GetClassShares()
+	local stats = trackedStatistics()
+	if not stats then return nil end
+	return cachedText("classShares", stats, dataVersion, 0, buildClassShares)
+end
+
 function Statistics:GetExportText()
 	local stats = trackedStatistics()
 	if not stats then return "" end
@@ -874,6 +901,7 @@ local function newAllTime()
 			enemies = {},
 			classSummary = {},
 		},
+		classByZone = { arena = {}, battleground = {}, worldPvP = {} },
 		party = { sent = 0, received = 0, bySender = {} },
 		activity = Format.NewActivity(),
 	}
@@ -1072,6 +1100,7 @@ function Statistics:TrackEnemyPlayer(sourceGUID, sourceName, spellID, knownClass
 	local zoneType = self:GetCurrentZoneType()
 
 	local sourceClass = knownClass or resolveClass(sourceGUID, sourceName) or "UNKNOWN"
+	local firstInZone = zoneType ~= nil
 
 	if enemies[sourceName] then
 		local enemy = enemies[sourceName]
@@ -1084,6 +1113,7 @@ function Statistics:TrackEnemyPlayer(sourceGUID, sourceName, spellID, knownClass
 		end
 
 		if zoneType then
+			firstInZone = enemy.byZone[zoneType] == nil
 			enemy.byZone[zoneType] = (enemy.byZone[zoneType] or 0) + 1
 		end
 
@@ -1100,6 +1130,22 @@ function Statistics:TrackEnemyPlayer(sourceGUID, sourceName, spellID, knownClass
 			dangerRating = 1.0,
 			encounterCount = 1
 		}
+	end
+
+	if firstInZone then
+		local allTime = sadb.statistics.allTime
+		local byZone = allTime.classByZone
+		if not byZone then
+			byZone = {}
+			allTime.classByZone = byZone
+		end
+		local counts = byZone[zoneType]
+		if not counts then
+			counts = {}
+			byZone[zoneType] = counts
+		end
+		local class = Venn.ClassOf(sourceClass)
+		counts[class] = (counts[class] or 0) + 1
 	end
 
 	if sourceClass and sourceClass ~= "UNKNOWN" then

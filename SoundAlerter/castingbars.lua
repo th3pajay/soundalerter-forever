@@ -25,6 +25,23 @@ local LOCK_MAX = 16
 local LOCK_MIN = 8
 local NO_TIER = { throttle = 0, subpixel = false }
 local stats = { updates = 0, writes = 0, throttled = 0, since = 0 }
+local TIP_UNITS = { target = true, focus = true }
+
+local function ShowTip(frame)
+	local b = frame.saBar
+	local spell = b and b.tipSpell
+	if not GameTooltip or (not issecretvalue(spell) and spell == nil) then return end
+	GameTooltip:SetOwner(frame, "ANCHOR_TOP")
+	if pcall(GameTooltip.SetSpellByID, GameTooltip, spell) then
+		GameTooltip:Show()
+	else
+		GameTooltip:Hide()
+	end
+end
+
+local function HideTip(frame)
+	if GameTooltip and GameTooltip:IsOwned(frame) then GameTooltip:Hide() end
+end
 
 local FINISH_STYLES = {
 	success = { duration = 0.52, hold = 0.58, r = 0.2, g = 0.9, b = 0.2 },
@@ -47,6 +64,7 @@ local CASTING_BAR_GROUP_KEYS = {
 	showSpellIcon = true,
 	showLatency = true,
 	showLockIcon = true,
+	hoverTooltip = true,
 	animQuality = true,
 	segments = true,
 	channelPulse = true,
@@ -209,6 +227,12 @@ function CastingBars:CreateCastBar(unit, config)
 
 	self.bars[unit] = b
 	self.barList[#self.barList + 1] = b
+
+	if TIP_UNITS[unit] then
+		frame.saBar = b
+		frame:HookScript("OnEnter", ShowTip)
+		frame:HookScript("OnLeave", HideTip)
+	end
 
 	self:ApplyOrientation(b)
 
@@ -546,6 +570,22 @@ function CastingBars:StartTimeBinding(b, duration)
 	b.timeText:SetText("")
 end
 
+function CastingBars:SetTip(b, spellID)
+	if not TIP_UNITS[b.unit] then return end
+	local has = issecretvalue(spellID) or spellID ~= nil
+	if has then b.tipSpell = spellID else b.tipSpell = nil end
+	local want = (has and self.db.hoverTooltip ~= false) or not self.db.locked
+	if b.mouseOn ~= want then
+		b.mouseOn = want
+		b.frame:EnableMouse(want)
+	end
+	if not (has and want) then
+		HideTip(b.frame)
+	elseif GameTooltip and GameTooltip:IsOwned(b.frame) then
+		ShowTip(b.frame)
+	end
+end
+
 function CastingBars:StopTimeBinding(b)
 	if not b.bindingOn then return end
 	b.bindingOn = false
@@ -583,7 +623,7 @@ function CastingBars:StartFx(b, fresh, notInterruptible)
 	self:Fx("Begin", b)
 end
 
-function CastingBars:BeginSecretCast(b, unit, channeling, spellName, texture, notInterruptible, fresh)
+function CastingBars:BeginSecretCast(b, unit, channeling, spellName, texture, notInterruptible, fresh, spellID)
 	local duration = self:ApplySecretTimer(b, unit, channeling)
 	if not duration then return end
 
@@ -616,6 +656,7 @@ function CastingBars:BeginSecretCast(b, unit, channeling, spellName, texture, no
 	end
 
 	b.frame:Show()
+	self:SetTip(b, spellID)
 	self:StartFx(b, fresh, notInterruptible)
 	self:Attach()
 end
@@ -624,17 +665,17 @@ function CastingBars:BeginCast(unit, channeling)
 	local b = self.bars[unit]
 	if not b or not self.db[unit].enabled then return end
 
-	local spellName, _, _, texture, startTime, endTime, notInterruptible
+	local spellName, _, _, texture, startTime, endTime, notInterruptible, spellID
 	if channeling then
-		spellName, _, _, texture, startTime, endTime, _, notInterruptible = UnitChannelInfo(unit)
+		spellName, _, _, texture, startTime, endTime, _, notInterruptible, spellID = UnitChannelInfo(unit)
 	else
-		spellName, _, _, texture, startTime, endTime, _, notInterruptible = UnitCastingInfo(unit)
+		spellName, _, _, texture, startTime, endTime, _, notInterruptible, spellID = UnitCastingInfo(unit)
 	end
 
 	if not spellName then return end
 	local fresh = not (b.casting or b.channeling)
 	if issecretvalue(startTime) or issecretvalue(endTime) then
-		self:BeginSecretCast(b, unit, channeling, spellName, texture, notInterruptible, fresh)
+		self:BeginSecretCast(b, unit, channeling, spellName, texture, notInterruptible, fresh, spellID)
 		return
 	end
 	b.secretTimer = nil
@@ -677,12 +718,14 @@ function CastingBars:BeginCast(unit, channeling)
 	end
 
 	b.frame:Show()
+	self:SetTip(b, spellID)
 	self:StartFx(b, fresh, notInterruptible)
 	self:Attach()
 end
 
 function CastingBars:ResetState(b)
 	self:StopTimeBinding(b)
+	self:SetTip(b, nil)
 	b.secretTimer = nil
 	b.casting = false
 	b.channeling = false
@@ -711,6 +754,7 @@ function CastingBars:Finish(b, kind)
 		b.lastFill = 1
 	end
 	self:StopTimeBinding(b)
+	self:SetTip(b, nil)
 	b.secretTimer = nil
 	b.casting = false
 	b.channeling = false
@@ -1031,7 +1075,9 @@ function CastingBars:LoadSettings()
 		BarUtils:LoadPosition(b.frame, unitDB, "", 0, b.defaultY)
 
 		if unitDB.enabled then
+			b.mouseOn = not locked
 			b.frame:EnableMouse(not locked)
+			if issecretvalue(b.tipSpell) or b.tipSpell ~= nil then self:SetTip(b, b.tipSpell) end
 			b.title:SetShown(not locked)
 
 			if not locked then

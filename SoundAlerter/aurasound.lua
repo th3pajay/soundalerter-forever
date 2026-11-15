@@ -9,7 +9,15 @@ local TEST_UNITS = { "player", "target", "focus", "nameplate1", "arena1", "party
 local TEST_SPELL = 2825
 local PLAY_SECONDS = 30
 local RETRY_SECONDS = 2
+local BATTLE_THROTTLE = 2
 local playIDs = {}
+
+local BATTLE_UNITS = SA_AuraSound.BATTLE_UNITS
+local battleRegistered = {}
+for _, unit in ipairs(BATTLE_UNITS) do battleRegistered[unit] = {} end
+local battleFiles = {}
+local battleParams = { throttleSeconds = BATTLE_THROTTLE }
+local battleState = { count = 0, failed = 0, lastError = nil, spells = 0 }
 
 function SoundAlerter:EngineAuraSoundSupported()
     return C_UnitAuras and C_UnitAuras.AddAuraSound and C_UnitAuras.RemoveAuraSound
@@ -45,6 +53,17 @@ function SoundAlerter:ClearStaleAuraSounds()
     wipe(ids)
 end
 
+local function BattleKey(unit, spellID)
+    return "B:" .. SA_AuraSound.Key(unit, "Added", spellID)
+end
+
+local function DropBattleVoice(ids, unit, spellID, entry)
+    pcall(C_UnitAuras.RemoveAuraSound, entry.id)
+    battleRegistered[unit][spellID] = nil
+    ids[BattleKey(unit, spellID)] = nil
+    battleState.count = battleState.count - 1
+end
+
 function SoundAlerter:RemoveAllAuraSounds()
     if not self:EngineAuraSoundSupported() then return end
     self:StopAuraSoundPlay()
@@ -54,6 +73,10 @@ function SoundAlerter:RemoveAllAuraSounds()
         registered[key] = nil
         ids[key] = nil
     end
+    for unit, map in pairs(battleRegistered) do
+        for spellID, entry in pairs(map) do DropBattleVoice(ids, unit, spellID, entry) end
+    end
+    self.battleVoiceList = nil
 end
 
 function SoundAlerter:AuraSoundRegistrationBlocked()
@@ -109,6 +132,72 @@ function SoundAlerter:SyncAuraSounds()
     end
 end
 
+function SoundAlerter:BattleVoiceZone()
+    local instanceType = self.cachedInstanceType
+    return (instanceType == "pvp" or instanceType == "arena") and self:IsAlertZoneAllowed() and true or false
+end
+
+function SoundAlerter:RetryBattleVoices()
+    self.battleVoiceRetryTimer = nil
+    self:SyncBattleVoices()
+end
+
+function SoundAlerter:SyncBattleVoices()
+    if not self:EngineAuraSoundSupported() then return end
+    local profile = self.db1.profile
+    local active = profile.battleVoices and self:BattleVoiceZone()
+    if not active and battleState.count == 0 then return end
+    if self:AuraSoundRegistrationBlocked() then
+        if not self.battleVoiceRetryTimer then
+            self.battleVoiceRetryTimer = self:ScheduleTimer("RetryBattleVoices", RETRY_SECONDS)
+        end
+        return
+    end
+    local files = SA_AuraSound.BattleFiles(self.spellList.auraApplied, profile, active, battleFiles)
+    local ids = SavedIDs(self)
+    local before = battleState.count
+    for unit, map in pairs(battleRegistered) do
+        for spellID, entry in pairs(map) do
+            if files[spellID] ~= entry.file then DropBattleVoice(ids, unit, spellID, entry) end
+        end
+    end
+    local removed = before - battleState.count
+    local addSound, trigger = C_UnitAuras.AddAuraSound, Enum.UnitAuraSoundTrigger.Added
+    local added, failed, spells = 0, 0, 0
+    battleParams.spellID, battleParams.unitToken, battleParams.soundFileName = nil, nil, nil
+    for spellID, file in pairs(files) do
+        spells = spells + 1
+        battleParams.spellID, battleParams.soundFileName = spellID, file
+        for index = 1, #BATTLE_UNITS do
+            local unit = BATTLE_UNITS[index]
+            local map = battleRegistered[unit]
+            if not map[spellID] then
+                battleParams.unitToken = unit
+                local ok, id = pcall(addSound, trigger, battleParams)
+                if ok and type(id) == "number" then
+                    map[spellID] = { id = id, file = file }
+                    ids[BattleKey(unit, spellID)] = id
+                    added = added + 1
+                else
+                    failed = failed + 1
+                    battleState.lastError = ok and "no id returned" or tostring(id)
+                end
+            end
+        end
+    end
+    battleState.count = battleState.count + added
+    battleState.failed = failed
+    battleState.spells = spells
+    self.battleVoiceList = battleState.count > 0 and self.spellList.auraApplied or nil
+    if added > 0 or removed > 0 or failed > 0 then
+        self:Debug("AuraSound", "battle voices: %d added, %d removed, %d failed, %d active", added, removed, failed, battleState.count)
+    end
+end
+
+function SoundAlerter:BattleVoiceSummary()
+    return battleState.count, battleState.spells, #BATTLE_UNITS, battleState.failed, battleState.lastError
+end
+
 function SoundAlerter:AuraSoundSummary()
     local counts = {}
     for _, entry in pairs(registered) do
@@ -146,11 +235,16 @@ function SoundAlerter:RunAuraSoundSync()
     self.auraSoundSyncTimer = nil
     self:RefreshEnemyAuraUnits()
     self:SyncAuraSounds()
+    self:SyncBattleVoices()
 end
 
 function SoundAlerter:OnConfigTableChange(event, appName)
     if appName ~= "SoundAlerter" or self.auraSoundSyncTimer then return end
-    if not self.db1.profile.engineAuraSounds and next(registered) == nil then return end
+    local profile = self.db1.profile
+    if not profile.engineAuraSounds and next(registered) == nil
+        and not (profile.battleVoices and self:BattleVoiceZone()) and battleState.count == 0 then
+        return
+    end
     self.auraSoundSyncTimer = self:ScheduleTimer("RunAuraSoundSync", 0.5)
 end
 
@@ -159,6 +253,7 @@ function SoundAlerter:StartAuraSounds()
     LibStub("AceConfigRegistry-3.0").RegisterCallback(self, "ConfigTableChange", "OnConfigTableChange")
     self:RefreshEnemyAuraUnits()
     self:SyncAuraSounds()
+    self:SyncBattleVoices()
 end
 
 function SoundAlerter:StopAuraSoundPlay()

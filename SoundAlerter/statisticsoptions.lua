@@ -226,19 +226,50 @@ local LEGEND_GAP = 2
 local ICON_POOL = 48
 local DISC_ALPHA, DISC_HOT = 0.14, 0.3
 local RING_ALPHA, RING_HOT = 0.55, 1
+local HIDDEN_DIM = 0.4
 local NO_ENTRIES = {}
+local MODE_HEIGHT = 18
+local LEGEND_ROW = 18
+local LEGEND_PER_ROW = 5
+local SHARE_ROW = 15
+local SHARE_LABEL = 70
+local SHARE_COUNT = 30
 
 local SOURCES = {
     visuals = {
+        kind = "spells",
+        label = "Spells",
         unit = "alerts",
+        honest = true,
+        groups = "GROUPS",
         entries = function()
             local active = statistics()
             return active and active:GetVennData() or NO_ENTRIES
         end,
-        note = function(_, layout) return SA_StatsVenn.NoteText(layout) end,
+        note = function(_, layout)
+            local profile = SoundAlerter.db1 and SoundAlerter.db1.profile
+            return SA_StatsVenn.NoteText(layout, nil, profile and profile.battleVoices)
+        end,
         empty = function() return "No spells with a recorded zone yet. Play a match and they appear here." end,
     },
+    classes = {
+        kind = "classes",
+        label = "Classes",
+        unit = "players",
+        groups = "CLASSES",
+        entries = function()
+            local active = statistics()
+            return active and active:GetClassVennData() or NO_ENTRIES
+        end,
+        shares = function()
+            local active = statistics()
+            return active and active:GetClassShares() or nil
+        end,
+        note = function(source, layout) return SA_StatsVenn.ClassNoteText(layout, source.shares(source)) end,
+        empty = function() return "No enemy players with a zone yet. Proximity and spell alerts add them, battlegrounds included." end,
+    },
 }
+local VISUAL_MODES = { SOURCES.visuals, SOURCES.classes }
 
 local function globalEmptyText(players)
     if not (SoundAlerter.GlobalStatsActive and SoundAlerter:GlobalStatsActive()) then
@@ -270,11 +301,13 @@ local function heatZones(widgets, mask)
     if widgets.heat == key then return end
     widgets.heat = key
     local Venn = SA_StatsVenn
+    local honest = widgets.source and widgets.source.honest
     for index, zone in ipairs(widgets.zones) do
         local hot = mask ~= nil and Venn.HasZone(mask, index)
         local color = Venn.ZONES[index].color
-        zone.disc:SetVertexColor(color[1], color[2], color[3], hot and DISC_HOT or DISC_ALPHA)
-        zone.ring:SetVertexColor(color[1], color[2], color[3], hot and RING_HOT or RING_ALPHA)
+        local dim = (honest and index == 2) and HIDDEN_DIM or 1
+        zone.disc:SetVertexColor(color[1], color[2], color[3], (hot and DISC_HOT or DISC_ALPHA) * dim)
+        zone.ring:SetVertexColor(color[1], color[2], color[3], (hot and RING_HOT or RING_ALPHA) * dim)
     end
 end
 
@@ -284,11 +317,19 @@ local function showIconTip(button)
     local Venn = SA_StatsVenn
     GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
     if item.more then
-        GameTooltip:SetText(string.format("%d more spells", #item.hidden), 1, 1, 1)
+        local first = item.hidden[1]
+        GameTooltip:SetText(string.format("%d more %s", #item.hidden, first and first.class and "classes" or "spells"), 1, 1, 1)
         for index = 1, math.min(#item.hidden, 8) do
-            GameTooltip:AddLine(item.hidden[index].name, 0.8, 0.8, 0.8)
+            local hidden = item.hidden[index]
+            GameTooltip:AddLine(hidden.class and (hidden.total .. " " .. Venn.CLASS_LABEL[hidden.class]) or hidden.name, 0.8, 0.8, 0.8)
         end
         if #item.hidden > 8 then GameTooltip:AddLine("...", 0.6, 0.65, 0.72) end
+    elseif item.entry.class then
+        local entry = item.entry
+        local color = Venn.CLASS_COLOR[entry.class]
+        GameTooltip:SetText(string.format("%d %s", entry.total, Venn.CLASS_LABEL[entry.class]), color[1], color[2], color[3])
+        GameTooltip:AddLine(Venn.REGION_NAME[entry.mask], 0.8, 0.8, 0.8)
+        GameTooltip:AddLine(table.concat(entry.names, ", ") .. (entry.total > #entry.names and ", ..." or ""), 0.6, 0.65, 0.72, true)
     else
         local entry = item.entry
         local color = Venn.GROUP_COLOR[entry.group]
@@ -313,7 +354,7 @@ end
 
 local function clickIcon(button)
     local item = button.item
-    if item and not item.more then SoundAlerter:OpenSpellFinderFor(item.entry.id) end
+    if item and not item.more and not item.entry.class then SoundAlerter:OpenSpellFinderFor(item.entry.id) end
 end
 
 local function newIcon(widgets)
@@ -354,6 +395,12 @@ local function styleIcon(icon, item)
         icon.art:SetTexCoord(0, 1, 0, 1)
         icon.ring:SetVertexColor(Kit.COLOR.muted[1], Kit.COLOR.muted[2], Kit.COLOR.muted[3], 1)
         icon.count:SetText("+" .. hidden)
+    elseif item.entry.class then
+        local color = SA_StatsVenn.CLASS_COLOR[item.entry.class]
+        icon.art:SetColorTexture(0.05, 0.06, 0.08, 1)
+        icon.art:SetTexCoord(0, 1, 0, 1)
+        icon.ring:SetVertexColor(color[1], color[2], color[3], 1)
+        icon.count:SetText(item.entry.total)
     else
         local color = SA_StatsVenn.GROUP_COLOR[item.entry.group]
         icon.art:SetTexture(spellTexture(item.entry.id))
@@ -365,14 +412,127 @@ end
 
 local bindVisuals
 
+local function legendTip(button)
+    local entry = button.group
+    if not entry then return end
+    GameTooltip:SetOwner(button, "ANCHOR_BOTTOM")
+    GameTooltip:SetText(entry.label, entry.color[1], entry.color[2], entry.color[3])
+    GameTooltip:AddLine("Click to show or hide", 0.8, 0.8, 0.8)
+    GameTooltip:Show()
+end
+
+local function hiddenTip(button)
+    GameTooltip:SetOwner(button, "ANCHOR_BOTTOMLEFT")
+    GameTooltip:SetText("Battlegrounds: " .. SA_StatsVenn.BG_HIDDEN, 1, 1, 1)
+    for _, line in ipairs(SA_StatsVenn.BG_HIDDEN_TIP) do GameTooltip:AddLine(line, 0.8, 0.8, 0.8, true) end
+    GameTooltip:Show()
+end
+
+local function placeBelow(widgets)
+    local source = widgets.source
+    local top = MODE_HEIGHT + widgets.geometry.height + 6
+    local groups = SA_StatsVenn[source.groups]
+    for index, legend in ipairs(widgets.legend) do
+        local group = groups[index]
+        legend.button.group = group
+        if group then
+            local row, column = math.floor((index - 1) / LEGEND_PER_ROW), (index - 1) % LEGEND_PER_ROW
+            legend.button:ClearAllPoints()
+            legend.button:SetPoint("TOPLEFT", widgets.view, "TOPLEFT", column * (LEGEND_WIDTH + LEGEND_GAP), -(top + row * LEGEND_ROW))
+            legend.dot:SetVertexColor(group.color[1], group.color[2], group.color[3], 1)
+            legend.button:Show()
+        else
+            legend.button:Hide()
+        end
+    end
+    top = top + math.ceil(#groups / LEGEND_PER_ROW) * LEGEND_ROW + 2
+    local showShares = source.shares ~= nil
+    for index, row in ipairs(widgets.shareRows) do
+        row.frame:SetShown(showShares)
+        if showShares then
+            row.frame:ClearAllPoints()
+            row.frame:SetPoint("TOPLEFT", widgets.view, "TOPLEFT", 0, -(top + (index - 1) * SHARE_ROW))
+        end
+    end
+    if showShares then top = top + #widgets.shareRows * SHARE_ROW + 4 end
+    widgets.note:ClearAllPoints()
+    widgets.note:SetPoint("TOPLEFT", widgets.view, "TOPLEFT", 0, -top)
+    widgets.hidden:SetShown(source.honest and true or false)
+    widgets.hiddenHit:SetShown(source.honest and true or false)
+    for _, mode in ipairs(widgets.modes) do
+        local on = mode.source == source
+        mode.label:SetAlpha(on and 1 or 0.55)
+        mode.underline:SetShown(on)
+    end
+end
+
+local function drawShares(widgets)
+    local source = widgets.source
+    if not source.shares then return end
+    local shares = source.shares(source)
+    if widgets.sharesDrawn == shares then return end
+    widgets.sharesDrawn = shares
+    local Venn = SA_StatsVenn
+    for index, row in ipairs(widgets.shareRows) do
+        local data = shares and shares[index]
+        local total = data and data.total or 0
+        put(row.count, tostring(total))
+        local x = 0
+        local width = row.width
+        for position, segment in ipairs(row.segments) do
+            local part = data and data.parts[position]
+            if part and total > 0 then
+                local size = math.max(1, width * part.count / total)
+                local color = Venn.CLASS_COLOR[part.key]
+                segment:ClearAllPoints()
+                segment:SetPoint("TOPLEFT", row.track, "TOPLEFT", x, 0)
+                segment:SetSize(size, SHARE_ROW - 5)
+                segment:SetVertexColor(color[1], color[2], color[3], 1)
+                segment:Show()
+                x = x + size
+            else
+                segment:Hide()
+            end
+        end
+    end
+end
+
 local function buildVisuals(view, source)
     local Kit = SoundAlerter.Page.Kit
     local Venn = SA_StatsVenn
     local geometry = Venn.Geometry(PANEL_WIDTH, Venn.SLOT, Venn.MARGIN)
-    local widgets = { geometry = geometry, source = source, off = {}, byKey = {}, free = {}, seen = {}, made = 0, zones = {}, legend = {} }
+    local widgets = { geometry = geometry, source = source, view = view, offBy = {}, byKey = {}, free = {}, seen = {}, made = 0, zones = {}, legend = {}, modes = {}, shareRows = {} }
+    widgets.offBy[source.kind] = {}
+    widgets.off = widgets.offBy[source.kind]
+    local x = 0
+    for _, mode in ipairs(VISUAL_MODES) do
+        local button = CreateFrame("Button", nil, view)
+        local label = Kit.Text(button, 10.5, Kit.COLOR.text)
+        label:SetPoint("LEFT", button, "LEFT", 2, 1)
+        label:SetText(mode.label)
+        button:SetSize(label:GetStringWidth() + 10, MODE_HEIGHT - 2)
+        button:SetPoint("TOPLEFT", view, "TOPLEFT", x, 0)
+        local underline = button:CreateTexture(nil, "ARTWORK")
+        underline:SetColorTexture(1, 0.49, 0.04, 1)
+        underline:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 2, 0)
+        underline:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -6, 0)
+        underline:SetHeight(1)
+        x = x + button:GetWidth() + 6
+        button:SetScript("OnClick", function()
+            if widgets.source == mode then return end
+            widgets.source = mode
+            widgets.offBy[mode.kind] = widgets.offBy[mode.kind] or {}
+            widgets.off = widgets.offBy[mode.kind]
+            widgets.heat, widgets.sharesDrawn = nil, nil
+            heatZones(widgets, nil)
+            placeBelow(widgets)
+            bindVisuals(widgets, true)
+        end)
+        widgets.modes[#widgets.modes + 1] = { source = mode, button = button, label = label, underline = underline }
+    end
     local canvas = CreateFrame("Frame", nil, view)
     canvas:SetSize(PANEL_WIDTH, geometry.height)
-    canvas:SetPoint("TOPLEFT", view, "TOPLEFT", 0, 0)
+    canvas:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -MODE_HEIGHT)
     widgets.canvas = canvas
     for index, zone in ipairs(Venn.ZONES) do
         local center = geometry.centers[index]
@@ -396,38 +556,67 @@ local function buildVisuals(view, source)
         end
         widgets.zones[index] = { disc = disc, ring = ring, label = label }
     end
+    local bgColor = Venn.ZONES[2].color
+    widgets.hidden = Kit.Text(canvas, 9, bgColor, "RIGHT")
+    widgets.hidden:SetPoint("TOPRIGHT", widgets.zones[2].label, "BOTTOMRIGHT", 0, -1)
+    widgets.hidden:SetText(Venn.BG_HIDDEN)
+    widgets.hidden:SetAlpha(0.75)
+    widgets.hiddenHit = CreateFrame("Button", nil, canvas)
+    widgets.hiddenHit:SetSize(110, 26)
+    widgets.hiddenHit:SetPoint("TOPRIGHT", canvas, "TOPRIGHT", 0, 0)
+    widgets.hiddenHit:SetFrameLevel(canvas:GetFrameLevel() + 3)
+    widgets.hiddenHit:SetScript("OnEnter", hiddenTip)
+    widgets.hiddenHit:SetScript("OnLeave", function() GameTooltip:Hide() end)
     heatZones(widgets, nil)
-    for index, group in ipairs(Venn.GROUPS) do
+    for index = 1, #Venn.CLASSES do
         local button = CreateFrame("Button", nil, view)
         button:SetSize(LEGEND_WIDTH, 16)
-        button:SetPoint("TOPLEFT", view, "TOPLEFT", (index - 1) * (LEGEND_WIDTH + LEGEND_GAP), -(geometry.height + 6))
         local dot = button:CreateTexture(nil, "ARTWORK")
         dot:SetTexture(DISC_TEXTURE)
         dot:SetSize(8, 8)
         dot:SetPoint("LEFT", button, "LEFT", 2, 0)
-        dot:SetVertexColor(group.color[1], group.color[2], group.color[3], 1)
         local label = Kit.Text(button, 10, Kit.COLOR.muted)
         label:SetPoint("LEFT", dot, "RIGHT", 3, 0)
         button:SetScript("OnClick", function()
+            local group = button.group
+            if not group then return end
             widgets.off[group.key] = not widgets.off[group.key] or nil
             widgets.stale = true
             bindVisuals(widgets, false)
         end)
-        button:SetScript("OnEnter", function()
-            GameTooltip:SetOwner(button, "ANCHOR_BOTTOM")
-            GameTooltip:SetText(group.label, group.color[1], group.color[2], group.color[3])
-            GameTooltip:AddLine("Click to show or hide this type", 0.8, 0.8, 0.8)
-            GameTooltip:Show()
-        end)
+        button:SetScript("OnEnter", legendTip)
         button:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        widgets.legend[index] = { button = button, label = label }
+        widgets.legend[index] = { button = button, label = label, dot = dot }
+    end
+    for index, zone in ipairs(Venn.ZONES) do
+        local frame = CreateFrame("Frame", nil, view)
+        frame:SetSize(PANEL_WIDTH, SHARE_ROW)
+        local label = Kit.Text(frame, 9.5, zone.color)
+        label:SetPoint("LEFT", frame, "LEFT", 0, 0)
+        label:SetText(zone.label)
+        local track = frame:CreateTexture(nil, "BACKGROUND")
+        track:SetColorTexture(0.06, 0.07, 0.09, 1)
+        track:SetPoint("LEFT", frame, "LEFT", SHARE_LABEL, 0)
+        track:SetSize(PANEL_WIDTH - SHARE_LABEL - SHARE_COUNT, SHARE_ROW - 5)
+        local count = Kit.Text(frame, 9.5, Kit.COLOR.muted, "RIGHT")
+        count:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+        local segments = {}
+        for position = 1, #Venn.CLASSES do
+            local segment = frame:CreateTexture(nil, "ARTWORK")
+            segment:SetColorTexture(1, 1, 1, 1)
+            segment:Hide()
+            segments[position] = segment
+        end
+        widgets.shareRows[index] = { frame = frame, track = track, count = count, segments = segments, width = PANEL_WIDTH - SHARE_LABEL - SHARE_COUNT }
     end
     widgets.note = Kit.Text(view, 10, Kit.COLOR.muted)
-    widgets.note:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -(geometry.height + 28))
+    widgets.note:SetWidth(PANEL_WIDTH)
+    widgets.note:SetWordWrap(true)
     widgets.empty = Kit.Text(view, 11, Kit.COLOR.muted, "CENTER")
     widgets.empty:SetPoint("CENTER", canvas, "CENTER", 0, 0)
     widgets.empty:SetWidth(PANEL_WIDTH - 40)
     widgets.empty:SetWordWrap(true)
+    placeBelow(widgets)
     return widgets
 end
 
@@ -486,17 +675,27 @@ local function showCounts(widgets, layout)
     for index, zone in ipairs(Venn.ZONES) do
         put(widgets.zones[index].label, zone.label .. " " .. layout.zoneCounts[index])
     end
-    for index, group in ipairs(Venn.GROUPS) do
+    local source = widgets.source
+    local counts = layout.groupCounts
+    if source.kind == "classes" then
+        counts = widgets.playerCounts or {}
+        widgets.playerCounts = counts
+        for key in pairs(counts) do counts[key] = nil end
+        for _, entry in ipairs(widgets.entries) do
+            if entry.mask > 0 then counts[entry.group] = (counts[entry.group] or 0) + entry.total end
+        end
+    end
+    for index, group in ipairs(SA_StatsVenn[source.groups]) do
         local legend = widgets.legend[index]
-        put(legend.label, group.short .. " " .. (layout.groupCounts[group.key] or 0))
+        put(legend.label, group.short .. " " .. (counts[group.key] or 0))
         legend.button:SetAlpha(widgets.off[group.key] and 0.38 or 1)
     end
-    local source = widgets.source
+    drawShares(widgets)
     put(widgets.note, source.note(source, layout))
     if layout.pool > 0 then
         put(widgets.empty, "")
     elseif next(widgets.off) and next(layout.groupCounts) then
-        put(widgets.empty, "Every spell type is switched off. Click a legend entry to show it again.")
+        put(widgets.empty, "Everything is switched off. Click a legend entry to show it again.")
     else
         put(widgets.empty, source.empty(source))
     end
@@ -652,7 +851,8 @@ local function drawBars(widgets)
     else
         put(widgets.empty, "")
         local last = math.min(count, widgets.offset + BAR_ROWS)
-        put(widgets.note, string.format("%d-%d of %d spells - 7 days, %d players", widgets.offset + 1, last, count, widgets.players or 0))
+        local hidden = widgets.sort == "battleground" and ". Battlegrounds: enemy spells are hidden by the game" or ""
+        put(widgets.note, string.format("%d-%d of %d spells - 7 days, %d players", widgets.offset + 1, last, count, widgets.players or 0) .. hidden)
     end
     if widgets.chrome then return end
     widgets.chrome = true
@@ -956,7 +1156,7 @@ local function bindRivals(widgets, model)
     end
 end
 
-local Panel = { height = 300, caption = "SNAPSHOT" }
+local Panel = { height = 360, caption = "SNAPSHOT" }
 
 function Panel.build(stage)
     local Kit = SoundAlerter.Page.Kit

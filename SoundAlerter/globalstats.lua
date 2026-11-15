@@ -19,6 +19,7 @@ Stats.SWEEP = 600
 Stats.RECOMPUTE_GAP = 60
 
 local active, ticker = false, nil
+local held = false
 local ids, masks = {}, {}
 local known = nil
 local nextReport, lastSent, nextSweep = 0, 0, 0
@@ -218,7 +219,7 @@ local function tick()
         nextSweep = now + Stats.SWEEP
         sweep()
     end
-    if now >= nextReport then report(now) end
+    if not held and now >= nextReport then report(now) end
 end
 
 local function start()
@@ -250,6 +251,7 @@ end
 
 function SoundAlerter:UpdateGlobalStats()
     local profile = self.db1 and self.db1.profile
+    held = SA_QuickStart.SightingsHeld(self.db1 and self.db1.global)
     if profile and profile.globalSightings and Messaging.Supported() then start() else stop() end
     cache.version = -1
 end

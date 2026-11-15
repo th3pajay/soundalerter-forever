@@ -2,6 +2,23 @@ SA_AuraSound = {}
 
 local ENEMY_UNITS = { "target", "focus" }
 
+SA_AuraSound.BATTLE_PLATES = 20
+SA_AuraSound.BATTLE_UNITS = { "target", "focus" }
+for index = 1, SA_AuraSound.BATTLE_PLATES do
+    SA_AuraSound.BATTLE_UNITS[#SA_AuraSound.BATTLE_UNITS + 1] = "nameplate" .. index
+end
+
+function SA_AuraSound.BattleFiles(list, settings, active, out)
+    for spellID in pairs(out) do out[spellID] = nil end
+    if not active or not list or not settings.battleVoices or settings.aruaApplied then return out end
+    local path = settings.sapath
+    if not path then return out end
+    for spellID, key in pairs(list) do
+        if settings[key] then out[spellID] = path .. key .. ".mp3" end
+    end
+    return out
+end
+
 function SA_AuraSound.Key(unit, trigger, spellID)
     return unit .. ":" .. trigger .. ":" .. spellID
 end
