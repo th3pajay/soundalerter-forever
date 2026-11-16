@@ -21,6 +21,7 @@ local COLOR = {
     text = { 0.906, 0.918, 0.941 },
     muted = { 0.588, 0.627, 0.698 },
     on = { 0.239, 0.863, 0.592 },
+    onFill = { 0.135, 0.336, 0.279 },
     knob = { 0.95, 0.95, 0.95 },
     experimental = { 0.06, 0.12, 0.32 },
 }
@@ -1402,7 +1403,7 @@ local function MakeChip(parent, label, onClick)
         button:SetWidth(text:GetStringWidth() + 24)
     end
     function chip:Set(on, active)
-        Tint(fill, on and COLOR.on or COLOR.line, on and 0.3 or 1)
+        Tint(fill, on and COLOR.onFill or COLOR.line, 1)
         Tint(text, on and COLOR.on or COLOR.muted)
         button:SetAlpha(active == false and 0.45 or 1)
     end

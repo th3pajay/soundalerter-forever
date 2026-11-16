@@ -162,8 +162,105 @@ local function show(record, expiration, duration, secret, predicted)
     }
 end
 
+TrackerState.PARK_LIMIT = 8
+
 function TrackerState.New()
-    return setmetatable({ records = {}, auraOwners = {}, knownDurations = nil }, TrackerState)
+    return setmetatable({ records = {}, auraOwners = {}, knownDurations = nil, parked = {}, parkedCount = 0, spareBuckets = {}, spareTables = {} }, TrackerState)
+end
+
+local function takeTable(spare)
+    local count = #spare
+    local item = spare[count]
+    if item then
+        spare[count] = nil
+        return item
+    end
+    return {}
+end
+
+local function bucketEnd(bucket)
+    local latest = 0
+    for _, entry in pairs(bucket) do
+        if entry.expiration > latest then latest = entry.expiration end
+    end
+    return latest
+end
+
+function TrackerState:ReleaseBucket(key)
+    local bucket = self.parked[key]
+    if not bucket then return end
+    self.parked[key] = nil
+    self.parkedCount = self.parkedCount - 1
+    for index, entry in pairs(bucket) do
+        bucket[index] = nil
+        entry.expiration, entry.duration = nil, nil
+        self.spareBuckets[#self.spareBuckets + 1] = entry
+    end
+    self.spareTables[#self.spareTables + 1] = bucket
+end
+
+function TrackerState:PruneParked(now)
+    for key, bucket in pairs(self.parked) do
+        if bucketEnd(bucket) <= now then self:ReleaseBucket(key) end
+    end
+    while self.parkedCount > TrackerState.PARK_LIMIT do
+        local soonestKey, soonestEnd
+        for key, bucket in pairs(self.parked) do
+            local finish = bucketEnd(bucket)
+            if not soonestEnd or finish < soonestEnd then soonestKey, soonestEnd = key, finish end
+        end
+        self:ReleaseBucket(soonestKey)
+    end
+end
+
+function TrackerState:Park(key, index, now)
+    if key == nil then return false end
+    local record = self.records[index]
+    local expiration = record and record.predictedExpiration
+    if not expiration or expiration <= now then return false end
+    local bucket = self.parked[key]
+    if not bucket then
+        bucket = takeTable(self.spareTables)
+        self.parked[key] = bucket
+        self.parkedCount = self.parkedCount + 1
+    end
+    local entry = bucket[index]
+    if not entry then
+        entry = takeTable(self.spareBuckets)
+        bucket[index] = entry
+    end
+    entry.expiration, entry.duration = expiration, record.predictedDuration
+    self:PruneParked(now)
+    return true
+end
+
+function TrackerState:Unpark(key, index, now)
+    local bucket = key ~= nil and self.parked[key]
+    local entry = bucket and bucket[index]
+    if not entry then return nil end
+    bucket[index] = nil
+    local expiration, duration = entry.expiration, entry.duration
+    entry.expiration, entry.duration = nil, nil
+    self.spareBuckets[#self.spareBuckets + 1] = entry
+    if next(bucket) == nil then
+        self.parked[key] = nil
+        self.parkedCount = self.parkedCount - 1
+        self.spareTables[#self.spareTables + 1] = bucket
+    end
+    if expiration <= now then return nil end
+    local record = self:Get(index)
+    record.active = false
+    record.predictedExpiration = expiration
+    record.predictedDuration = duration
+    return show(record, expiration, duration, false, true)
+end
+
+function TrackerState:DropParked(key)
+    if key ~= nil then self:ReleaseBucket(key) end
+end
+
+function TrackerState:ParkedCount()
+    return self.parkedCount
 end
 
 function TrackerState:SetKnownDurations(knownDurations)
@@ -328,6 +425,17 @@ function TrackerState:Remove(index, count)
         self.records[i] = self.records[i + 1]
     end
     self.records[count] = nil
+    for _, bucket in pairs(self.parked) do
+        local dropped = bucket[index]
+        if dropped then
+            dropped.expiration, dropped.duration = nil, nil
+            self.spareBuckets[#self.spareBuckets + 1] = dropped
+        end
+        for i = index, count - 1 do
+            bucket[i] = bucket[i + 1]
+        end
+        bucket[count] = nil
+    end
 end
 
 SA_TrackerState = TrackerState

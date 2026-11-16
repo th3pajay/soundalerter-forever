@@ -17,12 +17,9 @@ function Game.Readable(value)
     return value
 end
 
-function Game.LookupAura(unit, spellID, auraType)
-    local ok, data = pcall(C_UnitAuras.GetUnitAuraBySpellID, unit, spellID)
-    if not ok then
-        return false
-    end
+local realObservation = { kind = "real" }
 
+local function observe(data, spellID, auraType)
     if not data or not matchesAuraType(data, auraType) then
         return true
     end
@@ -31,12 +28,28 @@ function Game.LookupAura(unit, spellID, auraType)
         return true, SECRET_OBSERVATION, data.auraInstanceID
     end
 
-    return true, {
-        kind = "real",
-        spellID = spellID,
-        expiration = data.expirationTime,
-        duration = data.duration,
-    }, data.auraInstanceID
+    realObservation.spellID = spellID
+    realObservation.expiration = data.expirationTime
+    realObservation.duration = data.duration
+    return true, realObservation, data.auraInstanceID
+end
+
+function Game.LookupAura(unit, spellID, auraType)
+    local ok, data = pcall(C_UnitAuras.GetUnitAuraBySpellID, unit, spellID)
+    if not ok then
+        return false
+    end
+    return observe(data, spellID, auraType)
+end
+
+function Game.LookupAuraByName(unit, name, spellID, auraType)
+    local byName = C_UnitAuras.GetAuraDataBySpellName
+    if not byName then return true end
+    local ok, data = pcall(byName, unit, name, auraType)
+    if not ok then
+        return false
+    end
+    return observe(data, spellID, auraType)
 end
 
 function Game.AuraDelta(info)
@@ -59,6 +72,7 @@ end
 
 local FINISHER_SPELLS = { 1079, 1943, 408, 22568, 8647, 2098, 26679, 22570 }
 local finisherNames
+local finisherByID = {}
 
 function Game.ComboPoints()
     if not GetComboPoints then return nil end
@@ -68,6 +82,8 @@ function Game.ComboPoints()
 end
 
 function Game.IsFinisher(spellID)
+    local known = finisherByID[spellID]
+    if known ~= nil then return known end
     if not finisherNames then
         finisherNames = {}
         for _, id in ipairs(FINISHER_SPELLS) do
@@ -76,7 +92,10 @@ function Game.IsFinisher(spellID)
         end
     end
     local name = SA_COMPAT.GetSpellInfo(spellID)
-    return name ~= nil and finisherNames[name] == true
+    if name == nil then return false end
+    known = finisherNames[name] == true
+    finisherByID[spellID] = known
+    return known
 end
 
 function Game.ReadSpellCooldown(spellID, reading)

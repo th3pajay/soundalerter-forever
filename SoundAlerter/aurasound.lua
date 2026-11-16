@@ -8,8 +8,10 @@ local ENEMY_TOKENS = { "target", "focus" }
 local TEST_UNITS = { "player", "target", "focus", "nameplate1", "arena1", "party1", "mouseover" }
 local TEST_SPELL = 2825
 local PLAY_SECONDS = 30
-local RETRY_SECONDS = 2
 local BATTLE_THROTTLE = 2
+local RESTRICTION_INACTIVE, RESTRICTION_ACTIVATING = 0, 1
+local MATCH_STATES = { [0] = "inactive", "waiting", "start-up", "engaged", "post-round", "complete" }
+local STATE_WORDS = { [0] = "inactive", "activating", "active" }
 local playIDs = {}
 
 local BATTLE_UNITS = SA_AuraSound.BATTLE_UNITS
@@ -17,7 +19,49 @@ local battleRegistered = {}
 for _, unit in ipairs(BATTLE_UNITS) do battleRegistered[unit] = {} end
 local battleFiles = {}
 local battleParams = { throttleSeconds = BATTLE_THROTTLE }
-local battleState = { count = 0, failed = 0, lastError = nil, spells = 0 }
+local battleState = { count = 0, failed = 0, lastError = nil, spells = 0, waiting = nil, at = nil, match = nil, restriction = nil }
+local restrictionNames
+
+local function RestrictionName(kind)
+    if not restrictionNames then
+        restrictionNames = {}
+        if Enum and Enum.AddOnRestrictionType then
+            for name, value in pairs(Enum.AddOnRestrictionType) do restrictionNames[value] = name end
+        end
+    end
+    return restrictionNames[kind] or tostring(kind)
+end
+
+local function MatchState()
+    local get = C_PvP and C_PvP.GetActiveMatchState
+    if not get then return nil end
+    local ok, state = pcall(get)
+    state = ok and Plain(state)
+    return type(state) == "number" and state or nil
+end
+
+function SoundAlerter:MatchStateName()
+    local state = MatchState()
+    return state and (MATCH_STATES[state] or tostring(state)) or "unknown"
+end
+
+function SoundAlerter:ActiveRestrictions()
+    if not (Enum and Enum.AddOnRestrictionType and C_RestrictedActions) then return "unknown" end
+    local isActive, getState = C_RestrictedActions.IsAddOnRestrictionActive, C_RestrictedActions.GetAddOnRestrictionState
+    local names = {}
+    for name, value in pairs(Enum.AddOnRestrictionType) do
+        local ok, active
+        if isActive then
+            ok, active = pcall(isActive, value)
+        elseif getState then
+            ok, active = pcall(getState, value)
+            active = ok and type(active) == "number" and active ~= RESTRICTION_INACTIVE
+        end
+        if ok and Plain(active) == true then names[#names + 1] = name end
+    end
+    table.sort(names)
+    return #names > 0 and table.concat(names, ", ") or "none"
+end
 
 function SoundAlerter:EngineAuraSoundSupported()
     return C_UnitAuras and C_UnitAuras.AddAuraSound and C_UnitAuras.RemoveAuraSound
@@ -80,30 +124,23 @@ function SoundAlerter:RemoveAllAuraSounds()
 end
 
 function SoundAlerter:AuraSoundRegistrationBlocked()
-    if InCombatLockdown() then return true end
-    if Enum and Enum.AddOnRestrictionType and C_RestrictedActions and C_RestrictedActions.GetAddOnRestrictionState then
-        for _, restriction in pairs(Enum.AddOnRestrictionType) do
-            local ok, state = pcall(C_RestrictedActions.GetAddOnRestrictionState, restriction)
-            if ok and type(state) == "number" and state ~= 0 then return true end
-        end
+    if InCombatLockdown() then
+        self.auraSoundsAfterCombat = true
+        return true
     end
     return false
 end
 
-function SoundAlerter:RetryAuraSoundSync()
-    self.auraSoundRetryTimer = nil
+function SoundAlerter:AuraSoundsAfterCombat()
+    if not self.auraSoundsAfterCombat then return end
+    self.auraSoundsAfterCombat = false
     self:RunAuraSoundSync()
 end
 
 function SoundAlerter:SyncAuraSounds()
     local profile = self.db1.profile
     if not self:EngineAuraSoundSupported() then return end
-    if self:AuraSoundRegistrationBlocked() then
-        if not self.auraSoundRetryTimer then
-            self.auraSoundRetryTimer = self:ScheduleTimer("RetryAuraSoundSync", RETRY_SECONDS)
-        end
-        return
-    end
+    if self:AuraSoundRegistrationBlocked() then return end
     local ids = SavedIDs(self)
     local desired = SA_AuraSound.Desired(self.spellList, profile, enemyUnits, self:IsAlertZoneAllowed() and true or false)
     local add, remove = SA_AuraSound.Diff(registered, desired)
@@ -137,20 +174,16 @@ function SoundAlerter:BattleVoiceZone()
     return (instanceType == "pvp" or instanceType == "arena") and self:IsAlertZoneAllowed() and true or false
 end
 
-function SoundAlerter:RetryBattleVoices()
-    self.battleVoiceRetryTimer = nil
-    self:SyncBattleVoices()
-end
-
 function SoundAlerter:SyncBattleVoices()
     if not self:EngineAuraSoundSupported() then return end
     local profile = self.db1.profile
     local active = profile.battleVoices and self:BattleVoiceZone()
-    if not active and battleState.count == 0 then return end
+    if not active and battleState.count == 0 then
+        battleState.waiting = nil
+        return
+    end
     if self:AuraSoundRegistrationBlocked() then
-        if not self.battleVoiceRetryTimer then
-            self.battleVoiceRetryTimer = self:ScheduleTimer("RetryBattleVoices", RETRY_SECONDS)
-        end
+        battleState.waiting = "combat"
         return
     end
     local files = SA_AuraSound.BattleFiles(self.spellList.auraApplied, profile, active, battleFiles)
@@ -164,23 +197,30 @@ function SoundAlerter:SyncBattleVoices()
     local removed = before - battleState.count
     local addSound, trigger = C_UnitAuras.AddAuraSound, Enum.UnitAuraSoundTrigger.Added
     local added, failed, spells = 0, 0, 0
+    local refused = false
     battleParams.spellID, battleParams.unitToken, battleParams.soundFileName = nil, nil, nil
     for spellID, file in pairs(files) do
         spells = spells + 1
-        battleParams.spellID, battleParams.soundFileName = spellID, file
-        for index = 1, #BATTLE_UNITS do
-            local unit = BATTLE_UNITS[index]
-            local map = battleRegistered[unit]
-            if not map[spellID] then
-                battleParams.unitToken = unit
-                local ok, id = pcall(addSound, trigger, battleParams)
-                if ok and type(id) == "number" then
-                    map[spellID] = { id = id, file = file }
-                    ids[BattleKey(unit, spellID)] = id
-                    added = added + 1
-                else
-                    failed = failed + 1
-                    battleState.lastError = ok and "no id returned" or tostring(id)
+        if not refused then
+            battleParams.spellID, battleParams.soundFileName = spellID, file
+            for index = 1, #BATTLE_UNITS do
+                local unit = BATTLE_UNITS[index]
+                local map = battleRegistered[unit]
+                if not map[spellID] then
+                    battleParams.unitToken = unit
+                    local ok, id = pcall(addSound, trigger, battleParams)
+                    if ok and type(id) == "number" then
+                        map[spellID] = { id = id, file = file }
+                        ids[BattleKey(unit, spellID)] = id
+                        added = added + 1
+                    else
+                        failed = failed + 1
+                        battleState.lastError = ok and "no id returned" or tostring(id)
+                        if added == 0 and battleState.count == 0 then
+                            refused = true
+                            break
+                        end
+                    end
                 end
             end
         end
@@ -188,6 +228,10 @@ function SoundAlerter:SyncBattleVoices()
     battleState.count = battleState.count + added
     battleState.failed = failed
     battleState.spells = spells
+    if added > 0 or failed > 0 then
+        battleState.at, battleState.match = time(), MatchState()
+    end
+    battleState.waiting = refused and "refused" or nil
     self.battleVoiceList = battleState.count > 0 and self.spellList.auraApplied or nil
     if added > 0 or removed > 0 or failed > 0 then
         self:Debug("AuraSound", "battle voices: %d added, %d removed, %d failed, %d active", added, removed, failed, battleState.count)
@@ -196,6 +240,20 @@ end
 
 function SoundAlerter:BattleVoiceSummary()
     return battleState.count, battleState.spells, #BATTLE_UNITS, battleState.failed, battleState.lastError
+end
+
+function SoundAlerter:BattleVoiceStatus()
+    local at = battleState.at and date("%H:%M:%S", battleState.at) or "never"
+    local match = battleState.match and (MATCH_STATES[battleState.match] or tostring(battleState.match)) or "unknown"
+    return battleState.waiting or "ready", at, match, battleState.restriction or "none seen"
+end
+
+function SoundAlerter:ADDON_RESTRICTION_STATE_CHANGED(_, kind, state)
+    kind, state = Plain(kind), Plain(state)
+    battleState.restriction = RestrictionName(kind) .. " " .. (STATE_WORDS[state] or tostring(state))
+    if state ~= RESTRICTION_ACTIVATING and state ~= RESTRICTION_INACTIVE then return end
+    if battleState.waiting == nil and (battleState.count > 0 or not self.db1.profile.battleVoices or not self:BattleVoiceZone()) then return end
+    self:SyncBattleVoices()
 end
 
 function SoundAlerter:AuraSoundSummary()
@@ -250,6 +308,7 @@ end
 
 function SoundAlerter:StartAuraSounds()
     self:ClearStaleAuraSounds()
+    if self.RegisterEvent then pcall(self.RegisterEvent, self, "ADDON_RESTRICTION_STATE_CHANGED") end
     LibStub("AceConfigRegistry-3.0").RegisterCallback(self, "ConfigTableChange", "OnConfigTableChange")
     self:RefreshEnemyAuraUnits()
     self:SyncAuraSounds()
@@ -317,6 +376,7 @@ function SoundAlerter:AuraSoundSelfTest()
     end
     local file = self.db1.profile.sapath .. "detected.mp3"
     self:Print("|cffFFD700=== Engine aura sound test (registers and removes at once) ===|r")
+    self:Print("  combat " .. tostring(InCombatLockdown() and true or false) .. ", restrictions: " .. self:ActiveRestrictions() .. ", match: " .. self:MatchStateName())
     for _, unit in ipairs(TEST_UNITS) do
         local ok, id = pcall(C_UnitAuras.AddAuraSound, Enum.UnitAuraSoundTrigger.Added, {
             unitToken = unit,

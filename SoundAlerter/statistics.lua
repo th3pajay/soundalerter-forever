@@ -6,7 +6,10 @@ local Plain = SA_COMPAT.Plain
 local Format = SA_StatsFormat
 local Venn = SA_StatsVenn
 local Debrief = SA_DebriefModel
+local BGResult = SA_BGResult
+local Honor = SA_HonorModel
 local METER_DELAY = 0.5
+local honorVersion, honorPatterns, honorOffset, honorToday = 0, nil, nil, nil
 local activeMatch, activeStore
 local matchVersion = 0
 local buildNumber
@@ -36,6 +39,7 @@ end
 local STATISTICS_KEYS = {
 	enabled = true,
 	overviewMode = true,
+	bgPill = true,
 }
 
 function Statistics:GetSettings()
@@ -582,25 +586,6 @@ function Statistics:GetExportText()
 	return cachedText("export", stats, dataVersion, matchVersion, buildExport)
 end
 
-local matchLimit
-
-local function buildMatches()
-	local matches = GetDB().statistics.matches or {}
-	return Debrief.Rows(matches.list, matches.open, time(), GetTime(), Format.Ago, matchLimit)
-end
-
-function Statistics:GetMatchText(limit)
-	local stats = trackedStatistics()
-	if not stats then return "" end
-	matchLimit = limit
-	return cachedText(limit and "matchesShort" or "matches", stats, dataVersion + matchVersion, math.floor(time() / 60), buildMatches)
-end
-
-function Statistics:GetMatchCount()
-	local matches = GetDB().statistics.matches
-	return matches and matches.list and #matches.list or 0
-end
-
 function Statistics:Version()
 	return dataVersion, matchVersion
 end
@@ -734,6 +719,157 @@ function Statistics:OnMeterCombatEnded()
 	end)
 end
 
+local SCORE_FIELDS = { "killingBlows", "honorableKills", "deaths", "honorGained", "damageDone", "healingDone" }
+local BG_RETRY_DELAY = 1
+
+local function plainNumber(value)
+	value = Plain(value)
+	return type(value) == "number" and value or 0
+end
+
+local function readScoreboard()
+	if not (C_PvP and C_PvP.GetScoreInfo and GetNumBattlefieldScores) then return nil end
+	local count = Plain(GetNumBattlefieldScores())
+	if type(count) ~= "number" or count < 1 then return nil end
+	local myGuid = Plain(UnitGUID("player"))
+	local rows, columns, meIndex = {}, nil, nil
+	local first = BGResult.KB
+	for index = 1, count do
+		local ok, info = pcall(C_PvP.GetScoreInfo, index)
+		info = ok and Plain(info)
+		if type(info) == "table" then
+			if type(Plain(info.killingBlows)) ~= "number" then return nil end
+			local row = { Plain(info.name) or "?", Plain(info.classToken) or "", Plain(info.faction) or -1 }
+			for f = 1, #SCORE_FIELDS do row[first + f - 1] = plainNumber(info[SCORE_FIELDS[f]]) end
+			local stats = Plain(info.stats)
+			if type(stats) == "table" then
+				if not columns then
+					columns = {}
+					for c = 1, math.min(#stats, BGResult.MAX_COLUMNS) do
+						local stat = Plain(stats[c])
+						columns[c] = type(stat) == "table" and Plain(stat.name) or "?"
+					end
+				end
+				for c = 1, #columns do
+					local stat = Plain(stats[c])
+					row[BGResult.FIRST_COLUMN + c - 1] = type(stat) == "table" and plainNumber(stat.pvpStatValue) or 0
+				end
+			end
+			rows[#rows + 1] = row
+			if myGuid and Plain(info.guid) == myGuid then meIndex = #rows end
+		end
+	end
+	return rows, columns or {}, meIndex
+end
+
+local function bgStore()
+	local stats = GetDB().statistics
+	stats.bg = BGResult.Store(stats.bg)
+	return stats.bg
+end
+
+function Statistics:CaptureBG(match, winner, duration, retried)
+	if match.bgCaptured then return end
+	local rows, columns, meIndex = readScoreboard()
+	if not meIndex then
+		if not retried then
+			C_Timer.After(BG_RETRY_DELAY, function() self:CaptureBG(match, winner, duration, true) end)
+		else
+			SoundAlerter:Debug("Statistics", "battleground scoreboard was not readable, no result card")
+		end
+		return
+	end
+	match.bgCaptured = true
+	Debrief.Meter(match, readMeter())
+	local totals = Debrief.MeterTotals(match.meter)
+	local record = BGResult.Build(rows, columns, meIndex, {
+		map = match.zone,
+		at = time(),
+		when = date("%d %b %H:%M"),
+		length = duration,
+		winner = winner,
+		spells = totals and BGResult.TopSpells(totals.spells, spellNameOf) or nil,
+	})
+	if not record then return end
+	if (match.honorKills or 0) > 0 then record.kills = match.honorKills end
+	BGResult.Push(bgStore(), record)
+	if Honor.Settle(self:HonorStore(), self:HonorDay(record.at), record.me[BGResult.HONOR], match.honorSeen) then honorVersion = honorVersion + 1 end
+	matchVersion = matchVersion + 1
+	if self:GetSettings().bgPill ~= false and SoundAlerter.ShowBGResult then SoundAlerter:ShowBGResult(record) end
+end
+
+function Statistics:GetBG()
+	local stats = GetDB().statistics
+	return stats and stats.bg
+end
+
+local function localOffset(now)
+	return now - time(date("!*t", now))
+end
+
+function Statistics:HonorDay(now)
+	now = now or time()
+	if honorOffset then
+		local day = Honor.DayOf(now, honorOffset)
+		if day == honorToday then return day, honorOffset end
+	end
+	honorOffset = localOffset(now)
+	honorToday = Honor.DayOf(now, honorOffset)
+	return honorToday, honorOffset
+end
+
+function Statistics:HonorStore()
+	local stats = GetDB().statistics
+	stats.honor = Honor.Store(stats.honor)
+	return stats.honor
+end
+
+function Statistics:GetHonor()
+	local stats = GetDB().statistics
+	return stats and stats.honor
+end
+
+function Statistics:HonorVersion()
+	return honorVersion
+end
+
+function Statistics:SetHonorGoal(target)
+	Honor.SetGoal(self:HonorStore(), target)
+	honorVersion = honorVersion + 1
+end
+
+function Statistics:ResetHonorGoal()
+	Honor.ResetGoal(self:HonorStore())
+	honorVersion = honorVersion + 1
+end
+
+function Statistics:OnHonorGain(_, message)
+	message = Plain(message)
+	if type(message) ~= "string" then return end
+	honorPatterns = honorPatterns or Honor.Patterns(COMBATLOG_HONORGAIN, COMBATLOG_HONORGAIN_NO_RANK, COMBATLOG_HONORAWARD)
+	local amount, kill = Honor.Parse(honorPatterns, message)
+	if not amount or amount <= 0 then return end
+	local match = activeMatch
+	local battleground = match and match.kind == "battleground"
+	if battleground and match.bgCaptured then return end
+	if not Honor.Add(self:HonorStore(), self:HonorDay(time()), amount, not battleground) then return end
+	if battleground then
+		match.honorSeen = (match.honorSeen or 0) + amount
+		if kill then match.honorKills = (match.honorKills or 0) + amount end
+	end
+	honorVersion = honorVersion + 1
+end
+
+function Statistics:WatchHonor(on)
+	if on == (self.watchingHonor or false) then return end
+	self.watchingHonor = on
+	if on then
+		pcall(self.RegisterEvent, self, "CHAT_MSG_COMBAT_HONOR_GAIN", "OnHonorGain")
+	else
+		pcall(self.UnregisterEvent, self, "CHAT_MSG_COMBAT_HONOR_GAIN")
+	end
+end
+
 function Statistics:OnMatchComplete(_, winner, duration)
 	local match = activeMatch
 	if not match then return end
@@ -743,6 +879,7 @@ function Statistics:OnMatchComplete(_, winner, duration)
 	SoundAlerter:Debug("Statistics", "match complete: winner %s, your team %s, length %s", tostring(winner), tostring(team), tostring(duration))
 	if Plain(shuffle) == true then winner = nil end
 	if Debrief.Result(match, winner, team, duration) then matchVersion = matchVersion + 1 end
+	if match.kind == "battleground" then self:CaptureBG(match, winner, duration, false) end
 end
 
 function Statistics:WatchControl(on)
@@ -776,7 +913,9 @@ function Statistics:UpdateMatch()
 		closeMatch(activeStore, now, clock)
 	end
 	activeMatch, activeStore = nil, nil
-	if not trackedStatistics() then
+	local tracked = trackedStatistics() ~= nil
+	self:WatchHonor(tracked)
+	if not tracked then
 		if stats and stats.matches then stats.matches.open = nil end
 		self:WatchControl(false)
 		if previous then matchVersion = matchVersion + 1 end

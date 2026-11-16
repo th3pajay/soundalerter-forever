@@ -151,6 +151,8 @@ local function meterTotals(meter)
     return totals
 end
 
+Model.MeterTotals = meterTotals
+
 function Model.Result(match, winner, team, duration)
     local changed = false
     if type(duration) == "number" and duration > 0 then

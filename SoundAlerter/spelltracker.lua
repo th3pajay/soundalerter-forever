@@ -25,7 +25,14 @@ local iconFrames = {}
 local throttleTime = 0
 local spellTextureCache = {}
 local trackedSpellsByUnit = { player = {}, target = {} }
+local trackedByName = { player = {}, target = {} }
 local playerAuraOwners = {}
+local castMemo = {}
+local castNames = {}
+local auraOwnerMemo = {}
+local linkNames
+local BLEED_SUFFIX = " Bleed"
+local CAST_LINKS = { [9005] = 9007, [9823] = 9824, [9827] = 9826, [27006] = 27007 }
 
 local cooldownThrottle = 0
 local COOLDOWN_UPDATE_INTERVAL = 0.1
@@ -38,6 +45,38 @@ local timedSet = {}
 
 local function OnDriverUpdate(_, elapsed)
     SpellTracker:OnUpdate(elapsed)
+end
+
+local scanDirty = { player = false, target = false }
+local scanPending = false
+
+local function FlushScans()
+    scanPending = false
+    if scanDirty.player then
+        scanDirty.player = false
+        SpellTracker:ScanAuras("player")
+    end
+    if scanDirty.target then
+        scanDirty.target = false
+        SpellTracker:ScanAuras("target")
+    end
+end
+
+local function QueueScan(unit)
+    scanDirty[unit] = true
+    if scanPending then return end
+    scanPending = true
+    C_Timer.After(0, FlushScans)
+end
+
+local function TargetKey()
+    if not (SA_Plates and SA_Plates.UnitKey) then return nil end
+    return (SA_Plates.UnitKey("target"))
+end
+
+local function TargetDead()
+    if not UnitIsDead then return false end
+    return Game.Readable(UnitIsDead("target")) == true
 end
 
 local function trackTimed(index)
@@ -387,9 +426,9 @@ function SpellTracker:OnEvent(event, ...)
         local unit, info = ...
         if unit == "player" then
             self:ReadAuraChanges(info)
-        end
-        if unit == "player" or unit == "target" then
-            self:ScanAuras(unit)
+            QueueScan(unit)
+        elseif unit == "target" then
+            QueueScan(unit)
         end
     elseif event == "UNIT_POWER_FREQUENT" then
         local _, powerType = ...
@@ -403,14 +442,43 @@ function SpellTracker:OnEvent(event, ...)
             self:OnTrackedCast(spellID)
         end
     elseif event == "PLAYER_TARGET_CHANGED" then
-        for _, config in pairs(trackedSpellsByUnit.target) do
-            self.state:ClearPredicted(config.trackerIndex)
-        end
-        Plate:TargetChanged()
-        self:ScanAuras("target")
-    elseif event == "PLAYER_ENTERING_WORLD" or event == "UPDATE_SHAPESHIFT_FORM" then
+        self:OnTargetChanged()
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        self.targetKey = TargetKey()
+        self:RefreshAllTrackers()
+    elseif event == "UPDATE_SHAPESHIFT_FORM" then
         self:RefreshAllTrackers()
     end
+end
+
+function SpellTracker:OnTargetChanged()
+    local targetSpells = trackedSpellsByUnit.target
+    local state = self.state
+    local oldKey, newKey = self.targetKey, TargetKey()
+    self.targetKey = newKey
+    if next(targetSpells) and (oldKey == nil or oldKey ~= newKey) then
+        local now = GetTime()
+        local dead = newKey ~= nil and TargetDead()
+        if dead then state:DropParked(newKey) end
+        for _, config in pairs(targetSpells) do
+            local index = config.trackerIndex
+            state:Park(oldKey, index, now)
+            state:ClearPredicted(index)
+        end
+        if newKey ~= nil and not dead then
+            local icons = self.db.icons
+            for spellID, config in pairs(targetSpells) do
+                local index = config.trackerIndex
+                local decision = state:Unpark(newKey, index, now)
+                local icon = icons[index]
+                if decision and icon and icon.enabled then
+                    self:UpdateTracker(index, spellID, decision)
+                end
+            end
+        end
+    end
+    Plate:TargetChanged()
+    QueueScan("target")
 end
 
 function SpellTracker:OnComboPoints()
@@ -435,23 +503,93 @@ end
 
 local CAST_UNITS = { "player", "target" }
 
+local function LinkNames()
+    if linkNames then return linkNames end
+    linkNames = {}
+    for castID, auraID in pairs(CAST_LINKS) do
+        local castName, auraName = GetSpellInfo(castID), GetSpellInfo(auraID)
+        if castName and auraName then linkNames[castName] = auraName end
+    end
+    return linkNames
+end
+
+local function ByName(unit, name)
+    if not name then return nil end
+    return trackedByName[unit][name]
+end
+
+local function AddMatch(list, config)
+    if not config then return list end
+    list = list or {}
+    for i = 1, #list do
+        if list[i] == config then return list end
+    end
+    list[#list + 1] = config
+    return list
+end
+
+local function CastName(spellID)
+    local name = castNames[spellID]
+    if name == nil then
+        name = GetSpellInfo(spellID) or false
+        castNames[spellID] = name
+    end
+    return name or nil
+end
+
+local function ResolveCast(spellID)
+    local resolved = castMemo[spellID]
+    if resolved ~= nil then return resolved end
+    local name = CastName(spellID)
+    local linked = name and LinkNames()[name]
+    local list
+    for u = 1, #CAST_UNITS do
+        local unit = CAST_UNITS[u]
+        local named = trackedByName[unit]
+        list = AddMatch(list, trackedSpellsByUnit[unit][spellID])
+        if name then
+            list = AddMatch(list, named[name])
+            list = AddMatch(list, linked and named[linked])
+            list = AddMatch(list, named[name .. BLEED_SUFFIX])
+        end
+    end
+    castMemo[spellID] = list or false
+    return list or false
+end
+SpellTracker.ResolveCast = ResolveCast
+
+local function AuraOwner(spellID)
+    local owner = playerAuraOwners[spellID]
+    if owner then return owner end
+    owner = auraOwnerMemo[spellID]
+    if owner ~= nil then return owner or nil end
+    local config = ByName("player", CastName(spellID))
+    owner = config and config.trackerIndex or false
+    auraOwnerMemo[spellID] = owner
+    return owner or nil
+end
+
 function SpellTracker:OnTrackedCast(spellID)
     if not InCombatLockdown() then return end
+    local resolved = ResolveCast(spellID)
+    if not resolved then return end
 
-    for _, unit in ipairs(CAST_UNITS) do
-        local config = trackedSpellsByUnit[unit][spellID]
-        if config then
-            local iconConfig = self.db.icons[config.trackerIndex]
-            local manual = iconConfig and iconConfig.auraDuration
-            local decision = self.state:Predict(config.trackerIndex, spellID, manual, GetTime())
-            if decision then
-                self:UpdateTracker(config.trackerIndex, spellID, decision)
-                if unit == "target" and self.comboPoints ~= nil and Game.IsFinisher(spellID) then
-                    local trackerIndex, castTime = config.trackerIndex, GetTime()
-                    C_Timer.After(FINISHER_CHECK_DELAY, function()
-                        self:CheckFinisher(trackerIndex, spellID, castTime)
-                    end)
-                end
+    local state, icons, now = self.state, self.db.icons, GetTime()
+    for r = 1, #resolved do
+        local config = resolved[r]
+        local trackerIndex, trackedID = config.trackerIndex, config.spellID
+        local iconConfig = icons[trackerIndex]
+        local manual = iconConfig and iconConfig.auraDuration
+        local decision = state:Predict(trackerIndex, trackedID, manual, now)
+        if not decision and spellID ~= trackedID and CastName(spellID) == config.name then
+            decision = state:Predict(trackerIndex, spellID, manual, now)
+        end
+        if decision then
+            self:UpdateTracker(trackerIndex, trackedID, decision)
+            if config.unit == "target" and self.comboPoints ~= nil and Game.IsFinisher(spellID) then
+                C_Timer.After(FINISHER_CHECK_DELAY, function()
+                    self:CheckFinisher(trackerIndex, trackedID, now)
+                end)
             end
         end
     end
@@ -471,7 +609,7 @@ function SpellTracker:ReadAuraChanges(info)
     if added then
         for _, aura in ipairs(added) do
             local spellID, instanceID = Game.AddedAura(aura)
-            local owner = spellID and playerAuraOwners[spellID]
+            local owner = spellID and AuraOwner(spellID)
             if owner and instanceID then
                 self.state:NoteAura(owner, instanceID)
             end
@@ -494,16 +632,23 @@ function SpellTracker:ScanAuras(unit)
     local trackedSpells = trackedSpellsByUnit[unit]
     if not trackedSpells or not next(trackedSpells) then return end
 
+    local lookup, byName, state, now = Game.LookupAura, Game.LookupAuraByName, self.state, GetTime()
+    local nameFallback = unit == "player" or not InCombatLockdown()
     Plate:Begin()
     for spellID, config in pairs(trackedSpells) do
-        local ok, observation, auraInstanceID = Game.LookupAura(unit, spellID, config.auraType)
+        local auraType = config.auraType
+        local ok, observation, auraInstanceID = lookup(unit, spellID, auraType)
         local aliases = config.aliases
         if ok and not observation and aliases then
             for a = 1, #aliases do
-                ok, observation, auraInstanceID = Game.LookupAura(unit, aliases[a], config.auraType)
+                ok, observation, auraInstanceID = lookup(unit, aliases[a], auraType)
                 if not ok or observation then break end
             end
         end
+        if ok and not observation and nameFallback and config.name then
+            ok, observation, auraInstanceID = byName(unit, config.name, spellID, auraType)
+        end
+        if observation and observation.kind == "real" then observation.spellID = spellID end
 
         if not ok then
             if not self.lookupFailed[unit] then
@@ -511,7 +656,7 @@ function SpellTracker:ScanAuras(unit)
                 self.addon:Debug("SpellTracker", "aura lookup failed for %s (reported once per unit)", unit)
             end
         else
-            local decision = self.state:Observe(config.trackerIndex, observation, GetTime())
+            local decision = state:Observe(config.trackerIndex, observation, now)
             if decision.action == "show" then
                 self:UpdateTracker(config.trackerIndex, spellID, decision, unit, auraInstanceID)
             elseif decision.action == "hide" then
@@ -682,13 +827,15 @@ function SpellTracker:OnUpdate(elapsed)
     if #timedTrackers > 0 and throttleTime >= FX.tier.throttle then
         throttleTime = 0
 
-        self.cachedTime = GetTime()
+        local now = GetTime()
+        self.cachedTime = now
         stats.ticks = stats.ticks + 1
+        local state, showText = self.state, self.db.showTimerText
 
         for slot = #timedTrackers, 1, -1 do
             local trackerIndex = timedTrackers[slot]
             local frame = iconFrames[trackerIndex]
-            local remaining = frame and self.state:Remaining(trackerIndex, self.cachedTime)
+            local remaining = frame and state:Remaining(trackerIndex, now)
             stats.visited = stats.visited + 1
             if not remaining then
                 untrackTimed(trackerIndex)
@@ -696,7 +843,7 @@ function SpellTracker:OnUpdate(elapsed)
                 if remaining <= 0 then
                     self:HideTracker(trackerIndex)
                 else
-                    if self.db.showTimerText then
+                    if showText then
                         local newText = self:FormatTime(remaining)
                         if newText ~= frame.lastTimerText then
                             frame.timerText:SetText(newText)
@@ -713,7 +860,7 @@ function SpellTracker:OnUpdate(elapsed)
                         FX:BorderShift(frame, remaining)
                     end
                     if remaining <= Border.EXPIRING_SECONDS then
-                        self:RefreshBorder(trackerIndex, self.cachedTime)
+                        self:RefreshBorder(trackerIndex, now)
                     end
                 end
             end
@@ -1003,7 +1150,10 @@ end
 
 function SpellTracker:RebuildTrackingLookups()
     trackedSpellsByUnit = { player = {}, target = {} }
+    trackedByName = { player = {}, target = {} }
     playerAuraOwners = {}
+    castMemo = {}
+    auraOwnerMemo = {}
     for k in pairs(cooldownEnabledTrackers) do
         cooldownEnabledTrackers[k] = nil
     end
@@ -1017,11 +1167,18 @@ function SpellTracker:RebuildTrackingLookups()
                 trackedSpellsByUnit[config.unit] = {}
             end
             local aliases = SA_TrackerModel.RANK_ALIASES[config.spellID]
-            trackedSpellsByUnit[config.unit][config.spellID] = {
+            local name = GetSpellInfo(config.spellID)
+            local entry = {
                 trackerIndex = i,
+                spellID = config.spellID,
+                unit = config.unit,
                 auraType = config.auraType,
                 aliases = aliases,
+                name = name,
             }
+            trackedSpellsByUnit[config.unit][config.spellID] = entry
+            local named = trackedByName[config.unit]
+            if name and named and not named[name] then named[name] = entry end
             if config.unit == "player" then
                 playerAuraOwners[config.spellID] = i
                 if aliases then

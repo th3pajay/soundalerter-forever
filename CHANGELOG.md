@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.3.23
+
+## Damn you BG bugs
+
+Speed Meter
+- The meter shows your real speed while you move: walking reads about 36%, backpedalling and slows show as they happen, and a flight path shows its own speed. Standing still it shows the speed you would move at, as before.
+- In combat the game hides your speed, which left the meter blank. It now measures how fast you actually move, and while you stand still it keeps the last number it had, dimmed and marked with a ~ (for example ~132%).
+- New "Tint mounted speed" option on the Speed Meter page (advanced) colours the number while mounted or flying too.
+- The meter only works while you move or something changes your speed, so standing still costs nothing.
+
+Battleground results
+- After each battleground a small pill appears under the minimap button for 2 minutes (once you are out of combat), showing the result, the map and your best stat. Click it for your card: victory or defeat, length, honor, and your killing blows, honorable kills, deaths, damage, healing and objectives (flag captures and returns, bases) with your rank among all players, gold where you were best, plus badges such as "Most flag captures" and "Never died". The game only reveals the scoreboard numbers when the match ends, so the card appears then. Turn the pill off on the Statistics page.
+- Statistics has a new BG view next to All-time and Session: your totals (matches, win rate, honorable kills, killing blows and deaths per match), a filter per battleground, and your last 50 matches. Open one to see its card, both teams side by side with a bar per player and a tab per stat, and your damage by spell for that match. Both teams are kept for your 10 newest matches.
+- The Matches list is gone from the All-time and Session views of Statistics; your battlegrounds are in the BG view.
+- Statistics has a new Honor view: today, this week, honor per match and per battleground hour, and your best match, then a chart of your running honor over 7 days, 30 days or since tracking began (a dot per battleground, world PvP honor in blue, your daily pace as a dashed line), and a bar per battleground for your last 30, split into honor from kills and bonus honor, filterable by map. Type an honor goal, an item's cost for example, to see your progress and about how many days it takes at your pace. World PvP honor counts from the honor chat lines; battleground honor comes from the scoreboard, so matches you already played show up too.
+
+Battle voices (fixed again)
+- Battle voices (the game's own voices for enemy buffs in battlegrounds and arenas) could stay silent for a whole match: the addon held back while any game lock for addons was on, and the game locks addons for the length of a PvP match. It now holds back only in combat, registers the voices the moment the game announces the match lock (the game still allows it then), and if the game ever refuses, it tries again once the lock lifts instead of every 2 seconds. A refusal costs one call, not one per spell and unit.
+- `/sa probe` shows the battle voice state (ready, waiting for combat to end, or refused), when they were last registered and the match state at that moment, plus which game locks are on now. `/sa aurasound` shows the locks and the match state too.
+
+Settings
+- Selected choice chips, such as the channels under Sends to and the Preview as choice in Chat Alerts, no longer show as plain green blocks with no text until you click them.
+
+Spell Tracker
+- Tracked target debuffs such as Rip and Lacerate no longer vanish when you switch targets. Each enemy keeps its own timers: target another enemy and they hide, target the first one again and they come back with the time they really have left. A dead enemy's timers are not brought back. In dungeons the game hides which enemy is which, so there they still clear on a switch.
+- Trackers now follow every rank of a spell: tracking Rake starts its timer from whichever Rake rank you cast, out of combat any rank on the target is read and its length learned, and learning a new rank no longer silences a tracker. Casting Pounce also starts a tracked Pounce Bleed (with its own length), and any spell starts a tracked bleed of the same name.
+- Target auras are read at most once per frame instead of on every aura change, which saves work in busy fights.
+
 ## 0.3.22
 
 ## Battlegrounds find their voice

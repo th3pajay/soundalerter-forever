@@ -306,6 +306,7 @@ dbDefaults = {
 			scale = 1,
 			fontSize = 18,
 			hideAtBaseline = false,
+			tintMounted = false,
 			boostColor = { r = 0.3, g = 1, b = 0.4 },
 			slowColor = { r = 1, g = 0.3, b = 0.3 },
 			baseColor = { r = 1, g = 1, b = 1 },

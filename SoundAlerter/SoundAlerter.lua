@@ -632,6 +632,7 @@ function SoundAlerter:ApplyTotemPlates()
 end
 
 function SoundAlerter:PLAYER_REGEN_ENABLED()
+    if self.auraSoundsAfterCombat then self:AuraSoundsAfterCombat() end
     if self.totemPlatesPending then
         self.totemPlatesPending = false
         self:ApplyTotemPlates()
@@ -1407,6 +1408,10 @@ function SoundAlerter:PrintProbeReport()
         local count, spells, units, failed, lastError = self:BattleVoiceSummary()
         line("battle voices on/zone", sadb and sadb.battleVoices or false, self:BattleVoiceZone())
         line("battle voices registered/spells/units/failed", count, spells, units, failed, lastError)
+        local waiting, at, match, restriction = self:BattleVoiceStatus()
+        line("battle voices state/last change/match then", waiting, at, match)
+        line("now combat/restrictions/match", InCombatLockdown() and true or false, self:ActiveRestrictions(), self:MatchStateName())
+        line("last restriction change", restriction)
     end
 
     if UnitExists("target") then

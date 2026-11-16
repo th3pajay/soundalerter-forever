@@ -47,29 +47,35 @@ local function BestMap()
     return Plain(mapID)
 end
 
+local mapVector
+
+local function MapXY(mapID)
+    local position = C_Map.GetPlayerMapPosition(mapID, "player")
+    if not position then return nil end
+    return position:GetXY()
+end
+
+local function WorldFromMap(mapID)
+    local x, y = MapXY(mapID)
+    x, y = Plain(x), Plain(y)
+    if type(x) ~= "number" or type(y) ~= "number" then return nil end
+    mapVector = mapVector or CreateVector2D(0, 0)
+    mapVector:SetXY(x, y)
+    local instance, worldPosition = C_Map.GetWorldPosFromMapPos(mapID, mapVector)
+    if not worldPosition then return nil end
+    return worldPosition.x, worldPosition.y, instance
+end
+
 local function PositionFromMap(mapID)
     if not (mapID and C_Map and C_Map.GetPlayerMapPosition and C_Map.GetWorldPosFromMapPos and CreateVector2D) then return nil end
-    local ok, u, v, world = pcall(function()
-        local position = C_Map.GetPlayerMapPosition(mapID, "player")
-        if not position then return nil end
-        local x, y = position:GetXY()
-        x, y = Plain(x), Plain(y)
-        if type(x) ~= "number" or type(y) ~= "number" then return nil end
-        local instance, worldPosition = C_Map.GetWorldPosFromMapPos(mapID, CreateVector2D(x, y))
-        if not worldPosition then return nil end
-        return worldPosition.x, worldPosition.y, instance
-    end)
+    local ok, u, v, world = pcall(WorldFromMap, mapID)
     if not ok or type(u) ~= "number" or type(v) ~= "number" then return nil end
     return u, v, world or 0
 end
 
 local function MapPosition(mapID)
     if not (mapID and C_Map and C_Map.GetPlayerMapPosition) then return nil end
-    local ok, x, y = pcall(function()
-        local position = C_Map.GetPlayerMapPosition(mapID, "player")
-        if not position then return nil end
-        return position:GetXY()
-    end)
+    local ok, x, y = pcall(MapXY, mapID)
     x, y = Plain(x), Plain(y)
     if not ok or type(x) ~= "number" or type(y) ~= "number" then return nil end
     if x < 0 or x > 1 or y < 0 or y > 1 then return nil end
@@ -121,6 +127,11 @@ local function ReadPosition(withMap)
     end
     if not u then return nil end
     return u, v, world, mapID or 0
+end
+
+function SoundAlerter.PlayerWorldPosition()
+    local u, v, world = ReadPosition(false)
+    return u, v, world
 end
 
 local function Unusable()

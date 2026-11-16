@@ -63,6 +63,20 @@ function SoundAlerter:ShowConfig()
     end
 end
 
+function SoundAlerter:ShowStatisticsBG()
+	local statistics = self:GetModule("Statistics", true)
+	if statistics then statistics:SetSetting("overviewMode", "bg") end
+	initOptions()
+	local widget = AceConfigDialog.OpenFrames[CONFIG]
+	if not (widget and widget.frame and widget.frame:IsVisible()) then
+		if sadb and sadb.ui then sadb.ui.lastPage = "Statistics" end
+		self:ShowConfig()
+	end
+	pcall(AceConfigDialog.SelectGroup, AceConfigDialog, CONFIG, "Statistics")
+	local registry = LibStub("AceConfigRegistry-3.0", true)
+	if registry then registry:NotifyChange(CONFIG) end
+end
+
 function SoundAlerter:OnOptionsProfileChanged()
 	sadb = self.db1.profile
 	sadb.custom = sadb.custom or {}
