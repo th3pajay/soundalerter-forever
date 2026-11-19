@@ -828,4 +828,25 @@ function SA_Rearm.Wait(stamps, key, seconds, now)
     stamps[key] = now
     return nil
 end
+
+SA_Rearm.CASTERS = 64
+
+function SA_Rearm.WaitFor(stamps, key, who, seconds, now)
+    local byWho = stamps[key]
+    if type(byWho) ~= "table" then
+        byWho = { size = 0 }
+        stamps[key] = byWho
+    end
+    local last = byWho[who]
+    if last and now - last < seconds then return seconds - (now - last) end
+    if not last then
+        if byWho.size >= SA_Rearm.CASTERS then
+            for name in pairs(byWho) do byWho[name] = nil end
+            byWho.size = 0
+        end
+        byWho.size = byWho.size + 1
+    end
+    byWho[who] = now
+    return nil
+end
 end

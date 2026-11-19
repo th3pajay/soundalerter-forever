@@ -6,8 +6,8 @@ local Plain = SA_COMPAT.Plain
 local GetTime = GetTime
 local issecretvalue = issecretvalue or function() return false end
 
-local UNITS = { "target", "focus" }
-local SPOT_DEFAULTS = { target = { 0, -200 }, focus = { 0, -250 } }
+local UNITS = { "player", "target", "focus" }
+local SPOT_DEFAULTS = { player = { 0, -150 }, target = { 0, -200 }, focus = { 0, -250 } }
 local MAX_AURAS = 40
 local TEST_TIME = 8
 local EDGE_SIZE = 16
@@ -25,16 +25,18 @@ local WHITE = { 1, 1, 1 }
 local GREY = { 0.75, 0.78, 0.84 }
 
 local SETTING_KEYS = {
-    enabled = true, target = true, focus = true, size = true, spacing = true,
-    numbers = true, tags = true, locked = true, voice = true,
+    enabled = true, player = true, target = true, focus = true, size = true, spacing = true,
+    numbers = true, tags = true, locked = true,
 }
+local ROW_UNIT = { player = true, target = true, focus = true }
 
 local IMMUNE_VOICE = "immune.mp3"
 
 local byID, notCC = {}, {}
 local byName
 local records = {}
-local watch = { target = { auras = {} }, focus = { auras = {} } }
+local watch = { player = { auras = {} }, target = { auras = {} }, focus = { auras = {} } }
+local playerKey
 local present = {}
 
 local function AddIDs(source)
@@ -87,13 +89,18 @@ function DRTracker:Category(aura)
             if category then byID[id] = category else notCC[id] = true end
         end
     end
-    if not category or not self.db.categories[category] then return nil end
+    if not category then return nil end
     return category, id
+end
+
+function DRTracker:Wants(unit, category)
+    local set = self.db.cats[unit]
+    return set ~= nil and set[category] == true
 end
 
 function DRTracker:SayImmune(category, unit)
     local addon = self.addon
-    if not (self.db.voice and addon) then return end
+    if not (self.db.say[unit] and addon) then return end
     if addon.IsAlertZoneAllowed and not addon:IsAlertZoneAllowed() then return end
     if addon.IsQuiet and addon:IsQuiet() then return end
     local profile = addon.db1.profile
@@ -128,6 +135,13 @@ local function IconOf(aura, id)
 end
 
 function DRTracker:KeyFor(unit)
+    if unit == "player" then
+        if not playerKey then
+            local guid = Plain(UnitGUID("player"))
+            playerKey = type(guid) == "string" and guid ~= "" and guid or "unit:player"
+        end
+        return playerKey
+    end
     if not UnitExists(unit) then return nil end
     if Plain(UnitCanAttack("player", unit)) == false then return nil end
     local guid = Plain(UnitGUID(unit))
@@ -169,7 +183,7 @@ function DRTracker:Scan(unit, state, getAura)
         local aura = getAura(unit, index, "HARMFUL")
         if aura == nil or issecretvalue(aura) then break end
         local category, id = self:Category(aura)
-        if category then
+        if category and self:Wants(unit, category) then
             present[category] = aura
             local instance = Plain(aura.auraInstanceID)
             if instance then state.auras[instance] = category end
@@ -234,7 +248,7 @@ function DRTracker:OnAura(unit, info)
     if added then
         for _, aura in ipairs(added) do
             local category, id = self:Category(aura)
-            if category then
+            if category and self:Wants(unit, category) then
                 self:Land(unit, aura, category, id)
                 changed = true
             end
@@ -267,7 +281,7 @@ local function OnEvent(_, event, unit, info)
 end
 
 local function Watched(key)
-    return watch.target.key == key or watch.focus.key == key
+    return watch.target.key == key or watch.focus.key == key or watch.player.key == key
 end
 
 function DRTracker:Prune(now)
@@ -469,7 +483,7 @@ function DRTracker:TestRecords(now)
     end
     local shown = 0
     for _, category in ipairs(Model.ORDER) do
-        if self.db.categories[category] and shown < #TEST_COUNTS then
+        if shown < #TEST_COUNTS then
             shown = shown + 1
             local record = list[category] or Model.New()
             list[category] = record
@@ -501,12 +515,13 @@ function DRTracker:Render(unit, now)
         list = records[watch[unit].key]
     end
     local size, spacing = db.size, db.spacing
+    local cats = db.cats[unit] or {}
     local text = math.max(8, math.floor(size * TEXT_RATIO))
     local count = 0
     if list then
         for _, category in ipairs(Model.ORDER) do
             local record = list[category]
-            if record and db.categories[category] and not Model.Expired(record, now) then
+            if record and cats[category] and not Model.Expired(record, now) then
                 count = count + 1
                 local icon = holder.icons[count]
                 if not icon then
@@ -566,10 +581,13 @@ function DRTracker:Refresh(key, unit)
     self:Schedule(now)
 end
 
-function DRTracker:Listen(target, focus)
-    local mode = (target and 1 or 0) + (focus and 2 or 0)
+function DRTracker:Listen(target, focus, player)
+    local mode = (target and 1 or 0) + (focus and 2 or 0) + (player and 4 or 0)
     if self.listening == mode then return end
     self.listening = mode
+    local selfEvents = self.selfEvents
+    selfEvents:UnregisterAllEvents()
+    if player then selfEvents:RegisterUnitEvent("UNIT_AURA", "player") end
     local events = self.events
     events:UnregisterAllEvents()
     if target and focus then
@@ -586,9 +604,13 @@ function DRTracker:GetSettings()
 end
 
 function DRTracker:SetSetting(key, value)
-    local category = type(key) == "string" and key:match("^categories%.(%w+)$")
-    if category and Model.CATEGORIES[category] then
-        self.db.categories[category] = value and true or false
+    local unit, category = nil, nil
+    if type(key) == "string" then unit, category = key:match("^cats%.(%a+)%.(%w+)$") end
+    local sayUnit = type(key) == "string" and key:match("^say%.(%a+)$")
+    if unit and ROW_UNIT[unit] and Model.CATEGORIES[category] then
+        self.db.cats[unit][category] = value and true or false
+    elseif sayUnit and ROW_UNIT[sayUnit] then
+        self.db.say[sayUnit] = value and true or false
     elseif SETTING_KEYS[key] then
         self.db[key] = value
     else
@@ -597,12 +619,49 @@ function DRTracker:SetSetting(key, value)
     self:LoadSettings()
 end
 
+function DRTracker:CopyRow(from)
+    local source = self.db.cats[from]
+    if not source then return end
+    for _, unit in ipairs(UNITS) do
+        if unit ~= from then
+            local set = self.db.cats[unit]
+            for category in pairs(Model.CATEGORIES) do set[category] = source[category] == true end
+        end
+    end
+    self:LoadSettings()
+end
+
+local function Migrate(db)
+    db.cats = db.cats or {}
+    db.say = db.say or {}
+    for _, unit in ipairs(UNITS) do db.cats[unit] = db.cats[unit] or {} end
+    local old = db.categories
+    if type(old) == "table" then
+        for _, unit in ipairs(UNITS) do
+            local set = db.cats[unit]
+            for category, on in pairs(old) do
+                if Model.CATEGORIES[category] then set[category] = on and true or false end
+            end
+        end
+    end
+    db.categories = nil
+    if db.voice ~= nil then
+        db.say.target, db.say.focus = db.voice and true or false, db.voice and true or false
+        db.voice = nil
+    end
+    if db.voicePlayer ~= nil then
+        db.say.player = db.voicePlayer and true or false
+        db.voicePlayer = nil
+    end
+end
+DRTracker.Migrate = Migrate
+
 function DRTracker:LoadSettings()
     local db = self.db
     if not db or not self.rows then return end
-    db.categories = db.categories or {}
+    Migrate(db)
     db.spots = db.spots or {}
-    self:Listen(db.enabled and db.target, db.enabled and db.focus)
+    self:Listen(db.enabled and db.target, db.enabled and db.focus, db.enabled and db.player)
     if not db.enabled then
         wipe(records)
         for _, unit in ipairs(UNITS) do
@@ -657,7 +716,9 @@ function DRTracker:Initialize()
     BuildLookup()
     self.events = CreateFrame("Frame")
     self.events:SetScript("OnEvent", OnEvent)
-    self.rows = { target = self:CreateRow("target"), focus = self:CreateRow("focus") }
+    self.selfEvents = CreateFrame("Frame")
+    self.selfEvents:SetScript("OnEvent", OnEvent)
+    self.rows = { player = self:CreateRow("player"), target = self:CreateRow("target"), focus = self:CreateRow("focus") }
     self.initialized = true
     self:LoadSettings()
 end

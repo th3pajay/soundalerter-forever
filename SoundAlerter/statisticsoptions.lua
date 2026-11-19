@@ -1384,8 +1384,8 @@ end
 
 local BG = SA_BGResult
 local BG_SHORT = 5
-local BG_GAP, BG_KPI_HEIGHT, BG_CHIP_HEIGHT, BG_HEAD_HEIGHT, BG_ROW_HEIGHT = 6, 40, 22, 18, 22
-local BG_BAR_HEIGHT, BG_TAB_HEIGHT, BG_SPELL_HEIGHT, BG_DETAIL_PAD, BG_TEAM_MIN = 16, 20, 14, 8, 280
+local BG_GAP, BG_KPI_HEIGHT, BG_CHIP_HEIGHT, BG_HEAD_HEIGHT, BG_ROW_HEIGHT = 6, 40, 22, 18, 28
+local BG_BAR_HEIGHT, BG_TAB_HEIGHT, BG_SPELL_HEIGHT, BG_DETAIL_PAD, BG_TEAM_MIN = 18, 20, 14, 8, 280
 local BG_VALUE_WIDTH = 50
 local BG_SPELLS_MIN = 170
 local BG_ALLIANCE, BG_HORDE = { 0.31, 0.56, 1 }, { 0.89, 0.27, 0.23 }
@@ -1393,7 +1393,21 @@ local BG_LOSS = { 1, 0.36, 0.36 }
 local BG_GOLD = { 1, 0.82, 0 }
 local BG_KPI_LABELS = { "Matches", "Won", "HK per match", "KB per match", "Deaths per match" }
 local BG_ROW_FIELDS = { BG.KB, BG.HK, BG.DEATHS, BG.DAMAGE, BG.HEALING, BG.HONOR }
-local BG_ROW_LABELS = { "KB", "HK", "Deaths", "Damage", "Healing", "Honor" }
+local BG_ROW_LABELS = { "KB", "HK", "DTH", "DMG", "HEAL", "HONOR" }
+local BG_LOOK = {
+    EDGE = 3,
+    BAR_GAP = 4,
+    SPELL_ROW = 20,
+    SPELL_TEXT = 4,
+    RULE = { 0.208, 0.235, 0.286 },
+    HILITE = { 1, 1, 1 },
+    HILITE_ALPHA = 0.025,
+    SPELL_RULE = { 0.173, 0.196, 0.239 },
+    SHADE = { 0.075, 0.086, 0.11 },
+    TIPS = { "Killing blows", "Honorable kills", "Deaths", "Damage done", "Healing done", "Honor gained" },
+}
+function BG_LOOK.HeadEnter(self) SoundAlerter.Page.Kit.ShowTip(self, self.tip) end
+function BG_LOOK.HeadLeave() SoundAlerter.Page.Kit.HideTip() end
 local bgUI = { open = 1, stat = BG.DAMAGE, filter = "all", all = false }
 local sortIndex = BG.DAMAGE
 
@@ -1430,12 +1444,20 @@ local function bgRow(state, index)
     row.hover = Kit.Paint(row, Kit.COLOR.card, 1, "BACKGROUND")
     row.hover:SetAllPoints(row)
     row.hover:Hide()
-    row.rule = Kit.Paint(row, Kit.COLOR.line, 1, "BORDER")
+    row.rule = Kit.Paint(row, BG_LOOK.RULE, 1, "BORDER")
     row.rule:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
     row.rule:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
     row.rule:SetHeight(1)
+    row.hilite = Kit.Paint(row, BG_LOOK.HILITE, BG_LOOK.HILITE_ALPHA, "BORDER")
+    row.hilite:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+    row.hilite:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, 0)
+    row.hilite:SetHeight(1)
+    row.edge = Kit.Paint(row, Kit.COLOR.on, 1, "ARTWORK")
+    row.edge:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+    row.edge:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 1)
+    row.edge:SetWidth(BG_LOOK.EDGE)
     row.result = Kit.Text(row, 12, Kit.COLOR.on, "CENTER")
-    row.result:SetPoint("LEFT", row, "LEFT", 2, 0)
+    row.result:SetPoint("LEFT", row, "LEFT", 4, 0)
     row.result:SetWidth(16)
     row.title = Kit.Text(row, 12, Kit.COLOR.text)
     row.title:SetPoint("LEFT", row, "LEFT", 22, 0)
@@ -1502,7 +1524,7 @@ local function bgSpell(state, index)
     local line = state.spells[index]
     if line then return line end
     local Kit = SoundAlerter.Page.Kit
-    line = { name = Kit.Text(state.detail, 11, Kit.COLOR.text), value = Kit.Text(state.detail, 11, Kit.COLOR.muted, "RIGHT") }
+    line = { name = Kit.Text(state.detail, 11, Kit.COLOR.text), value = Kit.Text(state.detail, 11, Kit.COLOR.muted, "RIGHT"), rule = Kit.Paint(state.detail, BG_LOOK.SPELL_RULE, 1, "BORDER") }
     line.value:SetWidth(90)
     state.spells[index] = line
     return line
@@ -1548,19 +1570,33 @@ local function fillBG(state)
     local matchLabel = Kit.Text(state.head, 10.5, Kit.COLOR.muted)
     matchLabel:SetPoint("LEFT", state.head, "LEFT", 22, 0)
     matchLabel:SetText("MATCH")
+    state.headTips = {}
     for column = 1, #BG_ROW_FIELDS do
-        local label = Kit.Text(state.head, 10.5, Kit.COLOR.muted, "RIGHT")
+        local hit = CreateFrame("Frame", nil, state.head)
+        hit:SetSize(BG_VALUE_WIDTH, BG_HEAD_HEIGHT)
+        hit:SetPoint("RIGHT", state.head, "RIGHT", -(14 + (#BG_ROW_FIELDS - column) * BG_VALUE_WIDTH), 0)
+        hit.tip = BG_LOOK.TIPS[column]
+        hit:EnableMouse(true)
+        hit:SetScript("OnEnter", BG_LOOK.HeadEnter)
+        hit:SetScript("OnLeave", BG_LOOK.HeadLeave)
+        local label = Kit.Text(hit, 10.5, Kit.COLOR.muted, "RIGHT")
         label:SetWidth(BG_VALUE_WIDTH)
-        label:SetPoint("RIGHT", state.head, "RIGHT", -(14 + (#BG_ROW_FIELDS - column) * BG_VALUE_WIDTH), 0)
-        label:SetText(string.upper(BG_ROW_LABELS[column]))
+        label:SetPoint("RIGHT", hit, "RIGHT", 0, 0)
+        label:SetText(BG_ROW_LABELS[column])
+        hit.label = label
+        state.headTips[column] = hit
     end
     state.more = Kit.MakeButton(frame, "Show all", function()
         bgUI.all = not bgUI.all
         page:Refresh()
     end)
     state.detail = CreateFrame("Frame", nil, frame)
-    local shade = Kit.Paint(state.detail, { 0.071, 0.082, 0.106 }, 1)
+    local shade = Kit.Paint(state.detail, BG_LOOK.SHADE, 1)
     shade:SetAllPoints(state.detail)
+    local detailRule = Kit.Paint(state.detail, BG_LOOK.RULE, 1, "BORDER")
+    detailRule:SetPoint("BOTTOMLEFT", state.detail, "BOTTOMLEFT", 0, 0)
+    detailRule:SetPoint("BOTTOMRIGHT", state.detail, "BOTTOMRIGHT", 0, 0)
+    detailRule:SetHeight(1)
     state.card = SA_BGResultUI.NewCard(state.detail, false)
     state.spellTitle = Kit.Text(state.detail, 10.5, Kit.COLOR.accent)
     state.spellTitle:SetText("YOUR DAMAGE BY SPELL")
@@ -1661,7 +1697,7 @@ local function placeTeams(state, record, x, y, width)
             local bar = bgBar(state, bars)
             bar:ClearAllPoints()
             bar:SetWidth(columnWidth)
-            bar:SetPoint("TOPLEFT", state.detail, "TOPLEFT", columnX, -(barsY + (index - 1) * (BG_BAR_HEIGHT + 2)))
+            bar:SetPoint("TOPLEFT", state.detail, "TOPLEFT", columnX, -(barsY + (index - 1) * (BG_BAR_HEIGHT + BG_LOOK.BAR_GAP)))
             local value = row[sortIndex] or 0
             local track = columnWidth - BG_VALUE_WIDTH
             bar.fill:SetWidth(math.max(1, top > 0 and track * value / top or 1))
@@ -1677,7 +1713,7 @@ local function placeTeams(state, record, x, y, width)
     lay(horde, x + columnWidth + BG_GAP)
     for index = bars + 1, #state.bars do state.bars[index]:Hide() end
     state.teamNote:Hide()
-    return barsY + math.max(#alliance, #horde) * (BG_BAR_HEIGHT + 2)
+    return barsY + math.max(#alliance, #horde) * (BG_BAR_HEIGHT + BG_LOOK.BAR_GAP)
 end
 
 local function placeDetail(state, record, width, y)
@@ -1704,25 +1740,32 @@ local function placeDetail(state, record, width, y)
         local top = spellTop + 6 + BG_SPELL_HEIGHT
         local total = 0
         for index = 1, #spells do total = total + spells[index][2] end
+        local rowHeight, textY = BG_LOOK.SPELL_ROW, BG_LOOK.SPELL_TEXT
         for index = 1, #spells do
             used = used + 1
             local line = bgSpell(state, used)
+            local lineY = top + (index - 1) * rowHeight
             line.name:ClearAllPoints()
-            line.name:SetPoint("TOPLEFT", detail, "TOPLEFT", spellX, -(top + (index - 1) * BG_SPELL_HEIGHT))
+            line.name:SetPoint("TOPLEFT", detail, "TOPLEFT", spellX, -(lineY + textY))
             line.name:SetText(spells[index][1])
             line.value:ClearAllPoints()
-            line.value:SetPoint("TOPRIGHT", detail, "TOPLEFT", spellRight, -(top + (index - 1) * BG_SPELL_HEIGHT))
+            line.value:SetPoint("TOPRIGHT", detail, "TOPLEFT", spellRight, -(lineY + textY))
             line.value:SetText(BG.Short(spells[index][2]) .. "  " .. math.floor(spells[index][2] / math.max(1, total) * 100 + 0.5) .. "%")
+            line.rule:ClearAllPoints()
+            line.rule:SetPoint("TOPLEFT", detail, "TOPLEFT", spellX, -(lineY + rowHeight - 1))
+            line.rule:SetSize(math.max(1, spellRight - spellX), 1)
             line.name:Show()
             line.value:Show()
+            line.rule:Show()
         end
-        left = math.max(left, top + #spells * BG_SPELL_HEIGHT)
+        left = math.max(left, top + #spells * rowHeight)
     else
         state.spellTitle:Hide()
     end
     for index = used + 1, #state.spells do
         state.spells[index].name:Hide()
         state.spells[index].value:Hide()
+        state.spells[index].rule:Hide()
     end
     local teamX = side and (cardWidth + 2 * BG_DETAIL_PAD) or BG_DETAIL_PAD
     local teamY = side and BG_DETAIL_PAD or (left + BG_DETAIL_PAD)
@@ -1792,9 +1835,15 @@ local function updateBG(state, settings, width)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", state.frame, "TOPLEFT", 0, -y)
         row:SetWidth(width)
-        local result = record.result
-        row.result:SetText(result == "won" and "W" or result == "lost" and "L" or "-")
-        Kit.Tint(row.result, result == "lost" and BG_LOSS or result == "won" and Kit.COLOR.on or Kit.COLOR.muted)
+        local result = record.result or "none"
+        if row.look ~= result then
+            row.look = result
+            local color = result == "lost" and BG_LOSS or result == "won" and Kit.COLOR.on or Kit.COLOR.muted
+            row.result:SetText(result == "won" and "W" or result == "lost" and "L" or "-")
+            Kit.Tint(row.result, color)
+            row.edge:SetVertexColor(color[1], color[2], color[3], 1)
+            row.edge:SetShown(result == "won" or result == "lost")
+        end
         row.title:SetText((record.map or "?") .. "  |cff8d95a3" .. (record.when or "") .. " · " .. BG.Clock(record.length) .. "|r")
         local me = record.me
         for column, field in ipairs(BG_ROW_FIELDS) do
@@ -1827,19 +1876,54 @@ local function updateBG(state, settings, width)
 end
 
 local Honor = SA_HonorModel
-local HONOR_KPI_LABELS = { "Today", "This week", "Per match", "Per BG hour", "Best match" }
-local HONOR_RANGES = { { 7, "7 days" }, { 30, "30 days" }, { 0, "All" } }
-local HONOR_AXIS, HONOR_RIGHT, HONOR_HEAD = 40, 6, 24
-local HONOR_A_HEIGHT, HONOR_B_HEIGHT, HONOR_FOOT = 150, 110, 16
-local HONOR_GOAL_HEIGHT, HONOR_GOAL_BAR, HONOR_BOX_WIDTH = 50, 12, 80
-local HONOR_LINE, HONOR_DOT, HONOR_PACE_STEP, HONOR_MAX_STEPS = 2, 6, 8, 120
-local HONOR_GRID = 6
-local HONOR_REFRESH = 1
-local HONOR_KILL = { 1, 0.49, 0.04 }
-local HONOR_BONUS = { 1, 0.82, 0 }
-local HONOR_WORLD = { 0.435, 0.659, 1 }
-local HONOR_SOLID = { 0.588, 0.627, 0.698 }
-local HONOR_LOSS = { 1, 0.36, 0.36 }
+local HV = {
+    DAY = Honor.DAY,
+    KPI_LABELS = { "Today", "This week", "Per match", "Per BG hour", "Best match" },
+    RANGES = { { 7, "7 days" }, { 30, "30 days" }, { 0, "All" } },
+    AXIS = 40,
+    RIGHT = 6,
+    HEAD = 24,
+    A_HEIGHT = 150,
+    B_HEIGHT = 110,
+    FOOT = 16,
+    LEGEND = 16,
+    LINE = 2,
+    DOT = 6,
+    BUCKET = 2,
+    GRID = 6,
+    RAIL_MIN = 200,
+    RAIL_MAX = 250,
+    RAIL_SHARE = 0.34,
+    STACK = 600,
+    CARD_HEIGHT = 62,
+    PAD = 8,
+    CAP_BAR = 4,
+    GOAL_TITLE = 20,
+    GOAL_ROW = 40,
+    GOAL_TRACK = 6,
+    GOAL_LINE = 16,
+    ADD_HEIGHT = 22,
+    COST_WIDTH = 58,
+    REMOVE = 16,
+    DASH = 5,
+    DASH_GAP = 3,
+    BG_SLACK = 60,
+    REFRESH_DELAY = 0.2,
+    KIND_BG = 1,
+    KIND_WORLD = 2,
+    KIND_SPEND = 3,
+}
+local HC = {
+    KILL = { 1, 0.49, 0.04 },
+    BONUS = { 1, 0.82, 0 },
+    WORLD = { 0.435, 0.659, 1 },
+    SPEND = { 1, 0.36, 0.36 },
+    SOLID = { 0.604, 0.478, 0.333 },
+    LOSS = { 1, 0.36, 0.36 },
+    TRACK = { 0.059, 0.067, 0.082 },
+    WARN_FILL = { 0.165, 0.141, 0.063 },
+}
+HV.KIND_COLOR = { HC.KILL, HC.WORLD, HC.SPEND }
 local HONOR_EMPTY_STORE = Honor.Store({})
 local honorUI = { range = 30, map = "all" }
 
@@ -1875,13 +1959,13 @@ local function honorRect(region, parent, x, y, w, h)
     region:Show()
 end
 
-local function honorAxis(state, plot, gridName, labelName, x0, width, height, top)
+local function honorAxis(state, plot, gridName, labelName, width, height, top)
     local step, ceiling = Honor.Nice(top)
     local Kit = SoundAlerter.Page.Kit
     local lines, labels = state[gridName], state[labelName]
     local used = 0
     local value = 0
-    while value <= ceiling + 1e-6 and used < HONOR_GRID do
+    while value <= ceiling + 1e-6 and used < HV.GRID do
         used = used + 1
         local y = height - value / ceiling * height
         local line = lines[used]
@@ -1889,15 +1973,15 @@ local function honorAxis(state, plot, gridName, labelName, x0, width, height, to
             line = Kit.Paint(plot, Kit.COLOR.line, 1, "BACKGROUND")
             lines[used] = line
         end
-        honorRect(line, plot, x0, y, width, 1)
+        honorRect(line, plot, HV.AXIS, y, width, 1)
         local label = labels[used]
         if not label then
             label = Kit.Text(plot, 10, Kit.COLOR.muted, "RIGHT")
-            label:SetWidth(x0 - 6)
+            label:SetWidth(HV.AXIS - 6)
             labels[used] = label
         end
         label:ClearAllPoints()
-        label:SetPoint("RIGHT", plot, "TOPLEFT", x0 - 6, -y)
+        label:SetPoint("RIGHT", plot, "TOPLEFT", HV.AXIS - 6, -y)
         label:SetText(Honor.Short(value))
         label:Show()
         value = value + step
@@ -1909,11 +1993,11 @@ local function honorAxis(state, plot, gridName, labelName, x0, width, height, to
     return ceiling
 end
 
-local function honorChip(state, list, index, parent, onClick)
+local function honorChip(list, index, parent, onClick)
     local chip = list[index]
     if chip then return chip end
     chip = SoundAlerter.Page.Kit.MakeChip(parent, "", function() onClick(list[index]) end)
-    chip.frame:SetHeight(HONOR_HEAD - 4)
+    chip.frame:SetHeight(HV.HEAD - 4)
     list[index] = chip
     return chip
 end
@@ -1958,77 +2042,145 @@ local function honorResultText(record)
     return "Match over"
 end
 
-local function showStep(state, plot, index)
-    local record = state.drawRecord[index]
-    local gain = state.drawGain[index]
-    local title
-    if record then
-        title = honorResultText(record) .. " · " .. (record.map or "?") .. " · +" .. Honor.HonorOf(record)
-    elseif state.drawKind[index] == Honor.STEP_WORLD then
-        title = "World PvP · +" .. Honor.Short(gain)
-    else
-        title = "Battlegrounds · +" .. Honor.Short(gain)
+local function matchAround(history, at)
+    for index = 1, #history do
+        local record = history[index]
+        local ends = record.at or 0
+        if ends + HV.BG_SLACK < at then return nil end
+        if at >= ends - (record.length or 0) - HV.BG_SLACK then return record end
     end
-    SoundAlerter.Page.Kit.ShowTip(plot, title, date("%d %b %H:%M", state.drawAt[index]) .. " · total " .. Honor.Short(state.drawValue[index]))
+    return nil
+end
+
+local function showStep(state, plot, index)
+    local kind, gain = state.drawKind[index], state.drawGain[index]
+    local title
+    if kind == HV.KIND_SPEND then
+        title = "|cffff5c5cSpent " .. Honor.Comma(-gain) .. "|r"
+    elseif kind == HV.KIND_WORLD then
+        title = "|cff6fa8ffWorld PvP|r · +" .. Honor.Comma(gain)
+    else
+        local record = matchAround(state.history, state.drawAt[index])
+        title = (record and (honorResultText(record) .. " · " .. (record.map or "?")) or "Battleground") .. " · +" .. Honor.Comma(gain)
+    end
+    SoundAlerter.Page.Kit.ShowTip(plot, title, date("%d %b %H:%M", state.drawAt[index]) .. " · balance " .. Honor.Comma(state.drawValue[index]))
 end
 
 local function showBar(state, plot, index)
     local record = state.list[index]
     if not record then return end
     local honor, kills, bonus = Honor.Split(record)
-    local body = kills and ("Kills " .. kills .. " + bonus " .. bonus) or "No kill split for this match"
+    local body = kills and ("Kills " .. kills .. " + bonus " .. bonus) or "Saved before the kill split fix"
     local hours = (record.length or 0) / 3600
     if hours > 0 then body = body .. "\n" .. math.floor(honor / hours + 0.5) .. " honor per hour" end
     SoundAlerter.Page.Kit.ShowTip(plot, honorResultText(record) .. " · " .. (record.map or "?") .. " · +" .. honor, (record.when or "") .. "\n" .. body)
 end
 
-local function settingsGoal(state)
-    local goal = state.store and state.store.goal
-    return goal and goal.target
-end
-
 local function buildHonor(frame, page)
     local state = watchWidth({ frame = frame, page = page, built = false, height = 0, width = 0, pending = false }, frame, page)
-    local ticker
-    local function stop()
-        if ticker then ticker:Cancel() end
-        ticker = nil
+    local queued = false
+    local function redraw()
+        queued = false
+        if frame:IsVisible() then page:Refresh() end
+    end
+    state.changed = function()
+        if queued or not state.built then return end
+        queued = true
+        C_Timer.After(HV.REFRESH_DELAY, redraw)
     end
     frame:HookScript("OnShow", function()
-        stop()
-        ticker = C_Timer.NewTicker(HONOR_REFRESH, function()
-            local active = statistics()
-            if active and state.built and active:HonorVersion() ~= state.honorVersion then page:Refresh() end
-        end)
+        local active = statistics()
+        if active then active:SetHonorListener(state.changed) end
     end)
-    frame:HookScript("OnHide", stop)
+    frame:HookScript("OnHide", function()
+        local active = statistics()
+        if active then active:SetHonorListener(nil) end
+    end)
     return state
+end
+
+local function newGoalRow(state, card)
+    local Kit = SoundAlerter.Page.Kit
+    local row = {}
+    row.name = Kit.Text(card, 11.5, Kit.COLOR.text)
+    row.have = Kit.Text(card, 10.5, Kit.COLOR.muted, "RIGHT")
+    row.track = Kit.Paint(card, HC.TRACK, 1, "ARTWORK")
+    row.fill = Kit.Paint(card, HC.KILL, 1, "OVERLAY")
+    row.eta = Kit.Text(card, 10, Kit.COLOR.muted)
+    local remove = CreateFrame("Button", nil, card)
+    remove:SetSize(HV.REMOVE, HV.REMOVE)
+    local fill = Kit.Paint(remove, Kit.COLOR.line, 1)
+    fill:SetAllPoints(remove)
+    local mark = Kit.Text(remove, 11, Kit.COLOR.muted, "CENTER")
+    mark:SetPoint("CENTER", remove, "CENTER", 0, 0)
+    mark:SetText("x")
+    remove:SetScript("OnClick", function()
+        local active = statistics()
+        if active and row.index and active:RemoveHonorGoal(row.index) then state.page:Refresh() end
+    end)
+    SA_MenuFX.Press(remove, fill, mark)
+    row.remove = remove
+    return row
 end
 
 local function fillHonor(state)
     local Kit = SoundAlerter.Page.Kit
     local frame, page = state.frame, state.page
     state.built = true
-    state.kpis, state.rangeChips, state.mapChips, state.maps, state.list = {}, {}, {}, {}, {}
-    state.steps = Honor.NewSteps()
+    state.kpis, state.rangeChips, state.mapChips, state.maps, state.list, state.goalRows = {}, {}, {}, {}, {}, {}
+    state.series = Honor.NewSeries()
     state.summary = {}
-    state.drawX, state.drawAt, state.drawValue, state.drawGain, state.drawKind, state.drawRecord = {}, {}, {}, {}, {}, {}
+    state.drawX, state.drawAt, state.drawValue, state.drawGain, state.drawKind = {}, {}, {}, {}, {}
     state.drawCount, state.barCount, state.barSlot = 0, 0, 1
-    for _, name in ipairs({ "hz", "vt", "fill", "dots", "pace", "kill", "bonus", "tick" }) do state[name] = { used = 0, shown = 0 } end
+    for _, name in ipairs({ "hz", "vt", "fill", "dots", "cap", "kill", "bonus", "tick" }) do state[name] = { used = 0, shown = 0 } end
     state.gridA, state.labelA, state.gridB, state.labelB = {}, {}, {}, {}
-    for index = 1, #HONOR_KPI_LABELS do
+
+    local card = dashBox(frame, Kit)
+    state.card = card
+    state.cardWarn = Kit.Paint(card, HC.WARN_FILL, 1, "BORDER")
+    state.cardWarn:SetAllPoints(card)
+    state.balance = Kit.Text(card, 22, Kit.COLOR.text)
+    state.balance:SetPoint("TOPLEFT", card, "TOPLEFT", HV.PAD + 2, -HV.PAD)
+    state.balanceLabel = Kit.Text(card, 10.5, Kit.COLOR.muted)
+    state.balanceLabel:SetPoint("TOPLEFT", card, "TOPLEFT", HV.PAD + 2, -(HV.PAD + 28))
+    state.capTrack = Kit.Paint(card, HC.TRACK, 1, "ARTWORK")
+    state.capFill = Kit.Paint(card, HC.KILL, 1, "OVERLAY")
+
+    for index = 1, #HV.KPI_LABELS do
         local tile = dashBox(frame, Kit)
         tile.value = Kit.Text(tile, 15, Kit.COLOR.text)
         tile.value:SetPoint("TOPLEFT", tile, "TOPLEFT", 7, -5)
-        tile.label = Kit.Text(tile, 10.5, index == #HONOR_KPI_LABELS and BG_GOLD or Kit.COLOR.muted)
+        tile.label = Kit.Text(tile, 10.5, index == #HV.KPI_LABELS and BG_GOLD or Kit.COLOR.muted)
         tile.label:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 7, 5)
-        tile.label:SetText(HONOR_KPI_LABELS[index])
+        tile.label:SetText(HV.KPI_LABELS[index])
         state.kpis[index] = tile
     end
+
+    local goals = dashBox(frame, Kit)
+    state.goalCard = goals
+    state.goalTitle = Kit.Text(goals, 10.5, Kit.COLOR.accent)
+    state.goalTitle:SetPoint("TOPLEFT", goals, "TOPLEFT", HV.PAD, -HV.PAD)
+    state.goalTitle:SetText("GOALS")
+    state.goalNote = Kit.Text(goals, 10.5, Kit.COLOR.muted)
+    state.goalTotal = Kit.Text(goals, 10.5, Kit.COLOR.muted)
+    state.goalName = Kit.MakeText(goals, {}, function() end)
+    state.goalCost = Kit.MakeText(goals, {}, function() end)
+    state.goalAdd = Kit.MakeButton(goals, "Add", function()
+        local active = statistics()
+        if not active then return end
+        local nameBox, costBox = state.goalName.frame, state.goalCost.frame
+        if not active:AddHonorGoal(nameBox:GetText(), (costBox:GetText() or ""):gsub("%D", "")) then return end
+        nameBox:SetText("")
+        costBox:SetText("")
+        page:Refresh()
+    end)
+    state.goalAdd.frame:SetHeight(HV.ADD_HEIGHT)
+    state.goalAdd.frame:SetWidth(46)
+
     state.titleA = Kit.Text(frame, 10.5, Kit.COLOR.accent)
-    state.titleA:SetText("HONOR OVER TIME")
-    for index, range in ipairs(HONOR_RANGES) do
-        local chip = honorChip(state, state.rangeChips, index, frame, function(own)
+    state.titleA:SetText("HONOR POINTS")
+    for index, range in ipairs(HV.RANGES) do
+        local chip = honorChip(state.rangeChips, index, frame, function(own)
             honorUI.range = own.range
             page:Refresh()
         end)
@@ -2036,62 +2188,74 @@ local function fillHonor(state)
         chip:SetLabel(range[2])
     end
     state.plotA = CreateFrame("Frame", nil, frame)
-    state.paceLabel = Kit.Text(state.plotA, 10.5, HONOR_BONUS, "RIGHT")
+    state.paceLabel = Kit.Text(state.plotA, 10.5, HC.BONUS, "RIGHT")
+    state.capLabel = Kit.Text(state.plotA, 10, HC.BONUS)
     state.fromLabel = Kit.Text(state.plotA, 10, Kit.COLOR.muted)
     state.nowLabel = Kit.Text(state.plotA, 10, Kit.COLOR.muted, "RIGHT")
     state.nowLabel:SetText("now")
+    state.legendA = Kit.Text(frame, 10.5, Kit.COLOR.muted)
+    state.legendA:SetText("|cffff7d0aBattlegrounds|r   |cff6fa8ffWorld PvP|r   |cffff5c5cSpent|r   |cff3ddc97Won|r   |cffff5c5cLost|r")
     state.emptyA = Kit.Text(frame, 12, Kit.COLOR.muted)
-    state.emptyA:SetText("No honor yet. Gains are added the moment they happen, and your saved battlegrounds count too.")
+    state.emptyA:SetText("Your Honor Points are drawn from the next change.")
     honorHover(state.plotA, function(x) return nearest(state.drawX, state.drawCount, x) end, function(plot, index) showStep(state, plot, index) end)
-
-    state.goal = CreateFrame("Frame", nil, frame)
-    state.goalTitle = Kit.Text(state.goal, 10.5, Kit.COLOR.accent)
-    state.goalTitle:SetText("GOAL")
-    state.goalText = Kit.Text(state.goal, 11, Kit.COLOR.text)
-    state.goalEta = Kit.Text(state.goal, 11, HONOR_BONUS, "RIGHT")
-    state.goalTrack = Kit.Paint(state.goal, Kit.COLOR.card, 1, "BACKGROUND")
-    state.goalFill = Kit.Paint(state.goal, HONOR_KILL, 1, "ARTWORK")
-    state.goalMarks = {}
-    for index = 1, 3 do state.goalMarks[index] = Kit.Paint(state.goal, { 0.059, 0.067, 0.082 }, 1, "OVERLAY") end
-    state.goalBox = Kit.MakeText(state.goal, {}, function(text)
-        local active = statistics()
-        if not active then return end
-        local goal = settingsGoal(state)
-        if tostring(goal or "") == (text or "") then return end
-        active:SetHonorGoal(text)
-        page:Refresh()
-    end)
-    state.goalBox.frame:SetSize(HONOR_BOX_WIDTH, 20)
-    state.goalRestart = Kit.MakeButton(state.goal, "Restart", function()
-        local active = statistics()
-        if not active then return end
-        active:ResetHonorGoal()
-        page:Refresh()
-    end)
-    state.goalRestart.frame:SetHeight(20)
 
     state.titleB = Kit.Text(frame, 10.5, Kit.COLOR.accent)
     state.titleB:SetText("PER MATCH")
     state.plotB = CreateFrame("Frame", nil, frame)
     state.avgLine = Kit.Paint(state.plotB, Kit.COLOR.text, 0.45, "OVERLAY")
     state.avgLabel = Kit.Text(state.plotB, 10, Kit.COLOR.text)
-    state.legend = Kit.Text(frame, 10.5, Kit.COLOR.muted)
-    state.legend:SetText("|cffff7d0aKills|r   |cffffd100Bonus|r   |cffff5c5cLost match bonus|r   |cff96a0b2No kill split|r")
+    state.legendB = Kit.Text(frame, 10.5, Kit.COLOR.muted)
+    state.legendB:SetText("|cffff7d0aKills|r   |cffffd100Bonus|r   |cffff5c5cLost match bonus|r   |cff9a7a55Before the fix|r")
     state.emptyB = Kit.Text(frame, 12, Kit.COLOR.muted)
-    state.emptyB:SetText("No battlegrounds yet. Each match adds a bar the moment it ends.")
+    state.emptyB:SetText("No battlegrounds yet. Each match adds a bar when it ends.")
     honorHover(state.plotB, function(x)
         if state.barCount == 0 then return nil end
-        local slot = math.floor((x - HONOR_AXIS) / state.barSlot)
+        local slot = math.floor((x - HV.AXIS) / state.barSlot)
         local index = Honor.BARS - slot
         if index < 1 or index > state.barCount then return nil end
         return index
     end, function(plot, index) showBar(state, plot, index) end)
 end
 
+local function placeBalance(state, width)
+    local Kit = SoundAlerter.Page.Kit
+    local card = state.card
+    card:ClearAllPoints()
+    card:SetPoint("TOPLEFT", state.frame, "TOPLEFT", 0, 0)
+    card:SetSize(width, HV.CARD_HEIGHT)
+    local balance = Honor.Balance(state.store)
+    local cap = state.store.wallet.cap
+    local left, warn = Honor.CapState(balance, cap)
+    state.balanceLabel:SetWidth(width - HV.PAD * 2 - 2)
+    state.cardWarn:SetShown(warn == true)
+    Kit.Tint(state.balanceLabel, warn and BG_GOLD or Kit.COLOR.muted)
+    if not balance then
+        state.balance:SetText("-")
+        state.balanceLabel:SetText("Honor Points · shown after the next change")
+    elseif left then
+        state.balance:SetText(Honor.Comma(balance))
+        state.balanceLabel:SetText("Honor Points · " .. (warn and "only " or "") .. Honor.Comma(math.max(0, left)) .. " to cap")
+    else
+        state.balance:SetText(Honor.Comma(balance))
+        state.balanceLabel:SetText("Honor Points")
+    end
+    local barWidth = width - HV.PAD * 2
+    local barY = HV.CARD_HEIGHT - HV.PAD - HV.CAP_BAR
+    if balance and cap and cap > 0 then
+        honorRect(state.capTrack, card, HV.PAD, barY, barWidth, HV.CAP_BAR)
+        Kit.Tint(state.capFill, warn and HC.BONUS or HC.KILL)
+        honorRect(state.capFill, card, HV.PAD, barY, barWidth * math.min(1, balance / cap), HV.CAP_BAR)
+        state.capFill:SetShown(balance > 0)
+    else
+        state.capTrack:Hide()
+        state.capFill:Hide()
+    end
+    return HV.CARD_HEIGHT + BG_GAP
+end
+
 local function placeHonorKpis(state, width, y)
     local summary = state.summary
-    local count = #state.kpis
-    local tileWidth = (width - (count - 1) * BG_GAP) / count
+    local half = (width - BG_GAP) / 2
     local values = {
         Honor.Short(summary.today),
         Honor.Short(summary.week),
@@ -2099,19 +2263,138 @@ local function placeHonorKpis(state, width, y)
         summary.perHour and Honor.Short(summary.perHour) or "-",
         summary.best > 0 and Honor.Short(summary.best) or "-",
     }
+    local count = #state.kpis
     for index, tile in ipairs(state.kpis) do
+        local column, row = (index - 1) % 2, math.floor((index - 1) / 2)
+        local full = index == count and count % 2 == 1
         tile:ClearAllPoints()
-        tile:SetSize(tileWidth, BG_KPI_HEIGHT)
-        tile:SetPoint("TOPLEFT", state.frame, "TOPLEFT", (index - 1) * (tileWidth + BG_GAP), -y)
+        tile:SetSize(full and width or half, BG_KPI_HEIGHT)
+        tile:SetPoint("TOPLEFT", state.frame, "TOPLEFT", full and 0 or column * (half + BG_GAP), -(y + row * (BG_KPI_HEIGHT + BG_GAP)))
         tile.value:SetText(values[index])
     end
-    return y + BG_KPI_HEIGHT + BG_GAP
+    local rows = math.ceil(count / 2)
+    return y + rows * (BG_KPI_HEIGHT + BG_GAP)
 end
 
-local function placeHead(state, title, chips, active, y, width)
+local function placeGoals(state, settings, width, y)
+    local Kit = SoundAlerter.Page.Kit
+    local card = state.goalCard
+    local goals = state.store.goals
+    local balance = Honor.Balance(state.store) or 0
+    local mean = Honor.Pace(state.store, settings.today)
+    local inner = width - HV.PAD * 2
+    local rowY = HV.PAD + HV.GOAL_TITLE
+    local rows = state.goalRows
+    local sum = 0
+    for index = 1, #goals do
+        local goal = goals[index]
+        local row = rows[index]
+        if not row then
+            row = newGoalRow(state, card)
+            rows[index] = row
+        end
+        row.index = index
+        sum = sum + goal.cost
+        local done = balance >= goal.cost
+        row.remove:ClearAllPoints()
+        row.remove:SetPoint("TOPRIGHT", card, "TOPRIGHT", -HV.PAD, -rowY)
+        row.remove:Show()
+        row.have:ClearAllPoints()
+        row.have:SetPoint("TOPRIGHT", card, "TOPRIGHT", -(HV.PAD + HV.REMOVE + 4), -(rowY + 2))
+        row.have:SetText(Honor.Comma(math.min(balance, goal.cost)) .. " / " .. Honor.Comma(goal.cost))
+        row.have:Show()
+        row.name:ClearAllPoints()
+        row.name:SetPoint("TOPLEFT", card, "TOPLEFT", HV.PAD, -(rowY + 1))
+        row.name:SetWidth(math.max(20, inner - HV.REMOVE - 8 - row.have:GetStringWidth()))
+        row.name:SetText(goal.name)
+        row.name:Show()
+        honorRect(row.track, card, HV.PAD, rowY + 18, inner, HV.GOAL_TRACK)
+        Kit.Tint(row.fill, done and Kit.COLOR.on or HC.KILL)
+        honorRect(row.fill, card, HV.PAD, rowY + 18, inner * math.min(1, balance / goal.cost), HV.GOAL_TRACK)
+        row.fill:SetShown(balance > 0)
+        row.eta:ClearAllPoints()
+        row.eta:SetPoint("TOPLEFT", card, "TOPLEFT", HV.PAD, -(rowY + 27))
+        row.eta:SetWidth(inner)
+        if done then
+            Kit.Tint(row.eta, Kit.COLOR.on)
+            row.eta:SetText("Ready to buy")
+        else
+            Kit.Tint(row.eta, Kit.COLOR.muted)
+            local days = Honor.GoalDays(balance, goal.cost, mean)
+            local text = Honor.Comma(goal.cost - balance) .. " to go"
+            row.eta:SetText(days and (text .. " · about " .. days .. (days == 1 and " day" or " days")) or text)
+        end
+        row.eta:Show()
+        rowY = rowY + HV.GOAL_ROW
+    end
+    for index = #goals + 1, #rows do
+        local row = rows[index]
+        row.index = nil
+        row.name:Hide()
+        row.have:Hide()
+        row.track:Hide()
+        row.fill:Hide()
+        row.eta:Hide()
+        row.remove:Hide()
+    end
+    state.goalNote:ClearAllPoints()
+    state.goalTotal:ClearAllPoints()
+    state.goalNote:SetWidth(inner)
+    state.goalTotal:SetWidth(inner)
+    if #goals == 0 then
+        state.goalNote:SetPoint("TOPLEFT", card, "TOPLEFT", HV.PAD, -rowY)
+        state.goalNote:SetText("Add an item and its honor cost.")
+        state.goalNote:Show()
+        rowY = rowY + HV.GOAL_LINE
+    else
+        state.goalNote:Hide()
+    end
+    if #goals > 1 then
+        state.goalTotal:SetPoint("TOPLEFT", card, "TOPLEFT", HV.PAD, -rowY)
+        local days = Honor.GoalDays(balance, sum, mean)
+        local text = "All " .. #goals .. ": " .. Honor.Comma(sum)
+        if balance >= sum then
+            text = text .. " · you can buy them all"
+        elseif days then
+            text = text .. " · about " .. days .. (days == 1 and " day" or " days")
+        end
+        state.goalTotal:SetText(text)
+        state.goalTotal:Show()
+        rowY = rowY + HV.GOAL_LINE
+    else
+        state.goalTotal:Hide()
+    end
+    local nameBox, costBox, add = state.goalName.frame, state.goalCost.frame, state.goalAdd.frame
+    if #goals < Honor.GOALS then
+        local addWidth = add:GetWidth()
+        nameBox:ClearAllPoints()
+        nameBox:SetPoint("TOPLEFT", card, "TOPLEFT", HV.PAD, -(rowY + 2))
+        nameBox:SetSize(math.max(40, inner - HV.COST_WIDTH - addWidth - 8), HV.ADD_HEIGHT)
+        costBox:ClearAllPoints()
+        costBox:SetPoint("TOPLEFT", nameBox, "TOPRIGHT", 4, 0)
+        costBox:SetSize(HV.COST_WIDTH, HV.ADD_HEIGHT)
+        add:ClearAllPoints()
+        add:SetPoint("TOPLEFT", costBox, "TOPRIGHT", 4, 0)
+        nameBox:Show()
+        costBox:Show()
+        add:Show()
+        rowY = rowY + HV.ADD_HEIGHT + 4
+    else
+        nameBox:Hide()
+        costBox:Hide()
+        add:Hide()
+    end
+    local height = rowY + HV.PAD - 2
+    card:ClearAllPoints()
+    card:SetPoint("TOPLEFT", state.frame, "TOPLEFT", 0, -y)
+    card:SetSize(width, height)
+    return y + height + BG_GAP
+end
+
+local function placeHead(state, title, chips, active, x0, y, width)
     title:ClearAllPoints()
-    title:SetPoint("TOPLEFT", state.frame, "TOPLEFT", 0, -(y + 5))
-    local x = width
+    title:SetPoint("TOPLEFT", state.frame, "TOPLEFT", x0, -(y + 5))
+    local x = x0 + width
     for index = #chips, 1, -1 do
         local chip = chips[index]
         if chip.visible ~= false then
@@ -2122,168 +2405,137 @@ local function placeHead(state, title, chips, active, y, width)
             x = x - 4
         end
     end
-    return y + HONOR_HEAD
+    return y + HV.HEAD
 end
 
-local function collapse(state, steps, x0, plotWidth, from, span)
-    local bucket = math.max(3, plotWidth / HONOR_MAX_STEPS)
-    local xs, ats, values, gains, kinds, records = state.drawX, state.drawAt, state.drawValue, state.drawGain, state.drawKind, state.drawRecord
-    local count, previous = 0, steps.base
-    for index = 1, steps.count do
-        local at, value = steps.at[index], steps.value[index]
-        local x = x0 + math.min(1, math.max(0, (at - from) / span)) * plotWidth
-        local record = steps.record[index]
-        if count > 0 and x - xs[count] < bucket and not (record and records[count]) then
+local function collapse(state, series, plotWidth, start, span, base)
+    local xs, ats, values, gains, kinds = state.drawX, state.drawAt, state.drawValue, state.drawGain, state.drawKind
+    local history = state.history
+    local cursor = #history
+    local count, previous = 0, base
+    for index = 1, series.count do
+        local at, value = series.at[index], series.value[index]
+        local x = HV.AXIS + math.min(1, math.max(0, (at - start) / span)) * plotWidth
+        local kind = HV.KIND_SPEND
+        if value >= previous then
+            while cursor > 0 and (history[cursor].at or 0) + HV.BG_SLACK < at do cursor = cursor - 1 end
+            local record = history[cursor]
+            kind = (record and at >= (record.at or 0) - (record.length or 0) - HV.BG_SLACK) and HV.KIND_BG or HV.KIND_WORLD
+        end
+        if count > 0 and x - xs[count] < HV.BUCKET and kinds[count] == kind then
             gains[count] = gains[count] + value - previous
             values[count], ats[count] = value, at
-            if record then records[count], kinds[count], xs[count] = record, steps.kind[index], x end
         else
             count = count + 1
-            xs[count], ats[count], values[count], gains[count] = x, at, value, value - previous
-            kinds[count], records[count] = steps.kind[index], record or false
+            xs[count], ats[count], values[count], gains[count], kinds[count] = x, at, value, value - previous, kind
         end
         previous = value
     end
     for extra = count + 1, state.drawCount do
-        xs[extra], ats[extra], values[extra], gains[extra], kinds[extra], records[extra] = nil, nil, nil, nil, nil, nil
+        xs[extra], ats[extra], values[extra], gains[extra], kinds[extra] = nil, nil, nil, nil, nil
     end
     state.drawCount = count
     return count
 end
 
-local function placeChartA(state, settings, width, y)
+local function placeChartA(state, settings, x0, width, y)
     local Kit = SoundAlerter.Page.Kit
-    local store, steps = state.store, state.steps
+    local store = state.store
     local plot = state.plotA
     local range = honorUI.range
-    Honor.Steps(store, state.history, range > 0 and (settings.today - range + 1) or nil, settings.today, settings.offset, settings.now, steps)
-    honorBegin(state, "hz", "vt", "fill", "dots", "pace")
-    if steps.count == 0 and steps.base <= 0 then
+    local from = range > 0 and ((settings.today - range + 1) * HV.DAY - settings.offset) or nil
+    local series = Honor.Series(store, from, settings.offset, state.series)
+    honorBegin(state, "hz", "vt", "fill", "dots", "cap")
+    if series.count == 0 and not series.base then
         state.drawCount = 0
         plot:Hide()
-        honorPools(state, "hz", "vt", "fill", "dots", "pace")
+        state.legendA:Hide()
+        state.capLabel:Hide()
+        honorPools(state, "hz", "vt", "fill", "dots", "cap")
         state.emptyA:ClearAllPoints()
-        state.emptyA:SetPoint("TOPLEFT", state.frame, "TOPLEFT", 0, -y)
+        state.emptyA:SetPoint("TOPLEFT", state.frame, "TOPLEFT", x0, -y)
         state.emptyA:Show()
         return y + 24
     end
     state.emptyA:Hide()
-    local plotWidth = width - HONOR_AXIS - HONOR_RIGHT
-    local height = HONOR_A_HEIGHT
+    local plotWidth = width - HV.AXIS - HV.RIGHT
+    local height = HV.A_HEIGHT
     plot:ClearAllPoints()
-    plot:SetPoint("TOPLEFT", state.frame, "TOPLEFT", 0, -y)
-    plot:SetSize(width, height + HONOR_FOOT)
+    plot:SetPoint("TOPLEFT", state.frame, "TOPLEFT", x0, -y)
+    plot:SetSize(width, height + HV.FOOT)
     plot:Show()
-    local top = steps.base
-    for index = 1, steps.count do if steps.value[index] > top then top = steps.value[index] end end
-    local from, now = steps.from, settings.now
-    local span = math.max(1, now - from)
-    local mean = Honor.Pace(store, settings.today)
-    local paceEnd = mean and (steps.base + mean * span / Honor.DAY) or nil
-    local ceiling = honorAxis(state, plot, "gridA", "labelA", HONOR_AXIS, plotWidth, height, math.max(top, 1))
+    local now = settings.now
+    local base = series.base or series.value[1]
+    local start = from or series.at[1]
+    local span = math.max(1, now - start)
+    local top = base
+    for index = 1, series.count do if series.value[index] > top then top = series.value[index] end end
+    local cap = store.wallet.cap
+    local showCap = cap and cap > 0 and top >= cap * Honor.CAP_SHOW
+    local ceiling = honorAxis(state, plot, "gridA", "labelA", plotWidth, height, showCap and cap or math.max(top, 1))
     local function Y(value) return height - math.min(value, ceiling) / ceiling * height end
-    local count = collapse(state, steps, HONOR_AXIS, plotWidth, from, span)
-    local xs, values, records = state.drawX, state.drawValue, state.drawRecord
-    local prevX, prevY = HONOR_AXIS, Y(steps.base)
+    local count = collapse(state, series, plotWidth, start, span, base)
+    local xs, values, kinds = state.drawX, state.drawValue, state.drawKind
+    local prevX, prevY = HV.AXIS, Y(base)
     for index = 1, count + 1 do
-        local x = index <= count and xs[index] or (HONOR_AXIS + plotWidth)
-        honorRect(honorPool(state, "fill", plot, HONOR_KILL, 0.1, "BACKGROUND"), plot, prevX, prevY, x - prevX, height - prevY)
-        honorRect(honorPool(state, "hz", plot, HONOR_KILL, 1, "ARTWORK"), plot, prevX, prevY - HONOR_LINE / 2, x - prevX + HONOR_LINE / 2, HONOR_LINE)
+        local x = index <= count and xs[index] or (HV.AXIS + plotWidth)
+        honorRect(honorPool(state, "fill", plot, HC.KILL, 0.1, "BACKGROUND"), plot, prevX, prevY, x - prevX, height - prevY)
+        honorRect(honorPool(state, "hz", plot, HC.KILL, 1, "ARTWORK"), plot, prevX, prevY - HV.LINE / 2, x - prevX + HV.LINE / 2, HV.LINE)
         if index <= count then
             local y2 = Y(values[index])
             local upper, lower = math.min(prevY, y2), math.max(prevY, y2)
-            local kind = state.drawKind[index]
-            local vertical = honorPool(state, "vt", plot, HONOR_KILL, 1, "ARTWORK")
-            Kit.Tint(vertical, kind == Honor.STEP_WORLD and HONOR_WORLD or HONOR_KILL)
-            honorRect(vertical, plot, x - HONOR_LINE / 2, upper - HONOR_LINE / 2, HONOR_LINE, lower - upper + HONOR_LINE)
-            local record = records[index]
-            if record then
-                local dot = honorPool(state, "dots", plot, Kit.COLOR.on, 1, "OVERLAY", DISC_TEXTURE)
-                Kit.Tint(dot, record.result == "lost" and HONOR_LOSS or Kit.COLOR.on)
-                honorRect(dot, plot, x - HONOR_DOT / 2, y2 - HONOR_DOT / 2, HONOR_DOT, HONOR_DOT)
-            end
+            local vertical = honorPool(state, "vt", plot, HC.KILL, 1, "ARTWORK")
+            Kit.Tint(vertical, HV.KIND_COLOR[kinds[index]])
+            honorRect(vertical, plot, x - HV.LINE / 2, upper - HV.LINE / 2, HV.LINE, lower - upper + HV.LINE)
             prevX, prevY = x, y2
         end
     end
-    if paceEnd and mean > 0 then
-        local y0, y1 = Y(steps.base), Y(paceEnd)
-        for x = HONOR_AXIS, HONOR_AXIS + plotWidth, HONOR_PACE_STEP do
-            local py = y0 + (y1 - y0) * (x - HONOR_AXIS) / plotWidth
-            honorRect(honorPool(state, "pace", plot, HONOR_BONUS, 0.6, "OVERLAY"), plot, x, py - 1, 3, 2)
+    local history = state.history
+    for index = 1, #history do
+        local record = history[index]
+        local at = record.at or 0
+        if at < start then break end
+        local value = Honor.ValueAt(series, at) or base
+        local dot = honorPool(state, "dots", plot, Kit.COLOR.on, 1, "OVERLAY", DISC_TEXTURE)
+        Kit.Tint(dot, record.result == "lost" and HC.LOSS or Kit.COLOR.on)
+        local x = HV.AXIS + math.min(1, (at - start) / span) * plotWidth
+        honorRect(dot, plot, x - HV.DOT / 2, Y(value) - HV.DOT / 2, HV.DOT, HV.DOT)
+    end
+    if showCap then
+        local capY = Y(cap)
+        for x = HV.AXIS, HV.AXIS + plotWidth - HV.DASH, HV.DASH + HV.DASH_GAP do
+            honorRect(honorPool(state, "cap", plot, HC.BONUS, 0.8, "OVERLAY"), plot, x, capY, HV.DASH, 1)
         end
+        state.capLabel:ClearAllPoints()
+        state.capLabel:SetPoint("BOTTOMLEFT", plot, "TOPLEFT", HV.AXIS + 4, -capY + 2)
+        state.capLabel:SetText("Cap " .. Honor.Comma(cap))
+        state.capLabel:Show()
+    else
+        state.capLabel:Hide()
+    end
+    honorPools(state, "hz", "vt", "fill", "dots", "cap")
+    local mean = Honor.Pace(store, settings.today)
+    if mean and mean > 0 and not showCap then
         state.paceLabel:ClearAllPoints()
-        state.paceLabel:SetPoint("TOPRIGHT", plot, "TOPLEFT", HONOR_AXIS + plotWidth, -2)
+        state.paceLabel:SetPoint("TOPRIGHT", plot, "TOPLEFT", HV.AXIS + plotWidth, -2)
         state.paceLabel:SetText("about " .. Honor.Short(mean) .. " a day")
         state.paceLabel:Show()
     else
         state.paceLabel:Hide()
     end
-    honorPools(state, "hz", "vt", "fill", "dots", "pace")
     state.fromLabel:ClearAllPoints()
-    state.fromLabel:SetPoint("TOPLEFT", plot, "TOPLEFT", HONOR_AXIS, -(height + 3))
-    state.fromLabel:SetText(range > 0 and (range .. " days ago") or "since tracking began")
+    state.fromLabel:SetPoint("TOPLEFT", plot, "TOPLEFT", HV.AXIS, -(height + 3))
+    state.fromLabel:SetText(range > 0 and (range .. " days ago") or date("%d %b", start))
     state.nowLabel:ClearAllPoints()
-    state.nowLabel:SetPoint("TOPRIGHT", plot, "TOPLEFT", HONOR_AXIS + plotWidth, -(height + 3))
-    return y + height + HONOR_FOOT + BG_GAP
+    state.nowLabel:SetPoint("TOPRIGHT", plot, "TOPLEFT", HV.AXIS + plotWidth, -(height + 3))
+    y = y + height + HV.FOOT
+    state.legendA:ClearAllPoints()
+    state.legendA:SetPoint("TOPLEFT", state.frame, "TOPLEFT", x0 + HV.AXIS, -y)
+    state.legendA:Show()
+    return y + HV.LEGEND + BG_GAP
 end
 
-local function placeGoal(state, settings, width, y)
-    local goalFrame = state.goal
-    goalFrame:ClearAllPoints()
-    goalFrame:SetPoint("TOPLEFT", state.frame, "TOPLEFT", 0, -y)
-    goalFrame:SetSize(width, HONOR_GOAL_HEIGHT)
-    goalFrame:Show()
-    state.goalTitle:ClearAllPoints()
-    state.goalTitle:SetPoint("TOPLEFT", goalFrame, "TOPLEFT", 0, -4)
-    local restart = state.goalRestart.frame
-    restart:ClearAllPoints()
-    restart:SetPoint("TOPRIGHT", goalFrame, "TOPRIGHT", 0, 0)
-    local box = state.goalBox.frame
-    box:ClearAllPoints()
-    box:SetPoint("TOPRIGHT", goalFrame, "TOPRIGHT", -(restart:GetWidth() + 6), 0)
-    local have, target, left = Honor.Goal(state.store)
-    state.goalBox:Set(target and tostring(target) or "")
-    local barTop = 26
-    local track = width
-    state.goalTrack:ClearAllPoints()
-    state.goalTrack:SetPoint("TOPLEFT", goalFrame, "TOPLEFT", 0, -barTop)
-    state.goalTrack:SetSize(track, HONOR_GOAL_BAR)
-    for index, mark in ipairs(state.goalMarks) do
-        mark:ClearAllPoints()
-        mark:SetPoint("TOPLEFT", goalFrame, "TOPLEFT", track * index / 4, -barTop)
-        mark:SetSize(1, HONOR_GOAL_BAR)
-        mark:SetShown(target ~= nil)
-    end
-    state.goalText:ClearAllPoints()
-    state.goalText:SetPoint("TOPLEFT", goalFrame, "TOPLEFT", 0, -(barTop + HONOR_GOAL_BAR + 3))
-    state.goalEta:ClearAllPoints()
-    state.goalEta:SetPoint("TOPRIGHT", goalFrame, "TOPRIGHT", 0, -(barTop + HONOR_GOAL_BAR + 3))
-    if not target then
-        state.goalFill:Hide()
-        restart:Hide()
-        state.goalText:SetText("Type an honor goal, an item's cost say, to see when you get there.")
-        state.goalEta:SetText("")
-        return y + HONOR_GOAL_HEIGHT + BG_GAP
-    end
-    restart:Show()
-    state.goalFill:ClearAllPoints()
-    state.goalFill:SetPoint("TOPLEFT", goalFrame, "TOPLEFT", 0, -barTop)
-    state.goalFill:SetSize(math.max(1, track * have / target), HONOR_GOAL_BAR)
-    state.goalFill:SetShown(have > 0)
-    state.goalText:SetText(Honor.Short(have) .. " of " .. Honor.Short(target) .. " since you set it")
-    local mean, deviation = Honor.Pace(state.store, settings.today)
-    local eta, fast, slow = Honor.Band(left, mean, deviation)
-    if left <= 0 then
-        state.goalEta:SetText("Goal reached")
-    elseif not eta then
-        state.goalEta:SetText("No pace yet")
-    else
-        state.goalEta:SetText(string.format("about %d days at %s a day · %d to %d days", math.ceil(eta), Honor.Short(mean), math.ceil(fast), math.ceil(slow)))
-    end
-    return y + HONOR_GOAL_HEIGHT + BG_GAP
-end
-
-local function placeChartB(state, settings, width, y)
+local function placeChartB(state, settings, x0, width, y)
     local Kit = SoundAlerter.Page.Kit
     local maps = BG.Maps(settings.bg, state.maps)
     local valid = honorUI.map == "all"
@@ -2294,7 +2546,7 @@ local function placeChartB(state, settings, width, y)
     if #maps > 1 then
         for index = 0, #maps do
             used = used + 1
-            local chip = honorChip(state, chips, used, state.frame, function(own)
+            local chip = honorChip(chips, used, state.frame, function(own)
                 honorUI.map = own.map
                 state.page:Refresh()
             end)
@@ -2308,25 +2560,25 @@ local function placeChartB(state, settings, width, y)
         chips[index].visible = false
         chips[index].frame:Hide()
     end
-    y = placeHead(state, state.titleB, chips, function(chip) return chip.map == honorUI.map end, y, width)
+    y = placeHead(state, state.titleB, chips, function(chip) return chip.map == honorUI.map end, x0, y, width)
     local list = Honor.Bars(state.history, honorUI.map, Honor.BARS, state.list)
     honorBegin(state, "kill", "bonus", "tick")
     local plot = state.plotB
     state.barCount = #list
     if #list == 0 then
         plot:Hide()
-        state.legend:Hide()
+        state.legendB:Hide()
         honorPools(state, "kill", "bonus", "tick")
         state.emptyB:ClearAllPoints()
-        state.emptyB:SetPoint("TOPLEFT", state.frame, "TOPLEFT", 0, -y)
+        state.emptyB:SetPoint("TOPLEFT", state.frame, "TOPLEFT", x0, -y)
         state.emptyB:Show()
         return y + 24
     end
     state.emptyB:Hide()
-    local plotWidth = width - HONOR_AXIS - HONOR_RIGHT
-    local height = HONOR_B_HEIGHT
+    local plotWidth = width - HV.AXIS - HV.RIGHT
+    local height = HV.B_HEIGHT
     plot:ClearAllPoints()
-    plot:SetPoint("TOPLEFT", state.frame, "TOPLEFT", 0, -y)
+    plot:SetPoint("TOPLEFT", state.frame, "TOPLEFT", x0, -y)
     plot:SetSize(width, height + 6)
     plot:Show()
     local top, sum = 1, 0
@@ -2335,45 +2587,47 @@ local function placeChartB(state, settings, width, y)
         sum = sum + honor
         if honor > top then top = honor end
     end
-    local ceiling = honorAxis(state, plot, "gridB", "labelB", HONOR_AXIS, plotWidth, height, top)
+    local ceiling = honorAxis(state, plot, "gridB", "labelB", plotWidth, height, top)
     local function Y(value) return height - math.min(value, ceiling) / ceiling * height end
     local slot = plotWidth / Honor.BARS
     state.barSlot = slot
     local barWidth = math.max(1, slot - 2)
     for index = 1, #list do
         local record = list[index]
-        local x = HONOR_AXIS + (Honor.BARS - index) * slot + 1
+        local x = HV.AXIS + (Honor.BARS - index) * slot + 1
         local honor, kills = Honor.Split(record)
         local lost = record.result == "lost"
         if kills then
-            local killBar = honorPool(state, "kill", plot, HONOR_KILL, 1, "ARTWORK")
-            Kit.Tint(killBar, HONOR_KILL)
-            honorRect(killBar, plot, x, Y(kills), barWidth, height - Y(kills))
+            if kills > 0 then
+                local killBar = honorPool(state, "kill", plot, HC.KILL, 1, "ARTWORK")
+                Kit.Tint(killBar, HC.KILL)
+                honorRect(killBar, plot, x, Y(kills), barWidth, height - Y(kills))
+            end
             if honor > kills then
-                local bonus = honorPool(state, "bonus", plot, HONOR_BONUS, 1, "ARTWORK")
-                Kit.Tint(bonus, lost and HONOR_LOSS or HONOR_BONUS, lost and 0.6 or 1)
+                local bonus = honorPool(state, "bonus", plot, HC.BONUS, 1, "ARTWORK")
+                Kit.Tint(bonus, lost and HC.LOSS or HC.BONUS, lost and 0.6 or 1)
                 honorRect(bonus, plot, x, Y(honor), barWidth, Y(kills) - Y(honor))
             end
         elseif honor > 0 then
-            local solid = honorPool(state, "kill", plot, HONOR_SOLID, 1, "ARTWORK")
-            Kit.Tint(solid, HONOR_SOLID, 0.7)
+            local solid = honorPool(state, "kill", plot, HC.SOLID, 1, "ARTWORK")
+            Kit.Tint(solid, HC.SOLID)
             honorRect(solid, plot, x, Y(honor), barWidth, height - Y(honor))
         end
         local tick = honorPool(state, "tick", plot, Kit.COLOR.on, 1, "ARTWORK")
-        Kit.Tint(tick, lost and HONOR_LOSS or Kit.COLOR.on)
+        Kit.Tint(tick, lost and HC.LOSS or Kit.COLOR.on)
         honorRect(tick, plot, x, height + 3, barWidth, 2)
     end
     honorPools(state, "kill", "bonus", "tick")
     local average = sum / #list
-    honorRect(state.avgLine, plot, HONOR_AXIS, Y(average), plotWidth, 1)
+    honorRect(state.avgLine, plot, HV.AXIS, Y(average), plotWidth, 1)
     state.avgLabel:ClearAllPoints()
-    state.avgLabel:SetPoint("BOTTOMLEFT", plot, "TOPLEFT", HONOR_AXIS + 4, -Y(average) + 2)
+    state.avgLabel:SetPoint("BOTTOMLEFT", plot, "TOPLEFT", HV.AXIS + 4, -Y(average) + 2)
     state.avgLabel:SetText("average " .. Honor.Short(average))
     y = y + height + 6 + 4
-    state.legend:ClearAllPoints()
-    state.legend:SetPoint("TOPLEFT", state.frame, "TOPLEFT", HONOR_AXIS, -y)
-    state.legend:Show()
-    return y + HONOR_FOOT
+    state.legendB:ClearAllPoints()
+    state.legendB:SetPoint("TOPLEFT", state.frame, "TOPLEFT", x0 + HV.AXIS, -y)
+    state.legendB:Show()
+    return y + HV.LEGEND
 end
 
 local function updateHonor(state, settings, width)
@@ -2388,12 +2642,18 @@ local function updateHonor(state, settings, width)
     state.store = settings.honor or HONOR_EMPTY_STORE
     state.history = settings.bg and settings.bg.history or NO_ENTRIES
     Honor.Summary(state.store, state.history, settings.today, settings.offset, state.summary)
-    local y = placeHonorKpis(state, width, 0)
-    y = placeHead(state, state.titleA, state.rangeChips, function(chip) return chip.range == honorUI.range end, y, width)
-    y = placeChartA(state, settings, width, y)
-    y = placeGoal(state, settings, width, y)
-    y = placeChartB(state, settings, width, y)
-    state.height = y + BG_GAP
+    local stacked = width < HV.STACK
+    local rail = stacked and width or math.max(HV.RAIL_MIN, math.min(HV.RAIL_MAX, math.floor(width * HV.RAIL_SHARE)))
+    local left = placeBalance(state, rail)
+    left = placeHonorKpis(state, rail, left)
+    left = placeGoals(state, settings, rail, left)
+    local x0 = stacked and 0 or rail + BG_GAP
+    local chartWidth = width - x0
+    local y = stacked and left or 0
+    y = placeHead(state, state.titleA, state.rangeChips, function(chip) return chip.range == honorUI.range end, x0, y, chartWidth)
+    y = placeChartA(state, settings, x0, chartWidth, y)
+    y = placeChartB(state, settings, x0, chartWidth, y)
+    state.height = (stacked and y or math.max(left, y)) + BG_GAP
     return state.height
 end
 

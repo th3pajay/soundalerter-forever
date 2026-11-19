@@ -4,6 +4,9 @@ local math_floor = math.floor
 local math_max = math.max
 local math_min = math.min
 local math_rad = math.rad
+local math_cos = math.cos
+local TWO_PI = math.pi * 2
+local SCALE_STEPS = 32
 
 local FLAT = "Interface\\Buttons\\WHITE8X8"
 local RING = "Interface\\AddOns\\SoundAlerter\\Textures\\border_ring.tga"
@@ -109,6 +112,43 @@ local function relativeScale(group, order, factor, duration, smoothing)
 	animation:SetScale(factor, factor)
 	if smoothing then animation:SetSmoothing(smoothing) end
 	return animation
+end
+
+local function setTextScale(text, value)
+	value = math_floor(value * SCALE_STEPS + 0.5) / SCALE_STEPS
+	if (text.saTextScale or 1) == value then return end
+	text.saTextScale = value
+	text:SetTextScale(value)
+end
+
+local function throbUpdate(animation, elapsed)
+	local throttle = FX.tier.throttle
+	if throttle > 0 then
+		local waited = animation.waited + elapsed
+		if waited < throttle then
+			animation.waited = waited
+			return
+		end
+		animation.waited = 0
+	end
+	setTextScale(animation.text, 1 + animation.peak * (1 - math_cos(animation:GetProgress() * TWO_PI)) * 0.5)
+end
+
+local function throbRest(group)
+	group.beat.waited = 0
+	setTextScale(group.text, 1)
+end
+
+local function textThrob(text, peak, beatTime)
+	local group = text:CreateAnimationGroup()
+	group:SetLooping("REPEAT")
+	local beat = group:CreateAnimation("Animation")
+	beat.text, beat.peak, beat.waited = text, peak, 0
+	group.text, group.beat = text, beat
+	beat:SetDuration(beatTime * 2)
+	beat:SetScript("OnUpdate", throbUpdate)
+	group:SetScript("OnStop", throbRest)
+	return group
 end
 
 local function stateFor(frame)
@@ -241,10 +281,7 @@ function FX:Warn(frame)
 	if tier.throb then
 		local throb = set.throb
 		if not throb then
-			throb = frame.timerText:CreateAnimationGroup()
-			throb:SetLooping("REPEAT")
-			relativeScale(throb, 1, THROB_SCALE, THROB_TIME, "IN_OUT")
-			relativeScale(throb, 2, 1 / THROB_SCALE, THROB_TIME, "IN_OUT")
+			throb = textThrob(frame.timerText, THROB_SCALE - 1, THROB_TIME)
 			set.throb = throb
 		end
 		play(state, throb)
@@ -258,7 +295,10 @@ function FX:ClearWarn(frame)
 			set.tint.group:Stop()
 			set.tint.texture:Hide()
 		end
-		if set.throb then set.throb:Stop() end
+		if set.throb then
+			set.throb:Stop()
+			setTextScale(frame.timerText, 1)
+		end
 	end
 	frame.timerText:SetTextColor(WHITE[1], WHITE[2], WHITE[3], 1)
 	frame.shiftStep = nil

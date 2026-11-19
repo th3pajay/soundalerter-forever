@@ -2,6 +2,8 @@ local CastingBarFX = {}
 
 local math_max = math.max
 local math_min = math.min
+local math_abs = math.abs
+local math_floor = math.floor
 
 local FLAT = "Interface\\Buttons\\WHITE8X8"
 local TEXTURE_DIR = "Interface\\AddOns\\SoundAlerter\\Textures\\"
@@ -25,6 +27,9 @@ local EMBER_OFFSETS = { { -16, 14 }, { 12, 22 }, { -6, 30 }, { 20, 16 }, { -22, 
 local BRACKET_SIZE = 9
 local BRACKET_OUTSET = 4
 local MARK_DIM = 0.12
+local THROB_PEAK = 0.45
+local THROB_HALF = 0.13
+local SCALE_STEPS = 32
 
 local TIERS = {
 	off = {
@@ -119,6 +124,34 @@ local function relativeScale(group, order, factorX, factorY, duration, smoothing
 	return animation
 end
 
+local function setTextScale(text, value)
+	value = math_floor(value * SCALE_STEPS + 0.5) / SCALE_STEPS
+	if (text.saTextScale or 1) == value then return end
+	text.saTextScale = value
+	text:SetTextScale(value)
+end
+
+local function throbUpdate(animation)
+	local phase = (animation:GetProgress() * animation.beats) % 1
+	setTextScale(animation.text, 1 + animation.peak * (1 - math_abs(phase * 2 - 1)))
+end
+
+local function throbRest(group)
+	setTextScale(group.text, 1)
+end
+
+local function textThrob(text, beats, peak, beatTime)
+	local group = text:CreateAnimationGroup()
+	group.text = text
+	local beat = group:CreateAnimation("Animation")
+	beat.text, beat.beats, beat.peak = text, beats, peak
+	beat:SetDuration(beats * beatTime)
+	beat:SetScript("OnUpdate", throbUpdate)
+	group:SetScript("OnFinished", throbRest)
+	group:SetScript("OnStop", throbRest)
+	return group
+end
+
 local function translateAnimation(group, order, dx, duration)
 	local animation = group:CreateAnimation("Translation")
 	animation:SetOrder(order)
@@ -188,6 +221,8 @@ end
 local function overlay(b, layer)
 	local texture = b.bar:CreateTexture(nil, "ARTWORK", nil, layer)
 	texture:Hide()
+	local textures = SoundAlerter.BarTexture
+	if b.bar.corners and textures then textures:MaskTexture(b.bar, texture) end
 	return texture
 end
 
@@ -223,6 +258,46 @@ end
 local function tile(texture, bar, path)
 	texture:SetTexture(path, "REPEAT", "REPEAT")
 	texture:SetTexCoord(0, math_max(1, bar:GetWidth() - TILE_INSET * 2) / TILE, 0, math_max(1, bar:GetHeight() - TILE_INSET * 2) / TILE)
+end
+
+local function hatchFill(bar, value)
+	local state = bar.saFx
+	local along = state.hatchAlong
+	local length = along * (value < 0 and 0 or value > 1 and 1 or value)
+	local first, last = 0, length
+	if state.hatchEnd then first, last = along - length, along end
+	if state.hatchVertical then
+		state.hatch:SetTexCoord(0, state.hatchAcross, first, last)
+	else
+		state.hatch:SetTexCoord(first, last, 0, state.hatchAcross)
+	end
+end
+
+local function hatchLayout(b, state)
+	local bar = b.bar
+	local width = math_max(1, bar:GetWidth() - TILE_INSET * 2) / TILE
+	local height = math_max(1, bar:GetHeight() - TILE_INSET * 2) / TILE
+	local vertical = b.vertical and true or false
+	state.hatchVertical = vertical
+	state.hatchAlong = vertical and height or width
+	state.hatchAcross = vertical and width or height
+	state.hatchEnd = vertical ~= (bar:GetReverseFill() and true or false)
+	bar.saFx = state
+end
+
+local function hatchAnchor(b, state)
+	local hatch, bar = state.hatch, b.bar
+	hatch:ClearAllPoints()
+	if b.secretTimer then
+		state.hatchFollows = false
+		hatch:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
+		hatch:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0)
+		tile(hatch, bar, HATCH)
+		return
+	end
+	state.hatchFollows = true
+	hatch:SetAllPoints(bar:GetStatusBarTexture() or bar)
+	hatchFill(bar, b.lastFill or bar:GetValue() or 0)
 end
 
 function CastingBarFX:Look(b, settings)
@@ -264,13 +339,12 @@ function CastingBarFX:Look(b, settings)
 	end
 
 	if state.hatch then
-		state.hatch:ClearAllPoints()
-		state.hatch:SetAllPoints(fill or bar)
-		tile(state.hatch, bar, HATCH)
+		hatchLayout(b, state)
+		if state.hatchOn then hatchAnchor(b, state) end
 	end
 
 	state.settings = settings
-	state.style = not tier.off and STYLES[settings.barTexture] or nil
+	state.style = not tier.off and STYLES[b.texture or settings.barTexture] or nil
 	self:StyleLook(b, state, tier)
 end
 
@@ -593,9 +667,12 @@ function CastingBarFX:Lock(b)
 	if tier.hatch then
 		if not state.hatch then
 			state.hatch = overlay(b, 2)
-			state.hatch:SetAllPoints(b.bar:GetStatusBarTexture() or b.bar)
-			tile(state.hatch, b.bar, HATCH)
+			state.hatch:SetTexture(HATCH, "REPEAT", "REPEAT")
+			hatchLayout(b, state)
 		end
+		state.hatchOn = true
+		hatchAnchor(b, state)
+		if state.hatchFollows then b.bar:SetScript("OnValueChanged", hatchFill) end
 		state.hatch:Show()
 	end
 
@@ -695,11 +772,7 @@ function CastingBarFX:Warn(b)
 
 	local group = set.throb
 	if not group then
-		group = b.timeText:CreateAnimationGroup()
-		for i = 1, tier.throbs do
-			relativeScale(group, i * 2 - 1, 1.45, 1.45, 0.13)
-			relativeScale(group, i * 2, 1 / 1.45, 1 / 1.45, 0.13)
-		end
+		group = textThrob(b.timeText, tier.throbs, THROB_PEAK, THROB_HALF * 2)
 		set.throb = group
 	end
 	play(state, group)
@@ -707,6 +780,7 @@ end
 
 function CastingBarFX:ClearWarn(b)
 	b.timeText:SetTextColor(TIME_COLOR[1], TIME_COLOR[2], TIME_COLOR[3], 1)
+	setTextScale(b.timeText, 1)
 	local state = b.fx
 	if state then
 		for _, set in pairs(state.sets) do
@@ -846,7 +920,14 @@ function CastingBarFX:Rest(b)
 	end
 	if common.stamp then common.stamp.frame:Hide() end
 	if common.pulse then common.pulse.texture:Hide() end
-	if state.hatch then state.hatch:Hide() end
+	if state.hatchOn then
+		state.hatchOn = false
+		state.hatch:Hide()
+		if state.hatchFollows then
+			state.hatchFollows = false
+			b.bar:SetScript("OnValueChanged", nil)
+		end
+	end
 	headOff(state)
 	if state.marks then
 		for _, mark in ipairs(state.marks) do mark.texture:Hide() end
@@ -860,6 +941,7 @@ function CastingBarFX:Rest(b)
 
 	b.bar:SetAlpha(1)
 	b.timeText:SetTextColor(TIME_COLOR[1], TIME_COLOR[2], TIME_COLOR[3], 1)
+	setTextScale(b.timeText, 1)
 	b.restBorder = nil
 end
 

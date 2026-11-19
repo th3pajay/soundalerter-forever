@@ -354,46 +354,224 @@ function Model.Restore(db, snapshot)
     for key, value in pairs(snapshot) do db[key] = value end
 end
 
-local function setEvents(db, model, events)
-    local wanted = {}
-    for _, event in ipairs(events) do wanted[event] = true end
-    local keep = {}
+local DEFENSIVE_KEYS = {
+    iceblock = true, divineshield = true, evasion = true, barkskin = true, icebarrier = true, powerwordshield = true,
+    shieldwall = true, deterrence = true, handofprotection = true, divineprotection = true, survivalinstincts = true,
+    cloakofshadows = true, holyshield = true, soullink = true, ghostlystrike = true,
+}
+local STEALTH_KEYS = { prowl = true, stealth = true, vanish = true, shadowmeld = true }
+local TRINKET_KEYS = { trinket = true, willoftheforsaken = true }
+local BG_SKIP = { bigheal = true, resurrection = true, summonpet = true, revivepet = true, rebirth = true }
+
+local function spellHas(spell, set)
+    for _, key in ipairs(spell.keys) do
+        if set[key] then return true end
+    end
+    return false
+end
+
+local function always() return true end
+
+Model.ICON_SAVED = "Interface\\Icons\\INV_Misc_Note_01"
+Model.SAVED_MAX = 5
+Model.SAVED_NAME = 24
+Model.HISTORY_MAX = 5
+
+Model.PRESETS = {
+    { id = "arena", name = "Arena", note = "Everything on", icon = "Interface\\Icons\\Ability_DualWield", include = always },
+    { id = "battleground", name = "Battleground", note = "Everything except heals, rezzes and pet summons", icon = "Interface\\Icons\\INV_BannerPVP_02", include = always, skip = BG_SKIP },
+    { id = "hitsme", name = "Only what hits me", note = "Crowd control on you and interrupts on you", icon = "Interface\\Icons\\Ability_Gouge",
+        include = function(_, event) return event == "On you" or event == "Interrupts you" end },
+    { id = "bigcooldowns", name = "Big cooldowns", note = "An enemy gains a cooldown, and when it ends", icon = "Interface\\Icons\\Spell_Nature_Lightning",
+        include = function(_, event) return event == "Gained" or event == "Faded" end },
+    { id = "defensives", name = "Defensives only", note = "Enemy defensives, so you know when to hold your burst", icon = "Interface\\Icons\\Spell_Holy_DivineIntervention",
+        include = function(spell, event) return (event == "Gained" or event == "Faded") and spellHas(spell, DEFENSIVE_KEYS) end },
+    { id = "worldpvp", name = "World PvP / stealth", note = "Stealth, trinkets, crowd control on you and big cooldowns", icon = "Interface\\Icons\\Ability_Stealth",
+        include = function(spell, event) return event == "On you" or event == "Gained" or spellHas(spell, STEALTH_KEYS) or spellHas(spell, TRINKET_KEYS) end },
+    { id = "quiet", name = "Quiet", note = "Only crowd control on you, interrupts on you and trinkets", icon = "Interface\\Icons\\Spell_Holy_Silence",
+        include = function(spell, event) return event == "On you" or event == "Interrupts you" or spellHas(spell, TRINKET_KEYS) end },
+}
+
+local function newSet()
+    return { has = {}, keys = {}, count = 0 }
+end
+
+local function addKey(set, key)
+    if set.has[key] then return end
+    set.has[key] = true
+    set.count = set.count + 1
+    set.keys[set.count] = key
+end
+
+local function buildSet(model, preset)
+    local set = newSet()
+    local skip = preset.skip
     for _, spell in ipairs(model.spells) do
         for _, event in ipairs(spell.events) do
-            if wanted[event] then
-                for _, key in ipairs(spell.eventKeys[event]) do keep[key] = true end
+            if preset.include(spell, event) then
+                for _, key in ipairs(spell.eventKeys[event]) do
+                    if not (skip and skip[key]) then addKey(set, key) end
+                end
             end
         end
     end
-    for key in pairs(model.allKeys) do db[key] = keep[key] and true or false end
+    return set
 end
 
-Model.PRESETS = {
-    { id = "arena", name = "Arena", note = "everything on", apply = function(db, model)
-        for key in pairs(model.allKeys) do db[key] = true end
-    end },
-    { id = "battleground", name = "Battleground", note = "everything except heals, rezzes and pet summons", apply = function(db, model)
-        for key in pairs(model.allKeys) do db[key] = true end
-        for _, key in ipairs({ "bigheal", "resurrection", "summonpet", "revivepet", "rebirth" }) do
-            if model.allKeys[key] then db[key] = false end
-        end
-    end },
-    { id = "hitsme", name = "Only what hits me", note = "Lands on you and Interrupts you", apply = function(db, model)
-        setEvents(db, model, { "On you", "Interrupts you" })
-    end },
-    { id = "bigcooldowns", name = "Big cooldowns", note = "Enemy gains it and It ends", apply = function(db, model)
-        setEvents(db, model, { "Gained", "Faded" })
-    end },
-}
+function Model.PresetSet(model, preset)
+    local sets = model.presetSets
+    if not sets then
+        sets = {}
+        model.presetSets = sets
+    end
+    local set = sets[preset.id]
+    if not set then
+        set = buildSet(model, preset)
+        sets[preset.id] = set
+    end
+    return set
+end
 
-function Model.ApplyPreset(db, model, presetID)
+local savedSets = setmetatable({}, { __mode = "k" })
+
+function Model.SavedSet(model, saved)
+    local cached = savedSets[saved]
+    if cached and cached.model == model then return cached.set end
+    local set = newSet()
+    for _, key in ipairs(saved.keys or {}) do
+        if model.allKeys[key] then addKey(set, key) end
+    end
+    savedSets[saved] = { model = model, set = set }
+    return set
+end
+
+function Model.OnCount(db, model)
+    local count = 0
+    for key in pairs(model.allKeys) do
+        if db[key] then count = count + 1 end
+    end
+    return count
+end
+
+function Model.PresetMatches(db, set, onCount)
+    if set.count ~= onCount then return false end
+    local keys = set.keys
+    for index = 1, set.count do
+        if not db[keys[index]] then return false end
+    end
+    return true
+end
+
+function Model.PresetDiff(db, model, set, out)
+    out = out or {}
+    local plus, minus = 0, 0
+    for key in pairs(model.allKeys) do
+        local now, want = db[key] and true or false, set.has[key] == true
+        if want and not now then plus = plus + 1 elseif now and not want then minus = minus + 1 end
+    end
+    out.plus, out.minus, out.after = plus, minus, set.count
+    return out
+end
+
+function Model.ApplySet(db, model, set, before)
+    local changed = 0
+    for key in pairs(model.allKeys) do
+        local want = set.has[key] == true
+        if (db[key] and true or false) ~= want then
+            if before then before[key] = db[key] and true or false end
+            db[key] = want
+            changed = changed + 1
+        end
+    end
+    return changed
+end
+
+function Model.FindPreset(presetID)
     for _, preset in ipairs(Model.PRESETS) do
-        if preset.id == presetID then
-            preset.apply(db, model)
+        if preset.id == presetID then return preset end
+    end
+    return nil
+end
+
+function Model.ApplyPreset(db, model, presetID, before)
+    local preset = Model.FindPreset(presetID)
+    if not preset then return false end
+    Model.ApplySet(db, model, Model.PresetSet(model, preset), before)
+    return true
+end
+
+function Model.TouchedSpells(model, keys)
+    local touched = {}
+    for _, spell in ipairs(model.spells) do
+        for _, key in ipairs(spell.keys) do
+            if keys[key] ~= nil then
+                touched[spell.id] = true
+                break
+            end
+        end
+    end
+    return touched
+end
+
+local function cutName(text)
+    text = (type(text) == "string" and text or ""):match("^%s*(.-)%s*$")
+    if #text <= Model.SAVED_NAME then return text end
+    local stop = Model.SAVED_NAME
+    while stop > 0 do
+        local byte = text:byte(stop + 1)
+        if not byte or byte < 0x80 or byte >= 0xC0 then break end
+        stop = stop - 1
+    end
+    return text:sub(1, stop)
+end
+
+function Model.SavedPresets(db)
+    local list = db.voicePresets
+    if type(list) ~= "table" then
+        list = {}
+        db.voicePresets = list
+    end
+    return list
+end
+
+function Model.SaveCurrent(db, model, name)
+    local list = Model.SavedPresets(db)
+    if #list >= Model.SAVED_MAX then return nil end
+    name = cutName(name)
+    if name == "" then name = "My preset " .. (#list + 1) end
+    local keys = {}
+    for key in pairs(model.allKeys) do
+        if db[key] then keys[#keys + 1] = key end
+    end
+    table.sort(keys)
+    local saved = { name = name, keys = keys }
+    list[#list + 1] = saved
+    return saved
+end
+
+function Model.DeleteSaved(db, saved)
+    local list = Model.SavedPresets(db)
+    for index = 1, #list do
+        if list[index] == saved then
+            table.remove(list, index)
             return true
         end
     end
     return false
+end
+
+function Model.PushHistory(history, name, before)
+    if next(before) == nil then return false end
+    history[#history + 1] = { name = name, before = before }
+    if #history > Model.HISTORY_MAX then table.remove(history, 1) end
+    return true
+end
+
+function Model.PopHistory(db, history)
+    local step = table.remove(history)
+    if not step then return nil end
+    for key, value in pairs(step.before) do db[key] = value end
+    return step
 end
 
 Model.SILENCE_ROWS = {

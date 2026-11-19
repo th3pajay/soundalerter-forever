@@ -242,6 +242,51 @@ SA_COMPAT.UseGearSet = function(id)
     return ok and SA_COMPAT.Plain(done) ~= false
 end
 
+local FONT_FILE = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+local FONT_ALPHABETS = {
+    { "roman", false },
+    { "korean", "Fonts\\2002.TTF" },
+    { "simplifiedchinese", "Fonts\\ARKai_T.ttf" },
+    { "traditionalchinese", "Fonts\\blei00d.TTF" },
+    { "russian", "Fonts\\FRIZQT___CYR.TTF" },
+}
+local fontFamilies = {}
+local fontFamilyCount = 0
+
+SA_COMPAT.FontFamily = function(size, flags)
+    flags = flags or ""
+    local bySize = fontFamilies[flags]
+    if not bySize then
+        bySize = {}
+        fontFamilies[flags] = bySize
+    end
+    local family = bySize[size]
+    if family == nil then
+        family = false
+        if CreateFontFamily then
+            fontFamilyCount = fontFamilyCount + 1
+            local members = {}
+            for index = 1, #FONT_ALPHABETS do
+                local alphabet = FONT_ALPHABETS[index]
+                members[index] = { alphabet = alphabet[1], file = alphabet[2] or FONT_FILE, height = size, flags = flags }
+            end
+            local ok, made = pcall(CreateFontFamily, "SoundAlerterFont" .. fontFamilyCount, members)
+            family = ok and made or false
+        end
+        bySize[size] = family
+    end
+    return family or nil
+end
+
+SA_COMPAT.SetFont = function(region, size, flags)
+    local family = SA_COMPAT.FontFamily(size, flags)
+    if family then
+        region:SetFontObject(family)
+    else
+        region:SetFont(FONT_FILE, size, flags or "")
+    end
+end
+
 SA_COMPAT.PlayFile = function(path)
     if not PlaySoundFile then return false end
     local ok, willPlay = pcall(PlaySoundFile, path, "Master")

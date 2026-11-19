@@ -1,5 +1,100 @@
 # Changelog
 
+## 0.3.24
+
+## Honor, grass and dead gnomes
+
+### New
+
+Honor
+- The Honor view is rebuilt with a side rail: your Honor Points balance with how much room is left to the cap (it turns gold at 90%), your tiles, and your goals on the left; the charts on the right.
+- The chart over time now follows your real Honor Points balance, so buying something shows as a red drop. Battleground honor is orange, world PvP honor blue, and the cap is drawn as a line once you get near it.
+- Goals: add up to five items with their honor cost. Each shows how close your balance is, how much is left and about how many days it takes at your pace, plus a total for all of them. Goals use your real balance, so the Restart button is gone. An existing goal is kept. Long goal names are shortened without breaking a letter.
+
+Casting bars
+- Two new textures for casting bars only: Long grass, three layers of blades drifting past at different speeds with a gentle sway (a fourth on High quality), and Dead gnomes, little gnomes lying at random angles in three drifting layers.
+- Each casting bar can now pick its own texture (Player, Target and Focus, under each bar's settings). Same as all bars keeps following the shared Bar texture.
+- New Rounded corners option (Square, Small, Medium, Large): the bar, its fill, background, border and animated texture all get round corners. A bar too thin for the chosen size gets a smaller one.
+
+![Casting bars: long grass, dead gnomes, rounded corners and a texture per bar](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/casting-bars.png)
+
+1. Long grass on the player bar
+2. Dead gnomes on the target bar
+3. Rounded corners, from Square to Large
+4. Each bar picks its own texture, or follows the shared one
+5. The timer and stripe fixes
+
+Voice Alert presets
+- The presets are rebuilt as a row of pills, each with an icon and how many alerts it turns on. Pick one to see underneath what it does and what would change (how many alerts turn on and off), then press Apply. The preset that matches your switches exactly is lit green and marked ACTIVE, and it is the one selected when you open the page again, also after a reload.
+- Three new presets: Defensives only (enemy defensives, so you know when to hold your burst), World PvP / stealth (stealth, trinkets, crowd control on you and big cooldowns) and Quiet (only crowd control on you, interrupts on you and trinkets).
+- Save your own: type a name and press Save current to keep your switches as a preset, up to five. Pick a saved one and press Delete, then Confirm, to remove it.
+- Undo now goes back up to five steps, and names the step it undoes.
+
+New class voice alerts
+- Eight new enemy buff alerts, each in its class list on the Voice Alerts page: Ghostly Strike (Rogue, on), and off until you switch them on: Bestial Wrath (Hunter), Ice Barrier (Mage), Power Word: Shield (Priest), Amplify Curse, Fel Domination and Soul Link (Warlock), and Holy Shield (Paladin). Every rank of each spell counts.
+- Bestial Wrath sits on the hunter's pet, so it alerts when an enemy pet you have targeted or focused goes berserk. No other pet buff alerts.
+- Power Word: Shield is cast often, so after one alert the same priest stays quiet for 15 seconds; other priests still alert.
+- Arcane Wrath (Mage) joins the cast alerts, every rank. Like the other enemy cast alerts it plays only when the game shows which spell is being cast.
+
+![Voice Alert presets and the eight new class alerts](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/voice-presets.png)
+
+1. Preset pills with how many alerts each turns on; the active one is lit green
+2. Preview what changes, then Apply
+3. Save, delete and undo your own presets
+4. The eight new class alerts
+
+Proximity toasts
+- Two new toast styles: Narrow stripe, a thin band with the enemy's icon, name and one line (class, distance, level, group) that glows at both ends in the class colour; and Stripe, slides in, the same band gliding in from the left and out to the right. Pick them under Toast style. A style change made in combat applies when combat ends, and toasts on screen are cleared when the style changes. Clicks, Ctrl-click to watch and the WATCHED tag work the same.
+- New "Speak with toasts" option: turn it off and the toasts still show, without the class name and "detected". The Play button next to Show toast notifications now speaks the sample too while it is on, and Speak with toasts has its own Play. Both previews speak even during quiet times such as a flight path.
+
+Stealth alerts
+- New "Stealth from any enemy in range" option (Proximity Alerts, Stealth, on by default): Stealth, Prowl, Vanish and Shadowmeld still alert for every enemy nameplate near you, while other spell alerts follow Target & focus.
+
+Diminishing Returns
+- New row for yourself: crowd control on you is counted like on your target and focus, on its own row you can move.
+- The options are rebuilt as one card per row (You, Target, Focus), like the chat alert cards: open a card to choose its own categories, whether it says "immune" (off for you by default), or copy its categories to the other rows. Your current categories and voice setting carry over to every row.
+
+![Battleground voices for target and focus, stripe toasts, stealth from any enemy and DR on yourself](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/bg-toasts-dr.png)
+
+1. Game voices follow your target and focus, so friends stay silent
+2. Narrow stripe toasts
+3. Stealth alerts from any enemy in range
+4. Diminishing returns on yourself, one card per row
+
+### Improved
+
+Battleground view
+- The match list is easier to read: rows are taller with a clearer line between them, and each match has a green or red edge for a win or a loss next to its W or L. The column names are short (KB, HK, DTH, DMG, HEAL, HONOR) so they are no longer cut off; hover one to see the full name. The team lists and your damage by spell inside an opened match get the same spacing and dividers.
+
+Spell Tracker and options
+- The Add a spell section of the options now stands out from the list of tracked spells: a warm card with an orange edge and a soft glow, headed "+ ADD A SPELL".
+- Text boxes in the options (the spell ID box, names, notes) now have their own dark inset with an outline that turns orange while you type, so they no longer blend into the row when you hover it. Rows inside the Add a spell card hover with a warm tint instead of grey. The Voice Alerts checkboxes get the same dark inset and outline, so an unticked box stays visible when you hover its row.
+
+Update notice
+- The update notice now reads like the login line: "SoundAlerter has a newer release. Update it through CurseForge." The name shows once, in its own colour, without the extra "SoundAlerter:" prefix in front.
+
+Less work
+- Proximity alerts do less work where they are off: in a sanctuary, a zone you turned off, the first seconds after loading or while snoozed, an enemy is skipped before the addon looks at it, and the once-a-second recheck only runs when you limit the alert band. Party sightings now follow the same checks as your own, in the same order.
+- The view only redraws when your honor changes, instead of checking every second while it is open.
+- Changing one bar's texture rebuilds only that bar.
+- Toasts no longer rebuild their backdrop each time one appears; each toast frame is styled once.
+
+### Fixed
+
+Voice Alerts in battlegrounds
+- In battlegrounds the game's own buff voices also played for friendly players, because they listened to every nameplate around you. They now listen only to your target and focus, as the Who triggers alerts setting says. With All enemies in range they listen to the nameplates too.
+- When the game hides whether a player is friendly or hostile, the addon treated them as an enemy, so a friend's buffs could play an alert. A hidden answer now counts as not hostile, and your target's and focus's side is worked out once when they change instead of on every buff.
+
+Casting bars and Spell Tracker
+- The timer next to a casting bar could grow huge and stay that way after a run of casts and interrupts, so every later cast showed an oversized number off the edge of the bar. The low-time pulse on the timer now always returns to normal size when a cast ends, is interrupted or a new one starts. The same fix applies to the timer on Spell Tracker icons.
+- On a cast you can't interrupt, the grey bar's diagonal stripes no longer start squeezed together and spread out as the cast fills. The stripes keep the same size from the first moment to the end, in every fill direction.
+
+Honor
+- The kills and bonus split per match is fixed. On this server kill honor and bonus honor read the same in chat, so bonus honor was counted as kills. A line now counts as kill honor only when your honorable kill count goes up with it. Matches saved before the fix show as one plain bar.
+
+Names in other alphabets
+- Player names written in Cyrillic, Korean or Chinese could show as boxes on the proximity toasts, the battleground card, Statistics and the options pages, because the addon drew that text with a font that only has Latin letters. That text now uses a font with the game's own fallback for each alphabet, so those names show as written.
+
 ## 0.3.23
 
 ## Damn you BG bugs
@@ -47,7 +142,7 @@ Global Sightings / Enemy Finder
 - A single report now counts in full: no more "one report, not confirmed yet" note, and single reports are no longer dimmed on the map, the minimap or the zone card. "Hot" counts every recent sighting.
 - The continent card shows only that continent: Kalimdor no longer lists Eastern Kingdoms zones, and its enemy, zone and watcher counts match. Azeroth still shows everything.
 - New map and minimap markers: each enemy is a class crest in a dark disc, sharp at any zoom. A ring around it empties as the sighting ages, a small notch points where they were heading, an eye marks classes that can stealth, and enemies standing on the same spot share one crest with a count badge (the tooltip says how many more). Continent rings show the top three class crests around the count, with a red diamond when higher-level enemies are there.
-- New installs see a small "Global sightings on" note under the minimap. Hover it for the details and Keep or Turn off; closing it keeps sharing on. Nothing is sent until you choose, and logging out without choosing keeps it on. Existing installs are not asked again.
+- New installations see a small "Global sightings on" note under the minimap. Hover it for the details and Keep or Turn off; closing it keeps sharing on. Nothing is sent until you choose, and logging out without choosing keeps it on. Existing installs are not asked again.
 - New Enemy Finder in Developer Tools: search every enemy spotted in the last 10 minutes by name (typos are fine), class, race or zone, and see where they are, where they came from, when they were seen, how many players reported them and how far away. It refreshes every 5 seconds while open. Click the Name, Zone, Level or Seen header to sort; click again to reverse, a third time to go back to best match.
 
 Chat alerts

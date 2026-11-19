@@ -94,6 +94,8 @@ function SoundAlerter:ChangeProfile()
 		self.ProximityToasts:OnProfileChanged()
 	end
 
+	self.Proximity:Refresh()
+
 	if self.ResourceBar then
 		self.ResourceBar:OnProfileChanged()
 	end
@@ -271,6 +273,7 @@ function SoundAlerter:OnEnable()
     self:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
     self:RegisterEvent("UNIT_NAME_UPDATE")
     self:RegisterEvent("UNIT_FACTION")
+    self:RegisterEvent("PLAYER_UPDATE_RESTING")
     self:RegisterEvent("PLAYER_REGEN_ENABLED")
     self:RegisterEvent("UNIT_TARGET")
     self:RegisterEvent("UPDATE_BATTLEFIELD_SCORE")
@@ -281,8 +284,6 @@ function SoundAlerter:OnEnable()
 
     if not self.SA_LANGUAGE[sadb.path] then sadb.path = self.SA_LOCALEPATH.enUS end
 
-    self.proximityAlertCache = {}
-    self.identityRetryAt = {}
     self.enemyOnYouAt = {}
     SA_Plates.Reset()
     SA_StealthWatch.Reset(stealthState)
@@ -325,8 +326,7 @@ function SoundAlerter:OnEnable()
 
     self:StartAuraSounds()
 
-    self:ScheduleRepeatingTimer("CleanupProximityCaches", 30)
-    self:ScheduleRepeatingTimer("RescanTrackedNameplates", 1)
+    self.Proximity:Refresh()
 
 end
 
@@ -505,7 +505,13 @@ function SoundAlerter:PlaySpell(list, spellID, sourceGUID, sourceName)
         local now = GetTime()
         local rearm = rearmSeconds[key]
         if rearm then
-            local wait = SA_Rearm.Wait(rearmAt, key, rearm, now)
+            local who = SoundAlerterSpellRearmPerCaster and SoundAlerterSpellRearmPerCaster[key] and (Plain(sourceGUID) or sourceName)
+            local wait
+            if who then
+                wait = SA_Rearm.WaitFor(rearmAt, key, who, rearm, now)
+            else
+                wait = SA_Rearm.Wait(rearmAt, key, rearm, now)
+            end
             if wait then
                 self:Debug("Sound", "%s.mp3 held (re-arms in %.0f s)", key, wait)
                 return
@@ -581,7 +587,7 @@ end
 function SoundAlerter:RefreshZoneState()
     self.cachedInInstance, self.cachedInstanceType = IsInInstance()
     self.cachedZonePvpType = GetZonePVPInfo()
-    self.chatMapID = nil
+    if self.Proximity then self.Proximity:ZoneChanged() end
     self:UpdateScoreboardTracking()
     if sadb.engineAuraSounds then self:SyncAuraSounds() end
     self:SyncBattleVoices()
@@ -701,6 +707,10 @@ function SoundAlerter:PLAYER_ENTERING_WORLD(_, isInitialLogin, isReloadingUi)
     if self:BlizzardAudioAlertsEnabled() then
         self:Debug("Audio", "Blizzard combat audio alerts are on; spoken alerts may be doubled")
     end
+end
+
+function SoundAlerter:PLAYER_UPDATE_RESTING()
+    self.Proximity:ZoneChanged()
 end
 
 function SoundAlerter:ZONE_CHANGED_NEW_AREA()
@@ -992,31 +1002,6 @@ function SoundAlerter:ShowPerformanceStats(argument)
     self:Print("Use |cffFFFF00/sa stats reset|r to clear")
 end
 
-function SoundAlerter:CleanupProximityCaches()
-    local currentTime = GetTime()
-    local cooldown = sadb.proximityCooldown or 60
-
-    for guid, timestamp in pairs(self.proximityAlertCache) do
-        if currentTime - timestamp > cooldown then
-            self.proximityAlertCache[guid] = nil
-        end
-    end
-
-    for guid, timestamp in pairs(self.identityRetryAt) do
-        if currentTime - timestamp > 60 then
-            self.identityRetryAt[guid] = nil
-        end
-    end
-
-    SA_Plates.PrunePending(currentTime - 60)
-
-    SA_Spacing.Sweep(self.enemyOnYouAt, currentTime, 60)
-
-    self:PruneWatchlist(currentTime)
-    self:SweepPartyShare(currentTime)
-
-end
-
 local DRINK_SPELL_ID = 430
 local DRINK_SPELL
 local unitAuraMap = {}
@@ -1123,6 +1108,22 @@ local function CollectTrackedSpellIDs(ids, source)
 end
 
 local unitKindCache = {}
+local hostileCache = {}
+
+local function ReadHostilePlayer(unit)
+    return UnitExists(unit) and Plain(UnitIsPlayer(unit)) == true and Plain(UnitIsEnemy("player", unit)) == true or false
+end
+
+local function HostilePlayer(unit)
+    local cached = hostileCache[unit]
+    if cached ~= nil then return cached end
+    return ReadHostilePlayer(unit)
+end
+SoundAlerter.HostilePlayer = HostilePlayer
+
+local function HostilePet(unit)
+    return Plain(UnitIsEnemy("player", unit)) == true and Plain(UnitPlayerControlled(unit)) == true and Plain(UnitIsPlayer(unit)) == false
+end
 
 local function UnitKind(unit)
     local kind = unitKindCache[unit]
@@ -1438,7 +1439,7 @@ end
 local WATCH_TOKENS = { "target", "focus" }
 
 local function StealthScopeAllows(isTargetOrFocus, isTracked)
-    return (sadb.myself and isTargetOrFocus) or (sadb.enemyinrange and isTracked) or false
+    return (sadb.myself and isTargetOrFocus) or ((sadb.enemyinrange or sadb.stealthAnyEnemy) and isTracked) or false
 end
 
 local STEALTH_LOG_CAP = 80
@@ -1505,7 +1506,7 @@ local function FindWatchedUnit(guid)
             if UnitExists(token) and Plain(UnitGUID(token)) == guid then return token end
         end
     end
-    if sadb.enemyinrange then
+    if sadb.enemyinrange or sadb.stealthAnyEnemy then
         for unit, plateGUID in pairs(SA_Plates.Enemies()) do
             if plateGUID == guid then return unit end
         end
@@ -1675,9 +1676,9 @@ function SoundAlerter:MatchesTypeFilter(unit, filterKey)
     if not filterKey or filterKey == FILTER_TYPE_ANY then return true end
     if not unit or not UnitExists(unit) then return false end
     if filterKey == FILTER_TYPE_ME then return UnitIsUnit(unit, "player") end
-    if filterKey == FILTER_TYPE_HOSTILE_PLAYER then return UnitIsPlayer(unit) and UnitIsEnemy("player", unit) end
-    if filterKey == FILTER_TYPE_FRIENDLY then return not UnitIsEnemy("player", unit) end
-    if filterKey == FILTER_TYPE_HOSTILE_UNIT then return UnitIsEnemy("player", unit) end
+    if filterKey == FILTER_TYPE_HOSTILE_PLAYER then return HostilePlayer(unit) end
+    if filterKey == FILTER_TYPE_FRIENDLY then return Plain(UnitIsEnemy("player", unit)) == false end
+    if filterKey == FILTER_TYPE_HOSTILE_UNIT then return Plain(UnitIsEnemy("player", unit)) == true end
     return true
 end
 
@@ -1788,14 +1789,18 @@ function SoundAlerter:UNIT_AURA(event, unit, updateInfo)
 
     local isTracked = isNameplate
     if not (isPlayer or isTargetOrFocus or isTracked or isAlly) then return end
-    if not isPlayer and not isAlly and (not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit)) then return end
-    if isAlly and (not UnitIsPlayer(unit) or UnitIsEnemy("player", unit)) then return end
+    local petOnly = false
+    if not isPlayer and not isAlly and not HostilePlayer(unit) then
+        if not (isTargetOrFocus and SoundAlerterPetAuras and HostilePet(unit)) then return end
+        petOnly = true
+    end
+    if isAlly and (Plain(UnitIsPlayer(unit)) ~= true or Plain(UnitIsEnemy("player", unit)) ~= false) then return end
     if not self:IsAlertZoneAllowed() then
         if isTargetOrFocus then self:StealthLog("%s aura update ignored: zone gate", unit) end
         return
     end
 
-    local tracked = GetTrackedAuraSpellIDs()
+    local tracked = petOnly and SoundAlerterPetAuras or GetTrackedAuraSpellIDs()
     local usable, added, removed = ReadableDelta(updateInfo)
     if sadb.debugmode then
         local probeKind = isPlayer and "player" or isTargetOrFocus and unit or isArena and "arena" or isNameplate and "nameplate" or "party"
@@ -1892,35 +1897,6 @@ function SoundAlerter:GetApproxRange(unit)
     return nil
 end
 
-function SoundAlerter:RescanTrackedNameplates()
-    if not (sadb.proximityEnabled and SA_Distance.IsRestricted(sadb.proximityMaxBand)) then return end
-    local now = GetTime()
-    local cooldown = sadb.proximityCooldown or 60
-    local alerted = self.proximityAlertCache
-    for unit, guid in pairs(SA_Plates.Enemies()) do
-        local last = alerted[guid]
-        if not last or now - last >= cooldown then
-            self:CheckProximityAlert(unit)
-        end
-    end
-end
-
-local IDENTITY_RETRY_DELAY = 0.1
-local IDENTITY_RETRY_SPACING = 5
-
-function SoundAlerter:ScheduleIdentityRetry(unit, guid, allySpotted)
-    local now = GetTime()
-    local last = self.identityRetryAt[guid]
-    if last and now - last < IDENTITY_RETRY_SPACING then return end
-    self.identityRetryAt[guid] = now
-    self:Debug("Proximity", "%s identity unreadable, retrying in %.1fs", unit, IDENTITY_RETRY_DELAY)
-    C_Timer.After(IDENTITY_RETRY_DELAY, function()
-        if SA_Plates.UnitKey(unit) == guid then
-            self:CheckProximityAlert(unit, allySpotted)
-        end
-    end)
-end
-
 local quietState = {}
 
 function SoundAlerter:IsQuiet()
@@ -1961,7 +1937,7 @@ end
 function SoundAlerter:AlertEnemyOnYou(unit, kind)
     local rule = ENEMY_ON_YOU[kind]
     if not sadb[rule.setting] then return end
-    if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
+    if not HostilePlayer(unit) then return end
     if not self:IsAlertZoneAllowed() or self:IsQuiet() then return end
     local guid = SA_Plates.UnitKey(unit)
     if not guid then return end
@@ -1994,9 +1970,7 @@ function SoundAlerter:CheckAllyVision(unit)
         local _, class = UnitClass(spotted)
         self:ProbeValue("ally target name/class/guid", UnitName(spotted), class, UnitGUID(spotted))
     end
-    if sadb.proximityEnabled and sadb.proximityAllyVision then
-        self:CheckProximityAlert(spotted, true)
-    end
+    self.Proximity:Consider(spotted, true)
 end
 
 function SoundAlerter:UNIT_TARGET(event, unit)
@@ -2013,221 +1987,25 @@ function SoundAlerter:UNIT_NAME_UPDATE(event, unit)
     if not (sadb.proximityEnabled or sadb.watchlistEnabled) then return end
     if UnitKind(unit) ~= "nameplate" then return end
     self:CheckWatchlist(unit)
-    if sadb.proximityEnabled then
-        self:CheckProximityAlert(unit)
-    end
+    self.Proximity:Consider(unit)
 end
 
-SoundAlerter.UNIT_FACTION = SoundAlerter.UNIT_NAME_UPDATE
-
-function SoundAlerter:IsProximityZoneAllowed()
-    local kind = SA_ZoneKind.Of(self.cachedInstanceType, self.cachedZonePvpType, IsResting and IsResting())
-    if kind == "arena" then return sadb.proximityArena and true or false end
-    if kind == "battleground" then return sadb.proximityBattleground and true or false end
-    if kind == "world" then return sadb.proximityWorld and true or false end
-    return sadb.proximitySanctuary and true or false
-end
-
-local PROXIMITY_CHAT_WINDOW = 1.5
-local PROXIMITY_CHAT_POOL = 10
-local proximityBatch = { used = 0, total = 0, pending = false, entries = {} }
-for index = 1, PROXIMITY_CHAT_POOL do proximityBatch.entries[index] = {} end
-local proximityChatValues = {}
-local CLASS_NAMES = LOCALIZED_CLASS_NAMES_MALE or {}
-
-local function ClassName(token)
-    if not token then return "Enemy" end
-    return CLASS_NAMES[token] or token
-end
-
-local function ChatPlace(self)
-    local mapID = self.chatMapID
-    if mapID == nil then
-        local ok, id = pcall(C_Map.GetBestMapForUnit, "player")
-        mapID = ok and Plain(id) or false
-        self.chatMapID = mapID
-    end
-    local x, y
-    if mapID then
-        local ok, position = pcall(C_Map.GetPlayerMapPosition, mapID, "player")
-        if ok and position then
-            local okXY, px, py = pcall(position.GetXY, position)
-            if okXY then x, y = Plain(px), Plain(py) end
-        end
-    end
-    return SA_ProxChat.Place(Plain(GetSubZoneText()), Plain(GetRealZoneText()), x, y)
-end
-
-local function FlushProximityChat()
-    local self = SoundAlerter
-    local batch = proximityBatch
-    local used, total = batch.used, batch.total
-    batch.used, batch.total, batch.pending = 0, 0, false
-    if used == 0 or not SA_AlertText.Ready(sadb.proximityChat and sadb.proximityChatText, "proximity") then return end
-    local place = ChatPlace(self)
-    local line
-    if total == 1 then
-        local entry = batch.entries[1]
-        local values = proximityChatValues
-        values.class = ClassName(entry.class)
-        values.player = entry.name
-        values.level = entry.level or ""
-        values.race = entry.race or ""
-        values.place = place ~= "" and place or "you"
-        line = SA_ProxChat.Clean(SA_AlertText.Render(sadb.proximityChatText, values))
-    else
-        self.diag.chatMerged = self.diag.chatMerged + total
-        line = SA_ProxChat.Group(batch.entries, used, total, place, ClassName)
-    end
-    SA_AlertText.Send(line, "proximity")
-end
-
-function SoundAlerter:NoteProximityChat(unit, unitName, unitClass, unitLevel)
-    local batch = proximityBatch
-    batch.total = batch.total + 1
-    if batch.used < PROXIMITY_CHAT_POOL then
-        batch.used = batch.used + 1
-        local entry = batch.entries[batch.used]
-        entry.name = unitName
-        entry.class = unitClass
-        entry.level = (type(unitLevel) == "number" and unitLevel > 0) and tostring(unitLevel) or nil
-        local race = unit and Plain((UnitRace(unit)))
-        entry.race = type(race) == "string" and race ~= "" and race or nil
-    end
-    if not batch.pending then
-        batch.pending = true
-        C_Timer.After(PROXIMITY_CHAT_WINDOW, FlushProximityChat)
-    end
-end
-
-local function ProximityBandAllowed(band)
-    return not SA_Distance.IsRestricted(sadb.proximityMaxBand) or SA_Distance.Allows(sadb.proximityMaxBand, band)
-end
-
-function SoundAlerter:FireProximityAlert(guid, unitName, unitClass, unitLevel, band, unitToken, nearbyCount, title, shared, secondName)
-    local watched = self:IsWatchedGuid(guid)
-    if shared then
-        SoundAlerter:PlayVoice(sadb.sapath .. "sharedintel.mp3", "Master")
-    elseif not (watched and self:WatchFiredNow(guid)) then
-        local classAudioFile = unitClass == nil and "enemy" or CLASS_AUDIO_MAP[unitClass]
-        if classAudioFile then
-            SoundAlerter:PlayVoice(sadb.sapath .. classAudioFile .. ".mp3", "Master")
-        end
-        self:ScheduleTimer(function()
-            SoundAlerter:PlayVoice(sadb.sapath .. "detected.mp3", "Master")
-        end, 0.8)
-    end
-
-    do
-        local Statistics = self:GetModule("Statistics")
-        if Statistics and Statistics:GetSettings().enabled then
-            Statistics:RecordAlert("proximityAlerts", nil, guid, unitName, nil, unitClass)
-        end
-    end
-
-    if self.ProximityToasts and self.ProximityToasts:GetSettings().enabled then
-        self.ProximityToasts:ShowToast(unitName, unitClass, band, guid, unitLevel, unitToken, title, nearbyCount, secondName, watched)
-    end
-end
-
-function SoundAlerter:AlertSharedProximity(guid, unitClass, unitName, unitLevel, sender)
-    if not sadb.proximityEnabled or not ProximityBandAllowed("Spotted") then return false end
-    local now = GetTime()
-    if now - self.enterWorldTime < 10 then return false end
-    local cached = self.proximityAlertCache[guid]
-    if cached and now - cached < (sadb.proximityCooldown or 60) then return false end
-    if not self:IsProximityZoneAllowed() or self:IsQuiet() then return false end
-    self.proximityAlertCache[guid] = now
-    SA_Plates.ClearPending(guid)
-    self:FireProximityAlert(guid, unitName, unitClass, unitLevel or -1, "Spotted", nil, nil, "Spotted by " .. sender, true)
-    return true
-end
-
-function SoundAlerter:CheckProximityAlert(unit, allySpotted)
-    if not sadb.proximityEnabled then return end
-
-    if not UnitExists(unit) then return end
-    if not UnitIsPlayer(unit) then return end
-    if not UnitIsEnemy("player", unit) then return end
-    if not allySpotted and not UnitIsVisible(unit) then return end
-
-    local guid, byName = SA_Plates.UnitKey(unit)
-    if not guid then return end
-
-    if not byName and not guid:find("^Player%-") then return end
-
-    local currentTime = GetTime()
-    local cooldown = sadb.proximityCooldown or 60
-    if self.proximityAlertCache[guid] then
-        local timeElapsed = currentTime - self.proximityAlertCache[guid]
-        if timeElapsed < cooldown then return end
-    end
-
-    if currentTime - self.enterWorldTime < 10 then
-        self.diag.zoningSkips = self.diag.zoningSkips + 1
-        return
-    end
-    if self:IsQuiet() then return end
-
-    if not self:IsProximityZoneAllowed() then return end
-
-    local unitName, secondName = UnitName(unit)
-    local _, unitClass = UnitClass(unit)
-    local unitLevel = UnitLevel(unit)
-
-    if not Plain(unitClass) and sadb.scoreboardClassFallback then
-        local mapped = SA_Scoreboard.ClassFor(self.scoreboardClasses, Plain(unitName), Plain(secondName))
-        if mapped then
-            self:Debug("Scoreboard", "%s class taken from the scoreboard: %s", unit, mapped)
-            unitClass = mapped
-        end
-    end
-
-    if not Plain(unitName) then
-        SA_Plates.MarkPending(guid, currentTime)
-        self:ScheduleIdentityRetry(unit, guid, allySpotted)
-        return
-    end
-    if not Plain(unitClass) then
-        if not (byName and self.identityRetryAt[guid]) then
-            SA_Plates.MarkPending(guid, currentTime)
-            self:ScheduleIdentityRetry(unit, guid, allySpotted)
-            return
-        end
-        unitClass = nil
-    end
-    if issecretvalue(unitLevel) then
-        self.diag.levelHidden = self.diag.levelHidden + 1
-        unitLevel = -1
-    end
-
-    local approxRange = self:GetApproxRange(unit) or (allySpotted and "Spotted" or nil)
-    if not ProximityBandAllowed(approxRange) then return end
-
-    self.proximityAlertCache[guid] = currentTime
-    SA_Plates.ClearPending(guid)
-    if byName then self.diag.nameKeyed = self.diag.nameKeyed + 1 end
-
-    self:FireProximityAlert(guid, unitName, unitClass, unitLevel, approxRange, not allySpotted and unit or nil, SA_Plates.Count(), nil, nil, Plain(secondName))
-
-    if SA_AlertText.Ready(sadb.proximityChat and sadb.proximityChatText, "proximity") then
-        self:NoteProximityChat(unit, unitName, unitClass, unitLevel)
-    end
-
-    if not allySpotted and not byName then
-        self:ShareAlert("P", guid, 0, unitClass, unitLevel, unitName)
-    end
+function SoundAlerter:UNIT_FACTION(event, unit)
+    if unit == "target" or unit == "focus" then hostileCache[unit] = ReadHostilePlayer(unit) end
+    self:UNIT_NAME_UPDATE(event, unit)
 end
 
 function SoundAlerter:PLAYER_TARGET_CHANGED()
+    hostileCache.target = ReadHostilePlayer("target")
     ClearCastState("target")
     self:ClearAuraTracking("target")
     self:RefreshEnemyAuraUnits()
     self:CheckWatchlist("target")
-    self:CheckProximityAlert("target")
+    self.Proximity:Consider("target")
 end
 
 function SoundAlerter:PLAYER_FOCUS_CHANGED()
+    hostileCache.focus = ReadHostilePlayer("focus")
     ClearCastState("focus")
     self:ClearAuraTracking("focus")
     self:RefreshEnemyAuraUnits()
@@ -2235,13 +2013,13 @@ end
 
 function SoundAlerter:UPDATE_MOUSEOVER_UNIT()
     self:CheckWatchlist("mouseover")
-    self:CheckProximityAlert("mouseover")
+    self.Proximity:Consider("mouseover")
 end
 
 function SoundAlerter:NAME_PLATE_UNIT_ADDED(event, unit)
     if sadb.debugmode then self:ProbeNameplate(unit) end
     SA_Plates.Remove(unit)
-    if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
+    if not HostilePlayer(unit) then return end
 
     local key = SA_Plates.UnitKey(unit)
     if not key then return end
@@ -2249,7 +2027,7 @@ function SoundAlerter:NAME_PLATE_UNIT_ADDED(event, unit)
     SA_Plates.Add(unit, key)
 
     self:CheckWatchlist(unit)
-    self:CheckProximityAlert(unit)
+    self.Proximity:Consider(unit)
 end
 
 function SoundAlerter:NAME_PLATE_UNIT_REMOVED(event, unit)
@@ -2283,8 +2061,8 @@ end
 
 function SoundAlerter:RetryPendingIdentity(unit)
     local guid = SA_Plates.GUID(unit)
-    if guid and SA_Plates.IsPending(guid) and sadb.proximityEnabled then
-        self:CheckProximityAlert(unit)
+    if guid and SA_Plates.IsPending(guid) then
+        self.Proximity:Consider(unit)
     end
 end
 
@@ -2315,7 +2093,7 @@ function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
     end
     if not unit or not IsRelevantCastUnit(unit) then return end
     if not self:IsAlertZoneAllowed() then return end
-    if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
+    if not HostilePlayer(unit) then return end
     castStartedAt[unit] = GetTime()
     self:AlertEnemyOnYou(unit, "casting")
     if issecretvalue(spellID) then return end
@@ -2361,7 +2139,7 @@ function SoundAlerter:UNIT_SPELLCAST_SUCCEEDED(event, unit, castGUID, spellID)
     end
     if not unit or not IsRelevantCastUnit(unit) then return end
     if not self:IsAlertZoneAllowed() then return end
-    if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return end
+    if not HostilePlayer(unit) then return end
     self:AlertInstantOnYou(unit)
     if issecretvalue(spellID) then return end
 
@@ -2426,7 +2204,7 @@ function SoundAlerter:UNIT_SPELLCAST_INTERRUPTED(event, unit, castGUID, spellID,
         if announcement then self:AnnounceSelfInterrupted(announcement) end
         return
     end
-    facts.isEnemy = UnitExists(unit) and UnitIsEnemy("player", unit) or false
+    facts.isEnemy = UnitExists(unit) and Plain(UnitIsEnemy("player", unit)) == true or false
     facts.name = SafeUnitName(unit)
     facts.byPlayer = InterrupterIsPlayer(interruptedBy)
     local announcement, readable, reason = interrupts:Interrupted(facts, now, sadb)

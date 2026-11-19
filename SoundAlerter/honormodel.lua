@@ -4,16 +4,20 @@ Model.DAYS = 90
 Model.DAY = 86400
 Model.PACE_DAYS = 14
 Model.BARS = 30
-Model.BAND_Z = 1.28
-Model.BAND_FLOOR = 0.3
 Model.RANGES = { 7, 30, 0 }
-
-Model.STEP_RECORD, Model.STEP_BG, Model.STEP_WORLD = 1, 2, 3
+Model.CURRENCY = 1792
+Model.SAMPLES = 600
+Model.MERGE = 300
+Model.CAP_SHOW = 0.6
+Model.CAP_WARN = 0.9
+Model.GOALS = 5
+Model.GOAL_NAME = 40
+Model.SPLIT = 2
+Model.KILL_WINDOW = 1.5
 Model.HONOR_FIELD = 7
 
-local DAYS, DAY = Model.DAYS, Model.DAY
+local DAYS, DAY, SAMPLES, MERGE = Model.DAYS, Model.DAY, Model.SAMPLES, Model.MERGE
 local floor = math.floor
-local STEP_RECORD, STEP_BG, STEP_WORLD = Model.STEP_RECORD, Model.STEP_BG, Model.STEP_WORLD
 local HONOR_FIELD = Model.HONOR_FIELD
 
 function Model.Pattern(format)
@@ -27,10 +31,10 @@ end
 
 function Model.Patterns(gain, gainNoRank, award)
     local list = {}
-    local sources = { { gain, true }, { gainNoRank, true }, { award, false } }
-    for index = 1, #sources do
-        local pattern = Model.Pattern(sources[index][1])
-        if pattern then list[#list + 1] = { pattern, sources[index][2] } end
+    local sources = { gain, gainNoRank, award }
+    for index = 1, 3 do
+        local pattern = Model.Pattern(sources[index])
+        if pattern then list[#list + 1] = pattern end
     end
     return list
 end
@@ -38,17 +42,20 @@ end
 function Model.Parse(patterns, message)
     if type(message) ~= "string" then return nil end
     for index = 1, #patterns do
-        local entry = patterns[index]
-        local amount = message:match(entry[1])
-        if amount then return tonumber(amount), entry[2] end
+        local amount = message:match(patterns[index])
+        if amount then return tonumber(amount) end
     end
     local last = message:match("(%d+)%D*$")
-    if last then return tonumber(last), true end
+    if last then return tonumber(last) end
     return nil
 end
 
 function Model.DayOf(at, offset)
     return floor((at + (offset or 0)) / DAY)
+end
+
+local function newWallet()
+    return { at = {}, value = {}, head = 0, count = 0, day = {}, close = {} }
 end
 
 function Model.Store(saved)
@@ -59,6 +66,13 @@ function Model.Store(saved)
     saved.before = saved.before or 0
     saved.gains = saved.gains or 0
     saved.best = saved.best or 0
+    saved.wallet = saved.wallet or newWallet()
+    saved.goals = saved.goals or {}
+    local old = saved.goal
+    if old then
+        saved.goal = nil
+        if type(old.target) == "number" and old.target > 0 then Model.AddGoal(saved, "Honor goal", old.target) end
+    end
     return saved
 end
 
@@ -102,73 +116,90 @@ local function honorOf(record)
 end
 Model.HonorOf = honorOf
 
-local function push(out, count, at, value, kind, record)
-    count = count + 1
-    out.at[count], out.value[count], out.kind[count], out.record[count] = at, value, kind, record or false
-    return count
-end
-
-function Model.NewSteps()
-    return { at = {}, value = {}, kind = {}, record = {}, count = 0, base = 0, total = 0 }
-end
-
-function Model.Steps(store, history, fromDay, today, offset, now, out)
-    out = out or Model.NewSteps()
-    offset = offset or 0
-    local base = 0
-    if fromDay == nil then
-        base = store.before
-        local oldest = today - DAYS + 1
-        for slot = 1, DAYS do
-            local held = store.day[slot]
-            if held and held < oldest then base = base + (store.bg[slot] or 0) + (store.world[slot] or 0) end
-        end
-        fromDay = oldest
-        local index = history and #history or 0
-        while index > 0 do
-            local day = Model.DayOf(history[index].at or 0, offset)
-            if day < fromDay then
-                if not store.since or day < store.since then base = base + honorOf(history[index]) end
-            else
-                break
+function Model.Record(store, at, value, day)
+    local wallet = store.wallet
+    local count, head = wallet.count, wallet.head
+    local values, ats = wallet.value, wallet.at
+    if count > 0 then
+        local last = values[head]
+        if last == value then return false end
+        if count > 1 and at - ats[head] < MERGE then
+            local before = values[(head - 2) % SAMPLES + 1]
+            if (value > last) == (last > before) then
+                values[head], ats[head] = value, at
+                local slot = day % DAYS + 1
+                wallet.day[slot], wallet.close[slot] = day, value
+                return true
             end
-            index = index - 1
         end
     end
-    local count = 0
-    local index = history and #history or 0
-    while index > 0 and Model.DayOf(history[index].at or 0, offset) < fromDay do index = index - 1 end
-    local run = base
-    for day = fromDay, today do
-        local recorded = 0
-        while index > 0 do
-            local record = history[index]
-            local at = record.at or 0
-            if Model.DayOf(at, offset) ~= day then break end
-            local value = honorOf(record)
-            recorded = recorded + value
-            run = run + value
-            count = push(out, count, at, run, STEP_RECORD, record)
-            index = index - 1
+    head = head % SAMPLES + 1
+    ats[head], values[head] = at, value
+    wallet.head = head
+    if count < SAMPLES then wallet.count = count + 1 end
+    local slot = day % DAYS + 1
+    wallet.day[slot], wallet.close[slot] = day, value
+    return true
+end
+
+function Model.Balance(store)
+    local wallet = store and store.wallet
+    if not wallet or wallet.count == 0 then return nil end
+    return wallet.value[wallet.head]
+end
+
+function Model.NewSeries()
+    return { at = {}, value = {}, count = 0, base = nil }
+end
+
+function Model.Series(store, from, offset, out)
+    out = out or Model.NewSeries()
+    offset = offset or 0
+    local ats, values = out.at, out.value
+    local count, base = 0, nil
+    local wallet = store and store.wallet
+    if wallet and wallet.count > 0 then
+        local first = (wallet.head - wallet.count) % SAMPLES + 1
+        local oldestDay = Model.DayOf(wallet.at[first], offset)
+        local days, closes = wallet.day, wallet.close
+        for day = oldestDay - DAYS + 1, oldestDay - 1 do
+            local slot = day % DAYS + 1
+            if days[slot] == day then
+                local at = (day + 1) * DAY - offset - 1
+                if from and at < from then
+                    base = closes[slot]
+                else
+                    count = count + 1
+                    ats[count], values[count] = at, closes[slot]
+                end
+            end
         end
-        local bg, world = Model.DayTotal(store, day)
-        local close = math.min(now, (day + 1) * DAY - offset - 1)
-        local rest = bg - recorded
-        if rest > 0 then
-            run = run + rest
-            count = push(out, count, close, run, STEP_BG)
-        end
-        if world > 0 then
-            run = run + world
-            count = push(out, count, close, run, STEP_WORLD)
+        local wAt, wValue = wallet.at, wallet.value
+        for step = 0, wallet.count - 1 do
+            local index = (first - 1 + step) % SAMPLES + 1
+            local at = wAt[index]
+            if from and at < from then
+                base = wValue[index]
+            else
+                count = count + 1
+                ats[count], values[count] = at, wValue[index]
+            end
         end
     end
-    for extra = count + 1, out.count do
-        out.at[extra], out.value[extra], out.kind[extra], out.record[extra] = nil, nil, nil, nil
-    end
-    out.count, out.base, out.total = count, base, run
-    out.from = fromDay * DAY - offset
+    for extra = count + 1, out.count do ats[extra], values[extra] = nil, nil end
+    out.count, out.base = count, base
     return out
+end
+
+function Model.ValueAt(series, at)
+    local count = series.count
+    if count == 0 or series.at[1] > at then return series.base end
+    local low, high = 1, count
+    while low < high do
+        local mid = floor((low + high + 1) / 2)
+        if series.at[mid] <= at then low = mid else high = mid - 1 end
+    end
+    return series.value[low]
 end
 
 function Model.Bars(history, map, limit, out)
@@ -188,10 +219,39 @@ end
 
 function Model.Split(record)
     local honor = honorOf(record)
+    if record.split ~= Model.SPLIT then return honor, nil end
     local kills = record.kills
-    if type(kills) ~= "number" or kills <= 0 then return honor, nil end
-    kills = math.min(kills, honor)
+    kills = type(kills) == "number" and math.max(0, math.min(kills, honor)) or 0
     return honor, kills, honor - kills
+end
+
+function Model.NewKills()
+    return { lineAt = nil, lineAmount = 0, killAt = nil, owed = 0 }
+end
+
+function Model.KillLine(kills, now, amount)
+    if kills.owed > 0 and now - kills.killAt <= Model.KILL_WINDOW then
+        kills.owed = kills.owed - 1
+        return true
+    end
+    kills.owed = 0
+    kills.lineAt, kills.lineAmount = now, amount
+    return false
+end
+
+function Model.KillCount(kills, now, gained)
+    if gained <= 0 then return 0 end
+    local moved = 0
+    if kills.lineAt and now - kills.lineAt <= Model.KILL_WINDOW then
+        moved = kills.lineAmount
+        gained = gained - 1
+    end
+    kills.lineAt, kills.lineAmount = nil, 0
+    if gained > 0 then
+        if not kills.killAt or now - kills.killAt > Model.KILL_WINDOW then kills.owed = 0 end
+        kills.owed, kills.killAt = kills.owed + gained, now
+    end
+    return moved
 end
 
 function Model.Pace(store, today, days)
@@ -199,52 +259,59 @@ function Model.Pace(store, today, days)
     local since = store.since
     if not since or since > today then return nil end
     local count = math.min(days, today - since + 1)
-    local sum, squares = 0, 0
+    local sum = 0
     for day = today - count + 1, today do
         local bg, world = Model.DayTotal(store, day)
-        local value = bg + world
-        sum = sum + value
-        squares = squares + value * value
+        sum = sum + bg + world
     end
-    local mean = sum / count
-    local variance = count > 1 and math.max(0, (squares - count * mean * mean) / (count - 1)) or 0
-    return mean, math.sqrt(variance), count
+    return sum / count, count
 end
 
-function Model.Band(left, mean, deviation)
+function Model.Cut(text, limit)
+    if #text <= limit then return text end
+    local stop = limit
+    while stop > 0 do
+        local byte = text:byte(stop + 1)
+        if not byte or byte < 0x80 or byte >= 0xC0 then break end
+        stop = stop - 1
+    end
+    return text:sub(1, stop)
+end
+
+function Model.AddGoal(store, name, cost)
+    cost = tonumber(cost)
+    if not cost or cost <= 0 then return false end
+    cost = floor(cost + 0.5)
+    local goals = store.goals
+    if #goals >= Model.GOALS then return false end
+    name = type(name) == "string" and name:match("^%s*(.-)%s*$") or ""
+    if name == "" then name = Model.Short(cost) .. " honor" end
+    name = Model.Cut(name, Model.GOAL_NAME)
+    local index = #goals + 1
+    while index > 1 and goals[index - 1].cost > cost do
+        goals[index] = goals[index - 1]
+        index = index - 1
+    end
+    goals[index] = { name = name, cost = cost }
+    return true
+end
+
+function Model.RemoveGoal(store, index)
+    local goals = store.goals
+    if not goals[index] then return false end
+    table.remove(goals, index)
+    return true
+end
+
+function Model.GoalDays(balance, cost, mean)
+    if balance >= cost then return 0 end
     if not mean or mean <= 0 then return nil end
-    if left <= 0 then return 0, 0, 0 end
-    local eta = left / mean
-    local spread = Model.BAND_Z * (deviation or 0) / math.sqrt(math.max(eta, 1))
-    local fast = left / (mean + spread)
-    local slow = left / math.max(mean - spread, mean * Model.BAND_FLOOR)
-    return eta, fast, slow
+    return math.ceil((cost - balance) / mean)
 end
 
-function Model.SetGoal(store, target)
-    target = tonumber(target)
-    if not target or target <= 0 then
-        store.goal = nil
-        return nil
-    end
-    target = floor(target + 0.5)
-    if store.goal then
-        store.goal.target = target
-    else
-        store.goal = { target = target, start = store.gains }
-    end
-    return store.goal
-end
-
-function Model.ResetGoal(store)
-    if store.goal then store.goal.start = store.gains end
-end
-
-function Model.Goal(store)
-    local goal = store and store.goal
-    if not goal or not goal.target then return nil end
-    local have = math.max(0, math.min(goal.target, store.gains - (goal.start or 0)))
-    return have, goal.target, goal.target - have
+function Model.CapState(balance, cap)
+    if not balance or not cap or cap <= 0 then return nil end
+    return cap - balance, balance >= cap * Model.CAP_WARN
 end
 
 function Model.Summary(store, history, today, offset, out)
@@ -297,6 +364,18 @@ function Model.Short(value)
     if value >= 1000000 then return string.format("%.1fm", value / 1000000) end
     if value >= 10000 then return string.format("%.1fk", value / 1000) end
     return tostring(floor(value + 0.5))
+end
+
+function Model.Comma(value)
+    local text = tostring(floor((value or 0) + 0.5))
+    local sign, digits = text:match("^(-?)(%d+)$")
+    if not digits then return text end
+    local head = #digits % 3
+    local out = head > 0 and digits:sub(1, head) or ""
+    for index = head + 1, #digits, 3 do
+        out = out .. (out ~= "" and "," or "") .. digits:sub(index, index + 2)
+    end
+    return sign .. out
 end
 
 SA_HonorModel = Model

@@ -15,7 +15,7 @@ local PANEL_MODES = {
     { "strip", "Strip (hover to open)" }, { "full", "Always open" }, { "off", "Off" },
 }
 local TOAST_STYLES = {
-    { "intel", "Intel card" }, { "threat", "Threat card" },
+    { "intel", "Intel card" }, { "threat", "Threat card" }, { "stripe", "Narrow stripe" }, { "slide", "Stripe, slides in" },
 }
 local SIDE_EFFECTS = {
     overrideNameplateRange = "ApplyNameplateRange",
@@ -44,9 +44,27 @@ local function toasts()
     return SoundAlerter.ProximityToasts
 end
 
+local SAMPLE_CLASS, DETECTED_DELAY = "ROGUE", 0.8
+
+local function playDetected()
+    local current = profile()
+    if current then SA_COMPAT.PlayFile(current.sapath .. "detected.mp3") end
+end
+
+local function speakSample()
+    local current = profile()
+    if not current then return false end
+    local classFile = SoundAlerter.CLASS_AUDIO_MAP and SoundAlerter.CLASS_AUDIO_MAP[SAMPLE_CLASS] or "rogue"
+    local played = SA_COMPAT.PlayFile(current.sapath .. classFile .. ".mp3")
+    C_Timer.After(DETECTED_DELAY, playDetected)
+    return played
+end
+
 local function testToast()
     local active = toasts()
-    if active then active:ShowToast("TestEnemy", "ROGUE", "Close", nil, 60, nil, nil, 3, "Ashwhisper") end
+    if not active then return end
+    active:ShowToast("TestEnemy", SAMPLE_CLASS, "Close", nil, 60, nil, nil, 3, "Ashwhisper")
+    if active:GetSettings().voice ~= false then speakSample() end
 end
 
 local function voicePlayer(file)
@@ -65,12 +83,14 @@ local function write(key, value)
     if not current then return end
     if key == "enabled" then
         current.proximityEnabled = value
+        SoundAlerter.Proximity:Refresh()
         if SoundAlerter.UpdateMinimapButtonIcon then SoundAlerter:UpdateMinimapButtonIcon() end
         return
     end
     local scope, name = key:match("^(%a+)%.(.+)$")
     if scope == "p" then
         current[name] = value
+        if name == "proximityMaxBand" then SoundAlerter.Proximity:Refresh() end
         local effect = SIDE_EFFECTS[name]
         if effect and SoundAlerter[effect] then SoundAlerter[effect](SoundAlerter) end
     elseif scope == "t" then
@@ -164,8 +184,9 @@ function SoundAlerter:BuildProximityOptions()
             Page.Toggle("p.overrideNameplateRange", "Increase nameplate distance", "Overrides your client's nameplate render distance to extend proximity detection range. Affects all nameplates (allies, NPCs, everything), not just enemies.", true, "Detection"),
             Page.When("p.overrideNameplateRange", Page.Range("p.nameplateRange", "Nameplate distance", "Distance to render nameplates. About 100 yards is the practical ceiling: the client has no data on units beyond the server's own tracking range.", 20, 100, 5, true, "Detection", " yd")),
             Page.Toggle("p.proximityAllyVision", "Alert on enemies your group targets", "Also alert for enemies your group targets, even beyond your nameplate range. Shown as Spotted, no distance. Still being tested: use Debug Mode and /sa probe.", true, "Detection"),
+            Page.Toggle("p.stealthAnyEnemy", "Stealth from any enemy in range", "Stealth, Prowl, Vanish and Shadowmeld alert for every enemy nameplate near you, even when Who triggers alerts is set to Target & focus. Other spell alerts still follow that setting.", false, "Stealth"),
             Page.Playable(Page.Toggle("p.stealthOnSight", "Alert for stealthed enemies already in view", "By default you hear one alert when an enemy goes stealth. Turn this on to also hear one when an enemy comes into view already stealthed.", false, "Stealth"), voicePlayer("stealth.mp3")),
-            Page.Playable(Page.Toggle("p.stealthKeepWatch", "Keep watch on a stealthed enemy closing in", "While you can see a stealthed enemy, alert again each time it gets closer. Includes the alert for stealthed enemies already in view. Nameplates need All enemies in range under Who triggers alerts on Quick Start.", false, "Stealth"), voicePlayer("stealth.mp3")),
+            Page.Playable(Page.Toggle("p.stealthKeepWatch", "Keep watch on a stealthed enemy closing in", "While you can see a stealthed enemy, alert again each time it gets closer. Includes the alert for stealthed enemies already in view. Nameplates need Stealth from any enemy in range, or All enemies in range under Who triggers alerts.", false, "Stealth"), voicePlayer("stealth.mp3")),
             Page.When("p.stealthKeepWatch", Page.Select("p.stealthWatchBand", "Keep watch within", "Only keep watch while the stealthed enemy is inside this band.", BANDS, false, "Stealth")),
             Page.When("p.stealthKeepWatch", Page.Range("p.stealthWatchGap", "Time between alerts", "Shortest time between repeat alerts for the same enemy.", 2, 30, 1, false, "Stealth", " s")),
             Page.Visible(SA_Messaging.Supported, Page.Toggle("p.shareAlertsSend", "Share alerts with your group", "Tell group members who run SoundAlerter when you spot a stealthed or watched enemy, or a new enemy nearby. Off by default.", false, "Party sharing")),
@@ -178,9 +199,10 @@ function SoundAlerter:BuildProximityOptions()
             Page.When("p.globalSightings", Page.Toggle("p.globalMinimap", "Show on the minimap", "Class-coloured dots on the minimap for shared sightings around you. Enemies just outside the minimap show as smaller, fainter dots on its edge, pointing the way. Hover a dot for details. Off by default.", false, "Global sightings")),
             Page.When("p.proximityChat", Page.Block("Chat channels and text", function() return SA_VoiceModel.AreaSummary(SoundAlerter.db1.profile, "proximity") end, false, "How it alerts")),
             Page.When("p.proximityChat", Page.Action("Open chat settings", "Pick channels for proximity lines and edit their text.", function() SA_Actions.OpenChatSettings("proximity") end, false, "How it alerts")),
+            Page.When("t.enabled", Page.Playable(Page.Toggle("t.voice", "Speak with toasts", "Plays the class name and \"detected\" with each toast. Turn it off to keep the toasts silent; the toasts still show. Play speaks the sample even during quiet times such as a flight path.", false, "How it alerts"), speakSample)),
             Page.When("t.enabled", Page.Range("t.displayDuration", "Display duration", "How long the toast remains visible on screen.", 2, 8, 0.5, true, "How it alerts", " s")),
             Page.When("t.enabled", Page.Range("t.maxConcurrent", "Max concurrent toasts", "Maximum number of toasts to show at once (older toasts fade out early if the limit is exceeded).", 1, 5, 1, true, "How it alerts")),
-            Page.When("t.enabled", Page.Select("t.toastStyle", "Toast style", "Intel card shows level, distance with a meter and group size. Threat card shows how worried to be and why: stealth classes, how close, and group size.", TOAST_STYLES, false, "Toast look")),
+            Page.When("t.enabled", Page.Select("t.toastStyle", "Toast style", "Intel card shows level, distance with a meter and group size. Threat card shows how worried to be and why: stealth classes, how close, and group size. Narrow stripe is a thin band with the name and a short line; Stripe, slides in glides in from the left and out to the right. A style change made in combat applies when combat ends.", TOAST_STYLES, false, "Toast look")),
             Page.When("t.enabled", Page.Toggle("t.showPlayerName", "Show player name", "Display the enemy player's name in the toast.", true, "Toast look")),
             Page.When("t.enabled", Page.Toggle("t.showAuraIcons", "Show buff and debuff icons", "Display up to 3 active buff or debuff icons on the toast (defensive cooldowns, mount, existing debuffs).", true, "Toast look")),
             Page.When("t.enabled", Page.Visible(SA_Secret.Supported, Page.Toggle("t.showLatestSpell", "Enemy's latest spell", "Shows the icon and name of the last spell that enemy cast while the toast is up.", false, "Toast look"))),

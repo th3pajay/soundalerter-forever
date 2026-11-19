@@ -3,18 +3,31 @@ SA_AuraSound = {}
 local ENEMY_UNITS = { "target", "focus" }
 
 SA_AuraSound.BATTLE_PLATES = 20
+SA_AuraSound.FOCUS_UNITS = 2
 SA_AuraSound.BATTLE_UNITS = { "target", "focus" }
+SA_AuraSound.PLATE_UNIT = {}
 for index = 1, SA_AuraSound.BATTLE_PLATES do
-    SA_AuraSound.BATTLE_UNITS[#SA_AuraSound.BATTLE_UNITS + 1] = "nameplate" .. index
+    local unit = "nameplate" .. index
+    SA_AuraSound.BATTLE_UNITS[#SA_AuraSound.BATTLE_UNITS + 1] = unit
+    SA_AuraSound.PLATE_UNIT[unit] = true
 end
+SA_AuraSound.STEALTH_KEYS = { prowl = true, stealth = true, vanish = true, shadowmeld = true }
 
-function SA_AuraSound.BattleFiles(list, settings, active, out)
+function SA_AuraSound.BattleFiles(list, settings, active, out, wide)
     for spellID in pairs(out) do out[spellID] = nil end
+    if wide then
+        for spellID in pairs(wide) do wide[spellID] = nil end
+    end
     if not active or not list or not settings.battleVoices or settings.aruaApplied then return out end
     local path = settings.sapath
     if not path then return out end
+    local everyone = settings.enemyinrange and true or false
+    local stealth = SA_AuraSound.STEALTH_KEYS
     for spellID, key in pairs(list) do
-        if settings[key] then out[spellID] = path .. key .. ".mp3" end
+        if settings[key] then
+            out[spellID] = path .. key .. ".mp3"
+            if wide and (everyone or stealth[key]) then wide[spellID] = true end
+        end
     end
     return out
 end

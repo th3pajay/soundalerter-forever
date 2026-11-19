@@ -62,6 +62,7 @@ local function toggleProximity()
         current.proximityWorld = true
         worldNote = " (World PvP switched on too)"
     end
+    SoundAlerter.Proximity:Refresh()
     say("Proximity Alerts: " .. onOff(current.proximityEnabled) .. worldNote)
 end
 

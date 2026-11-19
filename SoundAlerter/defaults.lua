@@ -91,6 +91,13 @@ dbDefaults = {
 		interrupt = false,
 
 		starfire = false,
+		bestialwrath = false,
+		icebarrier = false,
+		powerwordshield = false,
+		amplifycurse = false,
+		feldomination = false,
+		soullink = false,
+		holyshield = false,
 		chatdownfriend = false,
 		interruptself = false,
 		trinketalert = false,
@@ -146,6 +153,7 @@ dbDefaults = {
 		scoreboardClassFallback = true,
 		proximityMaxBand = "Detected",
 		stealthOnSight = false,
+		stealthAnyEnemy = true,
 		stealthKeepWatch = false,
 		stealthWatchBand = "Nearby",
 		stealthWatchGap = 4,
@@ -198,6 +206,7 @@ dbDefaults = {
 			rainbowBorder = false,
 			toastStyle = "intel",
 			showLatestSpell = true,
+			voice = true,
 		},
 
 		resourceBar = {
@@ -258,6 +267,7 @@ dbDefaults = {
 			locked = true,
 			barTexture = "default",
 			barTextureQuality = "normal",
+			roundCorners = "off",
 			timeFormat = "milliseconds",
 			showSpellIcon = false,
 			showLatency = false,
@@ -269,6 +279,7 @@ dbDefaults = {
 
 			player = {
 				enabled = false,
+				barTexture = "inherit",
 				PositionX = 0,
 				PositionY = -200,
 				width = 280,
@@ -279,6 +290,7 @@ dbDefaults = {
 
 			target = {
 				enabled = false,
+				barTexture = "inherit",
 				PositionX = 0,
 				PositionY = -230,
 				width = 280,
@@ -289,6 +301,7 @@ dbDefaults = {
 
 			focus = {
 				enabled = false,
+				barTexture = "inherit",
 				PositionX = 0,
 				PositionY = -260,
 				width = 280,
@@ -314,6 +327,7 @@ dbDefaults = {
 
 		drTracker = {
 			enabled = false,
+			player = true,
 			target = true,
 			focus = true,
 			size = 38,
@@ -321,8 +335,12 @@ dbDefaults = {
 			numbers = true,
 			tags = true,
 			locked = true,
-			voice = true,
-			categories = { stun = true, kidney = true, incap = true, fear = true, silence = true, root = true, charm = true, procstun = true, procroot = true, horror = true },
+			say = { player = false, target = true, focus = true },
+			cats = {
+				player = { stun = true, kidney = true, incap = true, fear = true, silence = true, root = true, charm = true, procstun = true, procroot = true, horror = true },
+				target = { stun = true, kidney = true, incap = true, fear = true, silence = true, root = true, charm = true, procstun = true, procroot = true, horror = true },
+				focus = { stun = true, kidney = true, incap = true, fear = true, silence = true, root = true, charm = true, procstun = true, procroot = true, horror = true },
+			},
 			spots = {},
 		},
 

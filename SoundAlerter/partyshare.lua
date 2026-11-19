@@ -113,7 +113,7 @@ local function OnMessage(text, sender, _, now)
     if message.kind == "S" then
         handled = SoundAlerter:AlertSharedStealth(message.guid, message.spellID, message.name)
     elseif message.kind == "P" then
-        handled = SoundAlerter:AlertSharedProximity(message.guid, message.class, message.name, message.level, from)
+        handled = SoundAlerter.Proximity:ConsiderShared(message.guid, message.class, message.name, message.level, from)
     else
         handled = SoundAlerter:AlertSharedWatch(message.guid, message.name, from)
     end

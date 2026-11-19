@@ -198,15 +198,46 @@ local ANIMATED = {
 			{ file = "bar_leaves_4", rate = 0.42, alpha = 1, blend = "BLEND" },
 		},
 	},
+	grass = {
+		label = "Long grass",
+		horizontal = true,
+		gust = true,
+		castOnly = true,
+		layers = {
+			{ file = "bar_grass_1", rate = 0.03, alpha = 0.85, blend = "BLEND" },
+			{ file = "bar_grass_2", rate = 0.08, alpha = 0.95, blend = "BLEND" },
+			{ file = "bar_grass_3", rate = 0.18, alpha = 1, blend = "BLEND" },
+		},
+		high = {
+			{ file = "bar_grass_4", rate = 0.32, alpha = 1, blend = "BLEND" },
+		},
+	},
+	gnomes = {
+		label = "Dead gnomes",
+		horizontal = true,
+		castOnly = true,
+		layers = {
+			{ file = "bar_gnomes_1", rate = 0.025, alpha = 1, blend = "BLEND" },
+			{ file = "bar_gnomes_2", rate = 0.07, alpha = 1, blend = "BLEND" },
+			{ file = "bar_gnomes_3", rate = 0.16, alpha = 1, blend = "BLEND" },
+		},
+		high = {
+			{ file = "bar_gnomes_4", rate = 0.28, alpha = 1, blend = "BLEND" },
+		},
+	},
 }
+
+local CORNER_RADII = { small = 4, medium = 7, large = 11 }
+local CORNER_SIZES = { 11, 7, 4, 2 }
+BarTexture.CORNER_RADII = CORNER_RADII
 
 local animatedBars = {}
 local driver
 
-function BarTexture:Normalize(setting)
-	if FLAT[setting] or ANIMATED[setting] then
-		return setting
-	end
+function BarTexture:Normalize(setting, includeCast)
+	if FLAT[setting] then return setting end
+	local style = ANIMATED[setting]
+	if style and (includeCast or not style.castOnly) then return setting end
 	return "default"
 end
 
@@ -217,15 +248,93 @@ function BarTexture:NormalizeQuality(setting)
 	return "normal"
 end
 
-function BarTexture:Values()
+function BarTexture:Values(includeCast)
 	local values = {}
 	for key, style in pairs(FLAT) do
 		values[key] = style.label
 	end
 	for key, style in pairs(ANIMATED) do
-		values[key] = style.label
+		if includeCast or not style.castOnly then values[key] = style.label end
 	end
 	return values
+end
+
+local function FitRadius(radius, bar)
+	local width, height = bar:GetWidth() or 0, bar:GetHeight() or 0
+	local room = math.floor(math.min(width, height) / 2)
+	for index = 1, #CORNER_SIZES do
+		local size = CORNER_SIZES[index]
+		if size <= radius and size + 1 <= room then return size end
+	end
+	return nil
+end
+
+local function SetCornerTexture(mask, radius)
+	mask:SetTexture(MEDIA .. "cb_corner_" .. radius, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	mask:SetTextureSliceMargins(radius + 1, radius + 1, radius + 1, radius + 1)
+end
+
+local function MaskOne(corners, mask, texture)
+	if corners.masked[texture] then return end
+	texture:AddMaskTexture(mask)
+	corners.masked[texture] = mask
+end
+
+function BarTexture:MaskTexture(bar, texture)
+	local corners = bar.corners
+	if corners and corners.radius then MaskOne(corners, corners.mask, texture) end
+end
+
+function BarTexture:MaskRegions(bar)
+	local corners = bar.corners
+	if not (corners and corners.radius) then return end
+	local regions = { bar:GetRegions() }
+	for index = 1, #regions do
+		local region = regions[index]
+		if region:GetObjectType() == "Texture" then MaskOne(corners, corners.mask, region) end
+	end
+	local state = bar.textureState
+	if state then
+		if not corners.clipMask then
+			corners.clipMask = state.clip:CreateMaskTexture()
+			corners.clipMask:SetAllPoints(bar)
+			corners.clipRadius = nil
+		end
+		if corners.clipRadius ~= corners.radius then
+			SetCornerTexture(corners.clipMask, corners.radius)
+			corners.clipRadius = corners.radius
+		end
+		for index = 1, #state.textures do MaskOne(corners, corners.clipMask, state.textures[index]) end
+	end
+end
+
+function BarTexture:Corners(bar, setting)
+	if not bar or not bar.CreateMaskTexture then return nil end
+	local wanted = CORNER_RADII[setting]
+	local radius = wanted and FitRadius(wanted, bar) or nil
+	local corners = bar.corners
+	if not radius then
+		if corners and corners.radius then
+			for texture, mask in pairs(corners.masked) do
+				texture:RemoveMaskTexture(mask)
+				corners.masked[texture] = nil
+			end
+			corners.radius = nil
+		end
+		return nil
+	end
+	if not corners then
+		corners = { masked = {} }
+		corners.mask = bar:CreateMaskTexture()
+		corners.mask:SetAllPoints(bar)
+		bar.corners = corners
+	end
+	if corners.radius ~= radius then
+		SetCornerTexture(corners.mask, radius)
+		corners.radius = radius
+	end
+	self:MaskRegions(bar)
+	return radius
 end
 
 local function createFrames(bar, state)

@@ -77,7 +77,7 @@ end
 local function NewEditBox(parent, height, fontSize)
     local box = CreateFrame("EditBox", nil, parent)
     box:SetAutoFocus(false)
-    box:SetFont(Kit.FONT, fontSize, "")
+    Kit.SetFont(box, fontSize, "")
     box:SetTextInsets(8, 8, 3, 3)
     box:SetHeight(height)
     local fill = Paint(box, COLOR.line)

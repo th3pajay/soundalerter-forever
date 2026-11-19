@@ -18,6 +18,8 @@ local BATTLE_UNITS = SA_AuraSound.BATTLE_UNITS
 local battleRegistered = {}
 for _, unit in ipairs(BATTLE_UNITS) do battleRegistered[unit] = {} end
 local battleFiles = {}
+local battleWide = {}
+local PLATE_UNIT, FOCUS_UNITS = SA_AuraSound.PLATE_UNIT, SA_AuraSound.FOCUS_UNITS
 local battleParams = { throttleSeconds = BATTLE_THROTTLE }
 local battleState = { count = 0, failed = 0, lastError = nil, spells = 0, waiting = nil, at = nil, match = nil, restriction = nil }
 local restrictionNames
@@ -186,12 +188,13 @@ function SoundAlerter:SyncBattleVoices()
         battleState.waiting = "combat"
         return
     end
-    local files = SA_AuraSound.BattleFiles(self.spellList.auraApplied, profile, active, battleFiles)
+    local files = SA_AuraSound.BattleFiles(self.spellList.auraApplied, profile, active, battleFiles, battleWide)
     local ids = SavedIDs(self)
     local before = battleState.count
     for unit, map in pairs(battleRegistered) do
+        local plate = PLATE_UNIT[unit]
         for spellID, entry in pairs(map) do
-            if files[spellID] ~= entry.file then DropBattleVoice(ids, unit, spellID, entry) end
+            if files[spellID] ~= entry.file or (plate and not battleWide[spellID]) then DropBattleVoice(ids, unit, spellID, entry) end
         end
     end
     local removed = before - battleState.count
@@ -203,7 +206,7 @@ function SoundAlerter:SyncBattleVoices()
         spells = spells + 1
         if not refused then
             battleParams.spellID, battleParams.soundFileName = spellID, file
-            for index = 1, #BATTLE_UNITS do
+            for index = 1, battleWide[spellID] and #BATTLE_UNITS or FOCUS_UNITS do
                 local unit = BATTLE_UNITS[index]
                 local map = battleRegistered[unit]
                 if not map[spellID] then

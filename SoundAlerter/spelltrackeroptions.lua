@@ -341,6 +341,7 @@ function SoundAlerter:BuildSpellTrackerOptions()
         defaults = function() return { g = dbDefaults.profile.spellTracker } end,
         summary = summary,
         preview = TrackerPreview,
+        accent = "Add a spell",
         rows = rows,
     })
     local options = Page.Options(spec, "Spell Tracker", "Interface\\Icons\\INV_Misc_PocketWatch_02", "Track important buffs and debuffs with cooldown overlays and countdown timers.", 2.87)

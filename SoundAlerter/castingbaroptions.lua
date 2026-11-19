@@ -21,7 +21,7 @@ local function write(active, key, value)
     local unit = key:match("^(%a+)%.")
     if key == "locked" then
         active:SetLocked(value)
-    elseif key == "barTexture" or key == "barTextureQuality" then
+    elseif key == "barTexture" or key == "barTextureQuality" or key == "roundCorners" or key:match("%.barTexture$") then
         active:UpdateTexture()
     elseif key == "animQuality" or key == "segments" then
         active:LoadSettings()
@@ -46,11 +46,19 @@ local function fillOptions(unit)
     end
 end
 
+local CORNERS = { { "off", "Square" }, { "small", "Small" }, { "medium", "Medium" }, { "large", "Large" } }
+
 local function textureOptions()
-    local values = SoundAlerter.BarTexture and SoundAlerter.BarTexture:Values() or {}
+    local values = SoundAlerter.BarTexture and SoundAlerter.BarTexture:Values(true) or {}
     local list = {}
     for key, label in pairs(values) do list[#list + 1] = { key, label } end
     table.sort(list, function(a, b) return a[2] < b[2] end)
+    return list
+end
+
+local function unitTextureOptions()
+    local list = { { "inherit", "Same as all bars" } }
+    for _, option in ipairs(textureOptions()) do list[#list + 1] = option end
     return list
 end
 
@@ -145,8 +153,9 @@ function SoundAlerter:BuildCastingBarOptions()
                 active:LoadSettings()
             end
         end, false, "General"),
-        Page.Select("barTexture", "Bar texture", "Choose the visual texture for all casting bars. Matches resource bar texture options for consistency.", textureOptions(), false, "General"),
-        Page.Select("barTextureQuality", "Texture quality", "Low animates 15 times a second and drops the farthest layer. Normal is the full animation. High adds a fourth layer to Fire and Leaves. Only animated textures are affected.", TEXTURE_QUALITIES, true, "General"),
+        Page.Select("barTexture", "Bar texture", "The texture every casting bar uses unless it picks its own below. Long grass and Dead gnomes are casting bar only.", textureOptions(), false, "General"),
+        Page.Select("roundCorners", "Rounded corners", "Rounds the corners of every casting bar, its fill, background and animated texture included. Small, Medium and Large are 4, 7 and 11 pixels, made smaller on bars too thin for them.", CORNERS, false, "General"),
+        Page.Select("barTextureQuality", "Texture quality", "Low animates 15 times a second and drops the farthest layer. Normal is the full animation. High adds a fourth layer to Fire, Leaves, Long grass and Dead gnomes. Only animated textures are affected.", TEXTURE_QUALITIES, true, "General"),
         Page.Toggle("showSpellIcon", "Show spell icons", "Display spell icons to the left of casting bars.", false, "General"),
         Page.Toggle("showLockIcon", "Show a lock on casts you cannot interrupt", "Draws a small padlock on the bar while the cast cannot be interrupted. Works on enemy casts too: the game decides whether the lock shows, because the addon is not allowed to read that flag for enemies.", false, "General"),
         Page.Toggle("hoverTooltip", "Spell tooltip on hover", "Mouse over the target or focus bar during a cast to see the full spell tooltip (rank, cost, cast time, description), even when the game hides the spell. While a cast is up the bar catches the mouse, so clicks on it stop there.", false, "General"),
@@ -162,6 +171,7 @@ function SoundAlerter:BuildCastingBarOptions()
     for _, unit in ipairs(UNITS) do
         local group = LABELS[unit] .. " casting bar"
         local enabledKey = unit .. ".enabled"
+        rows[#rows + 1] = Page.When(enabledKey, Page.Select(unit .. ".barTexture", "Texture", "This bar's own texture. Same as all bars uses the Bar texture above.", unitTextureOptions(), false, group))
         rows[#rows + 1] = Page.When(enabledKey, Page.Range(unit .. ".width", "Width", "Width of the " .. unit .. " casting bar.", 100, 500, 10, true, group, " px"))
         rows[#rows + 1] = Page.When(enabledKey, Page.Range(unit .. ".height", "Height", "Height of the " .. unit .. " casting bar.", 12, 50, 2, true, group, " px"))
         rows[#rows + 1] = Page.When(enabledKey, Page.Select(unit .. ".orientation", "Bar orientation", "Horizontal or vertical fill for the " .. unit .. " casting bar.", ORIENTATIONS, true, group))

@@ -68,10 +68,12 @@ local CASTING_BAR_GROUP_KEYS = {
 	animQuality = true,
 	segments = true,
 	channelPulse = true,
+	roundCorners = true,
 }
 
 local CASTING_BAR_UNIT_KEYS = {
 	enabled = true,
+	barTexture = true,
 	width = true,
 	height = true,
 	orientation = true,
@@ -1064,14 +1066,16 @@ function CastingBars:LoadSettings()
 	local BarUtils = self.addon.BarUtils
 	local locked = self.db.locked
 
-	self.db.barTexture = self.addon.BarTexture:Normalize(self.db.barTexture)
+	self.db.barTexture = self.addon.BarTexture:Normalize(self.db.barTexture, true)
 	self.db.animQuality = self:Fx("SetQuality", self.db.animQuality) or self.db.animQuality
 
 	for _, b in ipairs(self.barList) do
 		local unitDB = self.db[b.unit]
 
+		b.texture = self:TextureFor(b)
 		self:ApplyOrientation(b)
 		self:Fx("Look", b, self.db)
+		self.addon.BarTexture:Corners(b.bar, self.db.roundCorners)
 		BarUtils:LoadPosition(b.frame, unitDB, "", 0, b.defaultY)
 
 		if unitDB.enabled then
@@ -1104,15 +1108,28 @@ function CastingBars:LoadSettings()
 	end
 end
 
+function CastingBars:TextureFor(b)
+	local BarTexture = self.addon.BarTexture
+	local own = self.db[b.unit] and self.db[b.unit].barTexture
+	if own and own ~= "inherit" then return BarTexture:Normalize(own, true) end
+	return BarTexture:Normalize(self.db.barTexture, true)
+end
+
 function CastingBars:ApplyBarTexture()
 	if not self.db then return end
 
-	local texture = self.addon.BarTexture:Normalize(self.db.barTexture)
-	local quality = self.addon.BarTexture:NormalizeQuality(self.db.barTextureQuality)
+	local BarTexture = self.addon.BarTexture
+	local quality = BarTexture:NormalizeQuality(self.db.barTextureQuality)
 
 	for _, b in ipairs(self.barList) do
-		self.addon.BarTexture:Apply(b.bar, texture, quality)
+		local texture = self:TextureFor(b)
+		if b.appliedTexture ~= texture or b.appliedQuality ~= quality then
+			BarTexture:Apply(b.bar, texture, quality)
+			b.appliedTexture, b.appliedQuality = texture, quality
+		end
+		b.texture = texture
 		self:Fx("Look", b, self.db)
+		BarTexture:Corners(b.bar, self.db.roundCorners)
 	end
 end
 

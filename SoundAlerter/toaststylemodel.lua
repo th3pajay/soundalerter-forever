@@ -1,6 +1,7 @@
 SA_ToastStyle = {}
 
-SA_ToastStyle.STYLES = { "intel", "threat" }
+SA_ToastStyle.STYLES = { "intel", "threat", "stripe", "slide" }
+SA_ToastStyle.STRIPE = { stripe = true, slide = true }
 SA_ToastStyle.DEFAULT = "intel"
 SA_ToastStyle.NAME_GAP = 11
 SA_ToastStyle.SECOND_NAME_MIN = 28
@@ -18,6 +19,24 @@ function SA_ToastStyle.Normalize(style)
         if style == known then return style end
     end
     return SA_ToastStyle.DEFAULT
+end
+
+function SA_ToastStyle.IsStripe(style)
+    return SA_ToastStyle.STRIPE[style] == true
+end
+
+function SA_ToastStyle.StripeText(classLabel, band, levelShort, groupText)
+    local text = classLabel or "Enemy"
+    if band then text = text .. " · " .. band end
+    if levelShort and levelShort ~= "-" then text = text .. " · Lv " .. levelShort end
+    if groupText and groupText ~= "-" then text = text .. " · " .. groupText end
+    return text
+end
+
+function SA_ToastStyle.SlideOffset(progress, phase, distance)
+    if phase == 1 then return math.floor(-distance * (1 - progress) + 0.5) end
+    if phase == 2 then return math.floor(distance * progress + 0.5) end
+    return 0
 end
 
 function SA_ToastStyle.BandRank(band)

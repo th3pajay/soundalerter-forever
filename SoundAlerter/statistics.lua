@@ -10,6 +10,8 @@ local BGResult = SA_BGResult
 local Honor = SA_HonorModel
 local METER_DELAY = 0.5
 local honorVersion, honorPatterns, honorOffset, honorToday = 0, nil, nil, nil
+local honorListener, walletRead, lastKills
+local killTrack = Honor.NewKills()
 local activeMatch, activeStore
 local matchVersion = 0
 local buildNumber
@@ -780,6 +782,7 @@ function Statistics:CaptureBG(match, winner, duration, retried)
 		return
 	end
 	match.bgCaptured = true
+	self:WatchKills(false)
 	Debrief.Meter(match, readMeter())
 	local totals = Debrief.MeterTotals(match.meter)
 	local record = BGResult.Build(rows, columns, meIndex, {
@@ -791,10 +794,12 @@ function Statistics:CaptureBG(match, winner, duration, retried)
 		spells = totals and BGResult.TopSpells(totals.spells, spellNameOf) or nil,
 	})
 	if not record then return end
+	record.split = Honor.SPLIT
 	if (match.honorKills or 0) > 0 then record.kills = match.honorKills end
 	BGResult.Push(bgStore(), record)
-	if Honor.Settle(self:HonorStore(), self:HonorDay(record.at), record.me[BGResult.HONOR], match.honorSeen) then honorVersion = honorVersion + 1 end
+	Honor.Settle(self:HonorStore(), self:HonorDay(record.at), record.me[BGResult.HONOR], match.honorSeen)
 	matchVersion = matchVersion + 1
+	self:BumpHonor()
 	if self:GetSettings().bgPill ~= false and SoundAlerter.ShowBGResult then SoundAlerter:ShowBGResult(record) end
 end
 
@@ -826,28 +831,40 @@ end
 
 function Statistics:GetHonor()
 	local stats = GetDB().statistics
-	return stats and stats.honor
+	local honor = stats and stats.honor
+	return honor and Honor.Store(honor) or nil
 end
 
 function Statistics:HonorVersion()
 	return honorVersion
 end
 
-function Statistics:SetHonorGoal(target)
-	Honor.SetGoal(self:HonorStore(), target)
-	honorVersion = honorVersion + 1
+function Statistics:SetHonorListener(listener)
+	honorListener = listener
 end
 
-function Statistics:ResetHonorGoal()
-	Honor.ResetGoal(self:HonorStore())
+function Statistics:BumpHonor()
 	honorVersion = honorVersion + 1
+	if honorListener then honorListener() end
+end
+
+function Statistics:AddHonorGoal(name, cost)
+	if not Honor.AddGoal(self:HonorStore(), name, cost) then return false end
+	self:BumpHonor()
+	return true
+end
+
+function Statistics:RemoveHonorGoal(index)
+	if not Honor.RemoveGoal(self:HonorStore(), index) then return false end
+	self:BumpHonor()
+	return true
 end
 
 function Statistics:OnHonorGain(_, message)
 	message = Plain(message)
 	if type(message) ~= "string" then return end
 	honorPatterns = honorPatterns or Honor.Patterns(COMBATLOG_HONORGAIN, COMBATLOG_HONORGAIN_NO_RANK, COMBATLOG_HONORAWARD)
-	local amount, kill = Honor.Parse(honorPatterns, message)
+	local amount = Honor.Parse(honorPatterns, message)
 	if not amount or amount <= 0 then return end
 	local match = activeMatch
 	local battleground = match and match.kind == "battleground"
@@ -855,9 +872,66 @@ function Statistics:OnHonorGain(_, message)
 	if not Honor.Add(self:HonorStore(), self:HonorDay(time()), amount, not battleground) then return end
 	if battleground then
 		match.honorSeen = (match.honorSeen or 0) + amount
-		if kill then match.honorKills = (match.honorKills or 0) + amount end
+		if Honor.KillLine(killTrack, GetTime(), amount) then match.honorKills = (match.honorKills or 0) + amount end
 	end
-	honorVersion = honorVersion + 1
+	self:BumpHonor()
+end
+
+local function sessionKills()
+	if not GetPVPSessionStats then return nil end
+	local ok, kills = pcall(GetPVPSessionStats)
+	kills = ok and Plain(kills) or nil
+	return type(kills) == "number" and kills or nil
+end
+
+function Statistics:OnKillsChanged()
+	local kills = sessionKills()
+	if not kills then return end
+	local gained = lastKills and kills - lastKills or 0
+	lastKills = kills
+	if gained <= 0 then return end
+	local match = activeMatch
+	if not match or match.kind ~= "battleground" or match.bgCaptured then return end
+	local moved = Honor.KillCount(killTrack, GetTime(), gained)
+	if moved > 0 then
+		match.honorKills = (match.honorKills or 0) + moved
+		self:BumpHonor()
+	end
+end
+
+function Statistics:WatchKills(on)
+	if on == (self.watchingKills or false) then return end
+	self.watchingKills = on
+	if on then
+		killTrack = Honor.NewKills()
+		lastKills = sessionKills()
+		pcall(self.RegisterEvent, self, "PLAYER_PVP_KILLS_CHANGED", "OnKillsChanged")
+	else
+		pcall(self.UnregisterEvent, self, "PLAYER_PVP_KILLS_CHANGED")
+	end
+end
+
+function Statistics:OnCurrency(_, currency, quantity)
+	if Plain(currency) ~= Honor.CURRENCY then return end
+	quantity = Plain(quantity)
+	if type(quantity) ~= "number" then return end
+	local now = time()
+	if Honor.Record(self:HonorStore(), now, quantity, self:HonorDay(now)) then self:BumpHonor() end
+end
+
+function Statistics:ReadWallet()
+	if walletRead then return end
+	local api = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo
+	if not api then return end
+	local ok, info = pcall(api, Honor.CURRENCY)
+	if not ok or type(info) ~= "table" then return end
+	local quantity, cap = Plain(info.quantity), Plain(info.maxQuantity)
+	if type(quantity) ~= "number" or type(cap) ~= "number" or cap <= 0 then return end
+	walletRead = true
+	local store = self:HonorStore()
+	store.wallet.cap = cap
+	local now = time()
+	if Honor.Record(store, now, quantity, self:HonorDay(now)) then self:BumpHonor() end
 end
 
 function Statistics:WatchHonor(on)
@@ -865,8 +939,10 @@ function Statistics:WatchHonor(on)
 	self.watchingHonor = on
 	if on then
 		pcall(self.RegisterEvent, self, "CHAT_MSG_COMBAT_HONOR_GAIN", "OnHonorGain")
+		pcall(self.RegisterEvent, self, "CURRENCY_DISPLAY_UPDATE", "OnCurrency")
 	else
 		pcall(self.UnregisterEvent, self, "CHAT_MSG_COMBAT_HONOR_GAIN")
+		pcall(self.UnregisterEvent, self, "CURRENCY_DISPLAY_UPDATE")
 	end
 end
 
@@ -915,9 +991,11 @@ function Statistics:UpdateMatch()
 	activeMatch, activeStore = nil, nil
 	local tracked = trackedStatistics() ~= nil
 	self:WatchHonor(tracked)
+	if tracked then self:ReadWallet() end
 	if not tracked then
 		if stats and stats.matches then stats.matches.open = nil end
 		self:WatchControl(false)
+		self:WatchKills(false)
 		if previous then matchVersion = matchVersion + 1 end
 		return
 	end
@@ -941,6 +1019,7 @@ function Statistics:UpdateMatch()
 	end
 	activeMatch, activeStore = matches.open, matches
 	self:WatchControl(activeMatch ~= nil)
+	self:WatchKills(activeMatch ~= nil and activeMatch.kind == "battleground" and not activeMatch.bgCaptured)
 	if activeMatch ~= previous then matchVersion = matchVersion + 1 end
 end
 

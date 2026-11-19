@@ -6,7 +6,7 @@ local Model = SA_VoiceModel
 local Rail = SA_OptionsRail
 local FX = SA_MenuFX
 
-local COLOR, Paint, Text = Kit.COLOR, Kit.Paint, Kit.Text
+local COLOR, Paint, Text, BOX = Kit.COLOR, Kit.Paint, Kit.Text, Kit.BOX
 
 local WIDGET = "SoundAlerterVoicePage"
 local HEADER_HEIGHT = 80
@@ -27,6 +27,7 @@ local FILTER_STEP = 28
 local CHIP_STEP = 28
 local DRAWER_HEAD = 36
 local ARM_SECONDS = 4
+local PRESET = { PILL = 22, ICON = 16, COUNT = 26, STEP = 26, DETAIL = 44, FOOT = 26, SAVE_WIDTH = 150 }
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
 local CHAT_ICON = "Interface\\Icons\\INV_Letter_15"
 local PLAY_ICON = "Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up"
@@ -215,40 +216,184 @@ function Voice:AddRows(card, rows, shape)
     end
 end
 
-function Voice:BuildPresets(parent)
-    self.presetButtons = {}
-    for _, preset in ipairs(Model.PRESETS) do
-        local chip = NewChip(parent, preset.name, function() self:ApplyPreset(preset) end)
-        local frame = chip.frame
-        frame:HookScript("OnEnter", function() ShowTip(frame, preset.name, preset.note:gsub("^%l", string.upper) .. ". Overwrites every spell switch, undoable once.") end)
-        frame:HookScript("OnLeave", HideTip)
-        self.presetButtons[#self.presetButtons + 1] = chip
-    end
-    self.undoButton = NewChip(parent, "Undo", function() self:UndoPreset() end)
+local function NewPresetPill(page, parent)
+    local button = CreateFrame("Button", nil, parent)
+    button:SetHeight(PRESET.PILL)
+    local fill = Paint(button, COLOR.line)
+    fill:SetAllPoints(button)
+    local mark = Paint(button, COLOR.accent, 1, "BORDER")
+    mark:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 0, 0)
+    mark:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0, 0)
+    mark:SetHeight(2)
+    mark:Hide()
+    local icon = button:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(PRESET.ICON, PRESET.ICON)
+    icon:SetPoint("LEFT", button, "LEFT", 3, 0)
+    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    local label = Text(button, 12, COLOR.text)
+    label:SetPoint("LEFT", icon, "RIGHT", 5, 0)
+    local count = Text(button, 10.5, COLOR.muted, "RIGHT")
+    count:SetPoint("RIGHT", button, "RIGHT", -7, 0)
+    count:SetWidth(PRESET.COUNT)
+    local pill = { frame = button, fill = fill, mark = mark, icon = icon, label = label, count = count }
+    button:SetScript("OnClick", function() page:SelectPreset(pill.entry) end)
+    FX.Press(button, fill, label)
+    return pill
 end
 
-function Voice:ApplyPreset(preset)
+local function PaintPill(pill, entry, active, selected)
+    if pill.entry ~= entry or pill.name ~= entry.name then
+        pill.entry, pill.name = entry, entry.name
+        pill.icon:SetTexture(entry.icon)
+        pill.label:SetText(entry.name)
+        pill.frame:SetWidth(3 + PRESET.ICON + 5 + pill.label:GetStringWidth() + 4 + PRESET.COUNT + 7)
+    end
+    pill.count:SetText(entry.set.count)
+    if pill.active ~= active then
+        pill.active = active
+        Tint(pill.fill, active and COLOR.onFill or COLOR.line, 1)
+        Tint(pill.label, active and COLOR.on or COLOR.text)
+    end
+    pill.mark:SetShown(selected)
+end
+
+function Voice:BuildPresets(parent)
+    self.presetPills, self.shownPills, self.presetEntries = {}, {}, {}
+    self.history = {}
+    self.presetDiff = {}
+    local detail = CreateFrame("Frame", nil, parent)
+    local fill = Paint(detail, COLOR.line, 0.45)
+    fill:SetAllPoints(detail)
+    self.presetDetail = detail
+    self.presetTitle = Text(detail, 12.5, COLOR.text)
+    self.presetTitle:SetPoint("TOPLEFT", detail, "TOPLEFT", 8, -6)
+    self.presetActive = Text(detail, 10, COLOR.on)
+    self.presetActive:SetPoint("LEFT", self.presetTitle, "RIGHT", 8, 0)
+    self.presetActive:SetText("ACTIVE")
+    self.presetNote = Text(detail, 11, COLOR.muted)
+    self.presetNote:SetPoint("TOPLEFT", detail, "TOPLEFT", 8, -25)
+    self.presetApply = Kit.MakeButton(detail, "Apply", function() self:ApplySelectedPreset() end)
+    self.presetApply.frame:SetPoint("RIGHT", detail, "RIGHT", -8, 0)
+    self.presetDelete = Kit.MakeButton(detail, "Delete", function() self:DeleteSelectedPreset() end)
+    self.presetDelete.frame:SetPoint("RIGHT", self.presetApply.frame, "LEFT", -6, 0)
+    self.undoButton = NewChip(parent, "Undo", function() self:UndoPreset() end)
+    self.historyText = Text(parent, 10.5, COLOR.muted)
+    self.saveBox = Kit.MakeText(parent, {}, function() end)
+    local box = self.saveBox.frame
+    local hint = Text(box, 11.5, COLOR.muted)
+    hint:SetPoint("LEFT", box, "LEFT", 6, 0)
+    hint:SetText("Name for your preset")
+    local function syncHint() hint:SetShown(box:GetText() == "" and not box:HasFocus()) end
+    box:SetScript("OnTextChanged", syncHint)
+    box:HookScript("OnEditFocusGained", syncHint)
+    box:HookScript("OnEditFocusLost", syncHint)
+    box:SetScript("OnEnterPressed", function() self:SaveCurrentPreset() end)
+    self.saveButton = Kit.MakeButton(parent, "Save current", function() self:SaveCurrentPreset() end)
+end
+
+function Voice:PresetList()
+    local entries = self.presetEntries
+    local count = 0
+    for _, preset in ipairs(Model.PRESETS) do
+        count = count + 1
+        local entry = entries[count]
+        if not entry or entry.preset ~= preset then
+            entry = { preset = preset, name = preset.name, note = preset.note, icon = preset.icon }
+            entries[count] = entry
+        end
+        entry.set = Model.PresetSet(self.model, preset)
+    end
+    for _, saved in ipairs(Model.SavedPresets(self:Db())) do
+        count = count + 1
+        local entry = entries[count]
+        if not entry or entry.saved ~= saved then
+            entry = { saved = saved, name = saved.name, note = "Your saved preset", icon = Model.ICON_SAVED }
+            entries[count] = entry
+        end
+        entry.set = Model.SavedSet(self.model, saved)
+    end
+    for index = count + 1, #entries do entries[index] = nil end
+    return entries
+end
+
+function Voice:SelectPreset(entry)
+    if not entry then return end
+    self.selectedPreset = entry.saved or entry.preset
+    self.deleteArmedAt = nil
+    self:SyncPresets()
+end
+
+function Voice:SelectedEntry(entries, onCount)
+    local selected = self.selectedPreset
+    if selected then
+        for _, entry in ipairs(entries) do
+            if (entry.saved or entry.preset) == selected then return entry end
+        end
+    end
     local settings = self:Db()
-    self.undo = Model.Snapshot(settings, self.model)
-    self.lastPreset = preset.name
-    Model.ApplyPreset(settings, self.model, preset.id)
-    self.spec.print("Preset applied: " .. preset.name)
+    onCount = onCount or Model.OnCount(settings, self.model)
+    local pick = entries[1]
+    for _, entry in ipairs(entries) do
+        if Model.PresetMatches(settings, entry.set, onCount) then
+            pick = entry
+            break
+        end
+    end
+    self.selectedPreset = pick and (pick.saved or pick.preset)
+    return pick
+end
+
+function Voice:ApplySelectedPreset()
+    local entry = self:SelectedEntry(self:PresetList())
+    if not entry then return end
+    local settings = self:Db()
+    local before = {}
+    if Model.ApplySet(settings, self.model, entry.set, before) == 0 then return end
+    Model.PushHistory(self.history, entry.name, before)
+    self.spec.print("Preset applied: " .. entry.name)
     self:Changed()
-    self:SpellsChanged(true)
-    self:FlashChanged(Model.ChangedSpells(settings, self.model, self.undo))
+    self:SpellsChanged()
+    self:FlashChanged(Model.TouchedSpells(self.model, before))
 end
 
 function Voice:UndoPreset()
-    if not self.undo then return end
-    local settings = self:Db()
-    local before = Model.Snapshot(settings, self.model)
-    Model.Restore(settings, self.undo)
-    self.undo = nil
-    self.lastPreset = nil
-    self.spec.print("Preset undone")
+    local step = Model.PopHistory(self:Db(), self.history)
+    if not step then return end
+    self.spec.print("Undone: " .. step.name)
     self:Changed()
-    self:SpellsChanged(true)
-    self:FlashChanged(Model.ChangedSpells(settings, self.model, before))
+    self:SpellsChanged()
+    self:FlashChanged(Model.TouchedSpells(self.model, step.before))
+end
+
+function Voice:SaveCurrentPreset()
+    local box = self.saveBox.frame
+    local saved = Model.SaveCurrent(self:Db(), self.model, box:GetText())
+    if not saved then return end
+    box:SetText("")
+    box:ClearFocus()
+    self.selectedPreset = saved
+    self.spec.print("Preset saved: " .. saved.name)
+    self:Changed()
+    self:SyncPresets()
+    self:LayoutSpells()
+end
+
+function Voice:DeleteSelectedPreset()
+    local entry = self:SelectedEntry(self:PresetList())
+    if not (entry and entry.saved) then return end
+    local now = GetTime()
+    if not (self.deleteArmedAt and now - self.deleteArmedAt <= ARM_SECONDS) then
+        self.deleteArmedAt = now
+        self.presetDelete.label:SetText("Confirm")
+        return
+    end
+    self.deleteArmedAt = nil
+    Model.DeleteSaved(self:Db(), entry.saved)
+    self.selectedPreset = nil
+    self.spec.print("Preset deleted: " .. entry.name)
+    self:Changed()
+    self:SyncPresets()
+    self:LayoutSpells()
 end
 
 local function NewPill(parent)
@@ -360,12 +505,16 @@ function Voice:AcquireRow(index)
     rule:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
     rule:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
     rule:SetHeight(1)
-    local box = Paint(frame, COLOR.line, 1, "ARTWORK")
-    box:SetSize(BOX_SIZE, BOX_SIZE)
-    box:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -7)
+    local edge = Paint(frame, BOX.EDGE, 1, "ARTWORK")
+    edge:SetSize(BOX_SIZE, BOX_SIZE)
+    edge:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -7)
+    local box = Paint(frame, BOX.FILL, 1, "ARTWORK")
+    box:SetDrawLayer("ARTWORK", 1)
+    box:SetSize(BOX_SIZE - 2, BOX_SIZE - 2)
+    box:SetPoint("CENTER", edge, "CENTER", 0, 0)
     local partial = Paint(frame, COLOR.on, 1, "OVERLAY")
     partial:SetSize(BOX_SIZE / 2, BOX_SIZE)
-    partial:SetPoint("LEFT", box, "LEFT", 0, 0)
+    partial:SetPoint("LEFT", edge, "LEFT", 0, 0)
     partial:Hide()
     local check = frame:CreateTexture(nil, "OVERLAY")
     check:SetSize(BOX_SIZE + 6, BOX_SIZE + 6)
@@ -380,7 +529,7 @@ function Voice:AcquireRow(index)
     if name.SetWordWrap then name:SetWordWrap(false) end
     local class = Text(frame, 10.5, COLOR.muted)
     class:SetPoint("LEFT", name, "RIGHT", 4, 0)
-    row = { frame = frame, flash = flash, box = box, partial = partial, check = check, icon = icon, name = name, class = class, pills = {}, count = 0 }
+    row = { frame = frame, flash = flash, edge = edge, box = box, partial = partial, check = check, icon = icon, name = name, class = class, pills = {}, count = 0 }
     frame:SetScript("OnClick", function() self:ToggleRow(row) end)
     frame:SetScript("OnEnter", function() RowTip(row) end)
     frame:SetScript("OnLeave", HideTip)
@@ -650,6 +799,7 @@ function Voice:BuildStrip(parent)
         local chip = NewChip(self.whoColumn.frame, row.label, function()
             Model.SetWho(self:Db(), key)
             self:SyncStrip()
+            self:Changed()
         end)
         chip.key = key
         self.whoColumn.chips[#self.whoColumn.chips + 1] = chip
@@ -683,7 +833,7 @@ function Voice:BuildToolbar(parent)
     self.toolbar = card
     local box = CreateFrame("EditBox", nil, card)
     box:SetAutoFocus(false)
-    box:SetFont(Kit.FONT, 12, "")
+    Kit.SetFont(box, 12, "")
     box:SetTextInsets(6, 6, 3, 3)
     box:SetSize(190, 22)
     local boxFill = Paint(box, COLOR.line)
@@ -883,21 +1033,29 @@ function Voice:LayoutToolbar(width)
     local card = self.toolbar
     self.search:ClearAllPoints()
     self.search:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -9)
-    local items = {}
-    for _, chip in ipairs(self.presetButtons) do items[#items + 1] = chip end
-    items[#items + 1] = self.undoButton
-    local chipsWidth = 0
-    for _, chip in ipairs(items) do chipsWidth = chipsWidth + chip.frame:GetWidth() + 4 end
+    local undo = self.undoButton.frame
+    undo:ClearAllPoints()
+    undo:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -9)
+    self.historyText:ClearAllPoints()
+    self.historyText:SetPoint("RIGHT", undo, "LEFT", -8, 0)
+    local y = 9 + CHIP_STEP
     local labelWidth = self.presetLabel:GetStringWidth() + 8
-    local y = 9
-    local presetX = width - 12 - chipsWidth
-    if presetX - labelWidth < 12 + 190 + 12 then
-        y = 9 + CHIP_STEP
-        presetX = 12 + labelWidth
-    end
     self.presetLabel:ClearAllPoints()
-    self.presetLabel:SetPoint("TOPLEFT", card, "TOPLEFT", presetX - labelWidth, -(y + 4))
-    local bottom = Flow(card, items, width - presetX - 8, 4, presetX, y, CHIP_STEP)
+    self.presetLabel:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -(y + 4))
+    local bottom = Flow(card, self.shownPills, width - 24 - labelWidth, 4, 12 + labelWidth, y, PRESET.STEP)
+    local detail = self.presetDetail
+    detail:ClearAllPoints()
+    detail:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -(bottom + 2))
+    detail:SetSize(width - 24, PRESET.DETAIL)
+    self.presetNote:SetWidth(math.max(60, width - 24 - 16 - 190))
+    bottom = bottom + 2 + PRESET.DETAIL + 6
+    local save, box = self.saveButton.frame, self.saveBox.frame
+    save:ClearAllPoints()
+    save:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -bottom)
+    box:ClearAllPoints()
+    box:SetPoint("RIGHT", save, "LEFT", -6, 0)
+    box:SetSize(PRESET.SAVE_WIDTH, 22)
+    bottom = bottom + PRESET.FOOT
     local chips = self.shownChips
     for index = 1, self.activeChips do chips[index] = self.eventChips[index] end
     for index = self.activeChips + 1, #chips do chips[index] = nil end
@@ -996,24 +1154,35 @@ function Voice:LayoutSpells()
 end
 
 local function SyncPill(row, pill, settings, silenced, place)
-    local on = Model.ChipOn(settings, row.spell, pill.event)
-    pill.muted = silenced[pill.event]
-    Tint(pill.fill, on and COLOR.on or COLOR.line, on and 0.28 or 0.7)
-    Tint(pill.label, on and COLOR.on or COLOR.muted)
-    pill.frame:SetAlpha(pill.muted and 0.35 or 1)
+    local on = Model.ChipOn(settings, row.spell, pill.event) and true or false
+    if pill.on ~= on then
+        pill.on = on
+        Tint(pill.fill, on and COLOR.on or COLOR.line, on and 0.28 or 0.7)
+        Tint(pill.label, on and COLOR.on or COLOR.muted)
+    end
+    local muted = silenced[pill.event] and true or false
+    if pill.muted ~= muted then
+        pill.muted = muted
+        pill.frame:SetAlpha(muted and 0.35 or 1)
+    end
     local availability = Model.Availability(pill.event, place, settings)
-    pill.availability = availability
-    Tint(pill.mark, Model.AVAILABILITY[availability].color)
+    if pill.availability ~= availability then
+        pill.availability = availability
+        Tint(pill.mark, Model.AVAILABILITY[availability].color)
+    end
 end
 
 function Voice:SyncRow(row, settings, silenced)
     local state = Model.TileState(settings, row.spell, self.filter, silenced)
-    row.state = state
-    local on = state == "on"
-    Tint(row.box, on and COLOR.on or COLOR.line, 1)
-    row.check:SetShown(on)
-    row.partial:SetShown(state == "some")
-    row.frame:SetAlpha(state == "muted" and 0.35 or 1)
+    if row.state ~= state then
+        row.state = state
+        local on = state == "on"
+        Tint(row.box, on and COLOR.on or BOX.FILL, 1)
+        Tint(row.edge, on and COLOR.on or BOX.EDGE, 1)
+        row.check:SetShown(on)
+        row.partial:SetShown(state == "some")
+        row.frame:SetAlpha(state == "muted" and 0.35 or 1)
+    end
     for position = 1, row.count do SyncPill(row, row.pills[position], settings, silenced, self.spellPlace) end
 end
 
@@ -1103,9 +1272,52 @@ function Voice:SyncStrip()
 end
 
 function Voice:SyncPresets()
-    self.undoButton:SetLabel(self.undo and self.lastPreset and ("Undo " .. self.lastPreset) or "Undo")
-    self.undoButton:Set(false, self.undo and true or false)
-    self.undoButton.frame:EnableMouse(self.undo and true or false)
+    local settings = self:Db()
+    local entries = self:PresetList()
+    local onCount = Model.OnCount(settings, self.model)
+    local selected = self:SelectedEntry(entries, onCount)
+    local pills, shown = self.presetPills, self.shownPills
+    local selectedActive = false
+    for index, entry in ipairs(entries) do
+        local pill = pills[index]
+        if not pill then
+            pill = NewPresetPill(self, self.toolbar)
+            pills[index] = pill
+        end
+        local active = Model.PresetMatches(settings, entry.set, onCount)
+        if entry == selected then selectedActive = active end
+        PaintPill(pill, entry, active, entry == selected)
+        pill.frame:Show()
+        shown[index] = pill
+    end
+    for index = #entries + 1, #pills do
+        pills[index].frame:Hide()
+        shown[index] = nil
+    end
+    if selected then
+        local diff = Model.PresetDiff(settings, self.model, selected.set, self.presetDiff)
+        self.presetTitle:SetText(selected.name)
+        self.presetActive:SetShown(selectedActive)
+        local change = (diff.plus + diff.minus > 0)
+            and string.format("|cff3ddc97+%d on|r  |cffff5c5c-%d off|r  %d alerts after", diff.plus, diff.minus, diff.after)
+            or "Already matches your switches"
+        self.presetNote:SetText(selected.note .. "  ·  " .. change)
+        self.presetApply.label:SetText(diff.plus + diff.minus > 0 and "Apply" or "Applied")
+        self.presetApply.frame:SetAlpha(diff.plus + diff.minus > 0 and 1 or 0.45)
+        self.presetApply.frame:EnableMouse(diff.plus + diff.minus > 0)
+        self.presetDelete.frame:SetShown(selected.saved ~= nil)
+        if not self.deleteArmedAt then self.presetDelete.label:SetText("Delete") end
+    end
+    local history = self.history
+    local last = history[#history]
+    self.undoButton:SetLabel(last and ("Undo " .. last.name) or "Undo")
+    self.undoButton:Set(false, last ~= nil)
+    self.undoButton.frame:EnableMouse(last ~= nil)
+    self.historyText:SetText(#history > 0 and (#history .. " of " .. Model.HISTORY_MAX .. " steps") or "")
+    local full = #Model.SavedPresets(settings) >= Model.SAVED_MAX
+    self.saveButton.frame:SetAlpha(full and 0.45 or 1)
+    self.saveButton.frame:EnableMouse(not full)
+    self.saveButton.label:SetText(full and "Slots full" or "Save current")
 end
 
 function Voice:RowChanged(row)
@@ -1116,13 +1328,13 @@ function Voice:RowChanged(row)
     self:SyncSummary()
 end
 
-function Voice:SpellsChanged(presets)
+function Voice:SpellsChanged()
     local settings = self:Db()
     self:SyncRows()
     self:SyncRail(settings)
     self:SyncListHead(settings)
     self:SyncSummary()
-    if presets then self:SyncPresets() end
+    self:SyncPresets()
 end
 
 function Voice:SyncDrawers(settings)
@@ -1749,8 +1961,7 @@ end
 
 function Voice:Reset()
     Model.Reset(self:Db(), self.spec.defaults(), self.model)
-    self.undo = nil
-    self.lastPreset = nil
+    self.history = {}
     self:Refresh()
 end
 

@@ -21,6 +21,9 @@ local AURA_SCAN_MAX = 6
 local INTEL_NAME_X = 54
 local THREAT_NAME_X = 86
 local TOAST_EDGE = 10
+local STRIPE = { WIDTH = 360, HEIGHT = 26, ICON = 18, PAD = 6, INSET = 1, GLOW = 64, GLOW_ALPHA = 0.35, SLIDE = 44, NAME_SHARE = 0.55, GAP = 8 }
+local CARD_INSET = 4
+local NO_AURAS = {}
 local NAME_CLEARANCE = 8
 local SPELL_TEXT_WIDTH = 110
 local SPELL_TEXT_RIGHT = 32
@@ -64,6 +67,7 @@ local PROXIMITY_TOAST_KEYS = {
     useClassColors = true,
     rainbowBorder = true,
     toastStyle = true,
+    voice = true,
     positionX = true,
     positionY = true,
     clickEnabled = true,
@@ -84,6 +88,7 @@ function ProximityToasts:SetSetting(key, value)
         error("ProximityToasts:SetSetting - unknown setting key '"..tostring(key).."'", 2)
     end
     self:GetSettings()[key] = value
+    if key == "toastStyle" then self:ApplyStyle() end
     if value and PROXIMITY_TOAST_PREVIEWABLE_KEYS[key] then
         SoundAlerter:PlayVoice(SoundAlerter.db1.profile.sapath..key..".mp3")
     end
@@ -116,9 +121,20 @@ local function GetClassColor(className)
     return cached[1], cached[2], cached[3]
 end
 
-local backdropConfig
+local backdropConfig, stripeBackdrop
 
-local function GetBackdropConfig()
+local function GetBackdropConfig(stripe)
+    if stripe then
+        if not stripeBackdrop then
+            stripeBackdrop = {
+                bgFile = "Interface\\Buttons\\WHITE8X8",
+                edgeFile = "Interface\\Buttons\\WHITE8X8",
+                edgeSize = STRIPE.INSET,
+                insets = {left = STRIPE.INSET, right = STRIPE.INSET, top = STRIPE.INSET, bottom = STRIPE.INSET}
+            }
+        end
+        return stripeBackdrop
+    end
     if not backdropConfig then
         backdropConfig = {
             bgFile = SoundAlerter.BarUtils.BACKDROP_TEXTURES.Solid,
@@ -165,7 +181,24 @@ local function SpellTextWidth(toast)
     return math.min(width, SPELL_TEXT_WIDTH)
 end
 
+local function FitStripe(toast, view)
+    local width = toast.engine.config.width
+    local tagWidth = view.watched and toast.tagText:GetUnboundedStringWidth() or 0
+    local left = STRIPE.PAD + STRIPE.ICON + STRIPE.PAD
+    local right = width - STRIPE.GAP - (tagWidth > 0 and (tagWidth + STRIPE.GAP) or 0)
+    local room = right - left
+    local name = math.min(math.ceil(toast.detailText:GetUnboundedStringWidth()) + 1, math.floor(room * STRIPE.NAME_SHARE))
+    toast.detailText:SetWidth(math.max(1, name))
+    toast.titleText:SetWidth(math.max(1, room - name - STRIPE.GAP))
+    toast.secondText:Hide()
+    toast.secondRule:Hide()
+end
+
 local function FitName(toast, view)
+    if SA_ToastStyle.IsStripe(view.style) then
+        FitStripe(toast, view)
+        return
+    end
     local left, right = INTEL_NAME_X, TOAST_WIDTH - TOAST_EDGE
     if view.style == "threat" then
         left = THREAT_NAME_X
@@ -182,15 +215,54 @@ local function FitName(toast, view)
 end
 
 local function DrawSpell(toast, view)
+    if SA_ToastStyle.IsStripe(view.style) then
+        toast.spellText:Hide()
+        toast.spellIcon:Hide()
+        FitStripe(toast, view)
+        return
+    end
     local shown = view.spellName ~= nil and SA_Secret.Draw(toast.spellText, toast.spellIcon, view.spellName, view.spellIcon)
     toast.spellText:SetShown(shown)
     toast.spellIcon:SetShown(shown)
     FitName(toast, view)
 end
 
+local function TintGlow(texture, r, g, b, leftToRight)
+    if texture.SetGradient and CreateColor then
+        local strong, clear = CreateColor(r, g, b, STRIPE.GLOW_ALPHA), CreateColor(r, g, b, 0)
+        if leftToRight then texture:SetGradient("HORIZONTAL", strong, clear) else texture:SetGradient("HORIZONTAL", clear, strong) end
+    else
+        texture:SetVertexColor(r, g, b, STRIPE.GLOW_ALPHA * 0.5)
+    end
+end
+
+local function ApplyStripe(toast, view, r, g, b)
+    toast.sideBlock:Hide()
+    toast.icon:SetSize(STRIPE.ICON, STRIPE.ICON)
+    toast.icon:SetPoint("LEFT", toast, "LEFT", STRIPE.PAD, 0)
+    toast.levelText:SetText("")
+    toast.detailText:SetFontObject(GameFontNormal)
+    toast.detailText:SetTextColor(r, g, b)
+    toast.detailText:SetPoint("LEFT", toast.icon, "RIGHT", STRIPE.PAD, 0)
+    toast.titleText:SetPoint("LEFT", toast.detailText, "RIGHT", STRIPE.GAP, 0)
+    toast.tagText:SetPoint("RIGHT", toast, "RIGHT", -STRIPE.GAP, 0)
+    toast.auraIcons[1]:SetPoint("LEFT", toast, "LEFT", 0, 0)
+    toast.spellIcon:SetPoint("RIGHT", toast, "RIGHT", -STRIPE.GAP, 0)
+    for i = 1, 3 do
+        toast.cellLabels[i]:Hide()
+        toast.cellValues[i]:Hide()
+    end
+    for i = 1, 4 do toast.meterBars[i]:Hide() end
+    TintGlow(toast.stripeLeft, r, g, b, true)
+    TintGlow(toast.stripeRight, r, g, b, false)
+    toast.stripeLeft:Show()
+    toast.stripeRight:Show()
+end
+
 local function ApplyView(toast, view)
     local r, g, b = ClassTextColor(view.className)
     local threatStyle = view.style == "threat"
+    local stripeStyle = SA_ToastStyle.IsStripe(view.style)
 
     toast.icon:SetTexture(view.iconTexture)
     toast.icon:ClearAllPoints()
@@ -210,7 +282,13 @@ local function ApplyView(toast, view)
     toast.detailText:SetText(view.primary or "")
     toast.secondText:SetText(view.second or "")
 
-    if threatStyle then
+    if not stripeStyle then
+        toast.stripeLeft:Hide()
+        toast.stripeRight:Hide()
+    end
+    if stripeStyle then
+        ApplyStripe(toast, view, r, g, b)
+    elseif threatStyle then
         toast.sideBlock:ClearAllPoints()
         toast.sideBlock:SetPoint("TOPLEFT", toast, "TOPLEFT", 4, -4)
         toast.sideBlock:SetPoint("BOTTOMLEFT", toast, "BOTTOMLEFT", 4, 4)
@@ -268,7 +346,7 @@ local function ApplyView(toast, view)
     end
     PaintWatch(toast, view)
 
-    local auras = view.auras or {}
+    local auras = (not stripeStyle and view.auras) or NO_AURAS
     for i = 1, MAX_AURA_ICONS do
         local aura = auras[i]
         if aura then
@@ -301,8 +379,8 @@ local function BuildContent(toast)
     toast.secondRule:Hide()
 
     toast.secondText = toast:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    local secondFont, _, secondFlags = toast.secondText:GetFont()
-    toast.secondText:SetFont(secondFont, SECOND_NAME_SIZE, secondFlags)
+    local _, _, secondFlags = toast.secondText:GetFont()
+    SA_COMPAT.SetFont(toast.secondText, SECOND_NAME_SIZE, secondFlags)
     toast.secondText:SetPoint("BOTTOMLEFT", toast.detailText, "BOTTOMRIGHT", SA_ToastStyle.NAME_GAP, 1)
     toast.secondText:SetJustifyH("LEFT")
     toast.secondText:SetWordWrap(false)
@@ -367,6 +445,49 @@ local function BuildContent(toast)
     toast.spellText:SetWordWrap(false)
     toast.spellText:SetTextColor(1, 0.82, 0)
     toast.spellText:Hide()
+
+    toast.stripeLeft = toast:CreateTexture(nil, "BORDER")
+    toast.stripeLeft:SetTexture("Interface\\Buttons\\WHITE8X8")
+    toast.stripeLeft:SetPoint("TOPLEFT", toast, "TOPLEFT", STRIPE.INSET, -STRIPE.INSET)
+    toast.stripeLeft:SetPoint("BOTTOMLEFT", toast, "BOTTOMLEFT", STRIPE.INSET, STRIPE.INSET)
+    toast.stripeLeft:SetWidth(STRIPE.GLOW)
+    toast.stripeLeft:Hide()
+    toast.stripeRight = toast:CreateTexture(nil, "BORDER")
+    toast.stripeRight:SetTexture("Interface\\Buttons\\WHITE8X8")
+    toast.stripeRight:SetPoint("TOPRIGHT", toast, "TOPRIGHT", -STRIPE.INSET, -STRIPE.INSET)
+    toast.stripeRight:SetPoint("BOTTOMRIGHT", toast, "BOTTOMRIGHT", -STRIPE.INSET, STRIPE.INSET)
+    toast.stripeRight:SetWidth(STRIPE.GLOW)
+    toast.stripeRight:Hide()
+end
+
+local function StyleFrame(toast)
+    local stripe = SA_ToastStyle.IsStripe(toast.engine.config.style)
+    local inset = stripe and STRIPE.INSET or CARD_INSET
+    toast:SetBackdrop(GetBackdropConfig(stripe))
+    toast:SetBackdropColor(0, 0, 0, 0.85)
+    toast:SetBackdropBorderColor(0.8, 0.2, 0.2, 1)
+    local bar = toast.countdownBar
+    if bar then
+        bar:ClearAllPoints()
+        bar:SetPoint("BOTTOMLEFT", toast, "BOTTOMLEFT", inset, inset)
+        bar:SetPoint("BOTTOMRIGHT", toast, "BOTTOMRIGHT", -inset, inset)
+        bar:SetHeight(stripe and 2 or 3)
+        for i = 1, #bar.segments do bar.segments[i]:SetHeight(stripe and 2 or 3) end
+    end
+    toast.inset = inset
+end
+
+local function Motion(toast, progress, phase)
+    local view = toast.view
+    if not view or view.style ~= "slide" then return false end
+    local x, y = toast.layoutX, toast.currentY
+    if not (x and y) or toast.isSliding or (toast.slideGroup and toast.slideGroup:IsPlaying()) then return true end
+    local dx = SA_ToastStyle.SlideOffset(progress, phase, STRIPE.SLIDE)
+    if dx ~= toast.motionX then
+        toast.motionX = dx
+        toast:SetPoint("TOP", UIParent, "TOP", x + dx, y)
+    end
+    return true
 end
 
 local function ToggleWatch(toast)
@@ -391,6 +512,7 @@ end
 
 local function ReleaseContent(toast)
     toast.view = nil
+    toast.motionX = nil
     toast.levelText:SetText("")
     toast.tagText:SetText("")
     toast.sideBlock:Hide()
@@ -470,7 +592,7 @@ local engine = SA_Toast.New({
     secureAttributes = {"macrotext1", "shift-macrotext1"},
     userFields = {"unitName", "guid", "className", "unitToken"},
     backdropFile = function() return "Interface\\Tooltips\\UI-Tooltip-Background" end,
-    segmentWidth = function(toast, duration) return (TOAST_WIDTH - 8) / duration end,
+    segmentWidth = function(toast, duration) return (toast.engine.config.width - 2 * (toast.inset or CARD_INSET)) / duration end,
     position = CurrentPosition,
     canDismissOnClick = CanDismissOnClick,
     tickBorder = TickBorder,
@@ -479,7 +601,24 @@ local engine = SA_Toast.New({
     onModifiedClick = ToggleWatch,
     onRelease = ReleaseContent,
     copyContent = CopyContent,
+    styleFrame = StyleFrame,
+    motion = Motion,
 })
+
+local function StyleSize(style)
+    if SA_ToastStyle.IsStripe(style) then return STRIPE.WIDTH, STRIPE.HEIGHT end
+    return TOAST_WIDTH, TOAST_HEIGHT
+end
+
+function ProximityToasts:ApplyStyle()
+    local style = SA_ToastStyle.Normalize(self:GetSettings().toastStyle)
+    local width, height = StyleSize(style)
+    if not engine.initialized then
+        engine.config.width, engine.config.height, engine.config.style = width, height, style
+        return true
+    end
+    return engine:Resize(width, height, style)
+end
 ProximityToasts.engine = engine
 
 
@@ -504,6 +643,7 @@ function ProximityToasts:Initialize()
         sadb.proximityToasts.enableFocusTarget = true
     end
 
+    self:ApplyStyle()
     engine:Initialize()
 
     local combatFrame = CreateFrame("Frame")
@@ -695,9 +835,6 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
 
     SoundAlerter:Debug("ProximityToasts", "showing toast for %s (%s), %d/%d active", unitName, className or "UNKNOWN", #engine.active, maxConcurrent)
 
-    local backdropConfig = GetBackdropConfig()
-    toast:SetBackdrop(backdropConfig)
-
     if sadb.proximityToasts.useClassColors and className then
 
         local r, g, b = GetClassColor(className)
@@ -710,7 +847,7 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
     if nearbyCount == 0 then nearbyCount = 1 end
 
     local Style = SA_ToastStyle
-    local style = Style.Normalize(sadb.proximityToasts.toastStyle)
+    local style = engine.config.style or Style.Normalize(sadb.proximityToasts.toastStyle)
     local classLabel = className and (className:sub(1, 1) .. className:sub(2):lower()) or "Enemy"
     local view = {
         style = style,
@@ -739,6 +876,9 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
             view.title = lead and (lead .. "  " .. why) or why
         end
         view.high = threatLevel == "HIGH"
+    elseif Style.IsStripe(style) then
+        view.tag = ""
+        view.title = customTitle or Style.StripeText(classLabel, distance, view.levelShort, view.groupText)
     else
         view.title = customTitle or (className and (className .. " NEARBY!") or "ENEMY NEARBY!")
     end
@@ -769,6 +909,7 @@ function ProximityToasts:OnProfileChanged()
         engine:Release(toast)
     end
     wipe(self.lastToastTime)
+    if self.initialized then self:ApplyStyle() end
 
 end
 
@@ -986,4 +1127,280 @@ function SoundAlerter.ProximityToasts:PrintHelp()
     else
         DEFAULT_CHAT_FRAME:AddMessage("  |cffAAAAAA4 developer commands hidden — enable debug mode in /sa options to see them.|r")
     end
+end
+
+local Proximity = {}
+SoundAlerter.Proximity = Proximity
+
+local Plain = SA_COMPAT.Plain
+local ZONING_WINDOW = 10
+local DEFAULT_COOLDOWN = 60
+local DETECTED_DELAY = 0.8
+local RESCAN_EVERY = 1
+local CLEANUP_EVERY = 30
+local RETRY_KEEP = 60
+local IDENTITY_RETRY_DELAY = 0.1
+local IDENTITY_RETRY_SPACING = 5
+local CHAT_WINDOW = 1.5
+local CHAT_POOL = 10
+local ZONE_SETTING = { arena = "proximityArena", battleground = "proximityBattleground", world = "proximityWorld", sanctuary = "proximitySanctuary" }
+local CLASS_NAMES = LOCALIZED_CLASS_NAMES_MALE or {}
+
+local alerted, retryAt = {}, {}
+local zoneKind, chatMapID
+local rescanTicker, cleanupTicker
+local statistics
+local batch = { used = 0, total = 0, pending = false, entries = {} }
+for index = 1, CHAT_POOL do batch.entries[index] = {} end
+local chatValues = {}
+
+local function settings()
+    return SoundAlerter.db1.profile
+end
+
+local function cooledDown(p, guid, now)
+    local last = alerted[guid]
+    return not last or now - last >= (p.proximityCooldown or DEFAULT_COOLDOWN)
+end
+
+local function bandAllows(p, band)
+    local max = p.proximityMaxBand
+    return not SA_Distance.IsRestricted(max) or SA_Distance.Allows(max, band)
+end
+
+local function zoneAllows(p)
+    local kind = zoneKind
+    if not kind then
+        kind = SA_ZoneKind.Of(SoundAlerter.cachedInstanceType, SoundAlerter.cachedZonePvpType, IsResting and IsResting())
+        zoneKind = kind
+    end
+    return p[ZONE_SETTING[kind]] and true or false
+end
+
+local function open(p, now)
+    if not p.proximityEnabled then return false end
+    if now - SoundAlerter.enterWorldTime < ZONING_WINDOW then
+        local diag = SoundAlerter.diag
+        diag.zoningSkips = diag.zoningSkips + 1
+        return false
+    end
+    return zoneAllows(p) and not SoundAlerter:IsQuiet()
+end
+
+local function className(token)
+    if not token then return "Enemy" end
+    return CLASS_NAMES[token] or token
+end
+
+local function chatPlace()
+    local mapID = chatMapID
+    if mapID == nil then
+        local ok, id = pcall(C_Map.GetBestMapForUnit, "player")
+        mapID = ok and Plain(id) or false
+        chatMapID = mapID
+    end
+    local x, y
+    if mapID then
+        local ok, position = pcall(C_Map.GetPlayerMapPosition, mapID, "player")
+        if ok and position then
+            local okXY, px, py = pcall(position.GetXY, position)
+            if okXY then x, y = Plain(px), Plain(py) end
+        end
+    end
+    return SA_ProxChat.Place(Plain(GetSubZoneText()), Plain(GetRealZoneText()), x, y)
+end
+
+local function flushChat()
+    local used, total = batch.used, batch.total
+    batch.used, batch.total, batch.pending = 0, 0, false
+    local p = settings()
+    if used == 0 or not SA_AlertText.Ready(p.proximityChat and p.proximityChatText, "proximity") then return end
+    local place = chatPlace()
+    local line
+    if total == 1 then
+        local entry = batch.entries[1]
+        chatValues.class = className(entry.class)
+        chatValues.player = entry.name
+        chatValues.level = entry.level or ""
+        chatValues.race = entry.race or ""
+        chatValues.place = place ~= "" and place or "you"
+        line = SA_ProxChat.Clean(SA_AlertText.Render(p.proximityChatText, chatValues))
+    else
+        local diag = SoundAlerter.diag
+        diag.chatMerged = diag.chatMerged + total
+        line = SA_ProxChat.Group(batch.entries, used, total, place, className)
+    end
+    SA_AlertText.Send(line, "proximity")
+end
+
+local function noteChat(unit, unitName, unitClass, unitLevel)
+    batch.total = batch.total + 1
+    if batch.used < CHAT_POOL then
+        batch.used = batch.used + 1
+        local entry = batch.entries[batch.used]
+        entry.name = unitName
+        entry.class = unitClass
+        entry.level = (type(unitLevel) == "number" and unitLevel > 0) and tostring(unitLevel) or nil
+        local race = Plain((UnitRace(unit)))
+        entry.race = type(race) == "string" and race ~= "" and race or nil
+    end
+    if not batch.pending then
+        batch.pending = true
+        C_Timer.After(CHAT_WINDOW, flushChat)
+    end
+end
+
+local function playDetected()
+    SoundAlerter:PlayVoice(settings().sapath .. "detected.mp3", "Master")
+end
+
+local function fire(p, guid, unitName, unitClass, unitLevel, band, unitToken, nearbyCount, title, shared, secondName)
+    local watched = SoundAlerter:IsWatchedGuid(guid)
+    local toastSettings = ProximityToasts:GetSettings()
+    local silent = toastSettings.enabled and toastSettings.voice == false
+    if shared and not silent then
+        SoundAlerter:PlayVoice(p.sapath .. "sharedintel.mp3", "Master")
+    elseif not shared and not silent and not (watched and SoundAlerter:WatchFiredNow(guid)) then
+        local classAudioFile = unitClass == nil and "enemy" or SoundAlerter.CLASS_AUDIO_MAP[unitClass]
+        if classAudioFile then
+            SoundAlerter:PlayVoice(p.sapath .. classAudioFile .. ".mp3", "Master")
+        end
+        C_Timer.After(DETECTED_DELAY, playDetected)
+    end
+    if statistics and statistics:GetSettings().enabled then
+        statistics:RecordAlert("proximityAlerts", nil, guid, unitName, nil, unitClass)
+    end
+    if ProximityToasts:GetSettings().enabled then
+        ProximityToasts:ShowToast(unitName, unitClass, band, guid, unitLevel, unitToken, title, nearbyCount, secondName, watched)
+    end
+end
+
+local function retryIdentity(unit, guid, allySpotted, now)
+    SA_Plates.MarkPending(guid, now)
+    local last = retryAt[guid]
+    if last and now - last < IDENTITY_RETRY_SPACING then return end
+    retryAt[guid] = now
+    SoundAlerter:Debug("Proximity", "%s identity unreadable, retrying in %.1fs", unit, IDENTITY_RETRY_DELAY)
+    C_Timer.After(IDENTITY_RETRY_DELAY, function()
+        if SA_Plates.UnitKey(unit) == guid then
+            Proximity:Consider(unit, allySpotted)
+        end
+    end)
+end
+
+function Proximity:Consider(unit, allySpotted)
+    local p = settings()
+    if allySpotted and not p.proximityAllyVision then return false end
+    local now = GetTime()
+    if not open(p, now) then return false end
+    if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return false end
+    if not allySpotted and not UnitIsVisible(unit) then return false end
+
+    local guid, byName = SA_Plates.UnitKey(unit)
+    if not guid then return false end
+    if not byName and not guid:find("^Player%-") then return false end
+    if not cooledDown(p, guid, now) then return false end
+
+    local unitName, secondName = UnitName(unit)
+    local _, unitClass = UnitClass(unit)
+    local unitLevel = UnitLevel(unit)
+
+    if not Plain(unitClass) and p.scoreboardClassFallback then
+        local mapped = SA_Scoreboard.ClassFor(SoundAlerter.scoreboardClasses, Plain(unitName), Plain(secondName))
+        if mapped then
+            SoundAlerter:Debug("Scoreboard", "%s class taken from the scoreboard: %s", unit, mapped)
+            unitClass = mapped
+        end
+    end
+
+    if not Plain(unitName) then
+        retryIdentity(unit, guid, allySpotted, now)
+        return false
+    end
+    if not Plain(unitClass) then
+        if not (byName and retryAt[guid]) then
+            retryIdentity(unit, guid, allySpotted, now)
+            return false
+        end
+        unitClass = nil
+    end
+    local diag = SoundAlerter.diag
+    if issecretvalue(unitLevel) then
+        diag.levelHidden = diag.levelHidden + 1
+        unitLevel = -1
+    end
+
+    local band = SoundAlerter:GetApproxRange(unit) or (allySpotted and "Spotted" or nil)
+    if not bandAllows(p, band) then return false end
+
+    alerted[guid] = now
+    SA_Plates.ClearPending(guid)
+    if byName then diag.nameKeyed = diag.nameKeyed + 1 end
+
+    fire(p, guid, unitName, unitClass, unitLevel, band, not allySpotted and unit or nil, SA_Plates.Count(), nil, nil, Plain(secondName))
+
+    if SA_AlertText.Ready(p.proximityChat and p.proximityChatText, "proximity") then
+        noteChat(unit, unitName, unitClass, unitLevel)
+    end
+    if not allySpotted and not byName then
+        SoundAlerter:ShareAlert("P", guid, 0, unitClass, unitLevel, unitName)
+    end
+    return true
+end
+
+function Proximity:ConsiderShared(guid, unitClass, unitName, unitLevel, sender)
+    local p = settings()
+    local now = GetTime()
+    if not open(p, now) or not bandAllows(p, "Spotted") or not cooledDown(p, guid, now) then return false end
+    alerted[guid] = now
+    SA_Plates.ClearPending(guid)
+    fire(p, guid, unitName, unitClass, unitLevel or -1, "Spotted", nil, nil, "Spotted by " .. sender, true)
+    return true
+end
+
+local function rescan()
+    local p = settings()
+    local now = GetTime()
+    if now - SoundAlerter.enterWorldTime < ZONING_WINDOW or not zoneAllows(p) then return end
+    for unit, guid in pairs(SA_Plates.Enemies()) do
+        if cooledDown(p, guid, now) then Proximity:Consider(unit) end
+    end
+end
+
+local function cleanup()
+    local now = GetTime()
+    local cooldown = settings().proximityCooldown or DEFAULT_COOLDOWN
+    for guid, at in pairs(alerted) do
+        if now - at > cooldown then alerted[guid] = nil end
+    end
+    for guid, at in pairs(retryAt) do
+        if now - at > RETRY_KEEP then retryAt[guid] = nil end
+    end
+    SA_Plates.PrunePending(now - RETRY_KEEP)
+end
+
+function Proximity:Refresh()
+    local p = settings()
+    statistics = SoundAlerter:GetModule("Statistics", true)
+    local on = p.proximityEnabled and true or false
+    local restricted = on and SA_Distance.IsRestricted(p.proximityMaxBand)
+    if on and not cleanupTicker then
+        cleanupTicker = C_Timer.NewTicker(CLEANUP_EVERY, cleanup)
+    elseif not on and cleanupTicker then
+        cleanupTicker:Cancel()
+        cleanupTicker = nil
+        wipe(alerted)
+        wipe(retryAt)
+    end
+    if restricted and not rescanTicker then
+        rescanTicker = C_Timer.NewTicker(RESCAN_EVERY, rescan)
+    elseif not restricted and rescanTicker then
+        rescanTicker:Cancel()
+        rescanTicker = nil
+    end
+end
+
+function Proximity:ZoneChanged()
+    zoneKind = nil
+    chatMapID = nil
 end

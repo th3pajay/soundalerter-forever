@@ -100,6 +100,30 @@ SoundAlerterSpells = {
         [1223758] = "thebeastwithin",
         [19263] = "deterrence",
         [3045] = "rapidfire",
+
+        [14278] = "ghostlystrike",
+        [19574] = "bestialwrath",
+        [11426] = "icebarrier",
+        [13031] = "icebarrier",
+        [13032] = "icebarrier",
+        [13033] = "icebarrier",
+        [17] = "powerwordshield",
+        [592] = "powerwordshield",
+        [600] = "powerwordshield",
+        [3747] = "powerwordshield",
+        [6065] = "powerwordshield",
+        [6066] = "powerwordshield",
+        [10898] = "powerwordshield",
+        [10899] = "powerwordshield",
+        [10900] = "powerwordshield",
+        [10901] = "powerwordshield",
+        [18288] = "amplifycurse",
+        [18708] = "feldomination",
+        [19028] = "soullink",
+        [25228] = "soullink",
+        [20925] = "holyshield",
+        [20927] = "holyshield",
+        [20928] = "holyshield",
         [5384] = "feigndeath",
 
         [17941] = "shadowtrance",
@@ -237,6 +261,10 @@ SoundAlerterSpells = {
         [12826] = "polymorph",
         [28272] = "polymorph",
         [28271] = "polymorph",
+        [1326079] = "arcanewrath",
+        [1326080] = "arcanewrath",
+        [1326081] = "arcanewrath",
+        [1326082] = "arcanewrath",
 
         [982] = "revivepet",
         [14327] = "scarebeast",
@@ -501,6 +529,15 @@ SoundAlerterSpells = {
 
 SoundAlerterSpellRearm = {
     windfury = 30,
+    powerwordshield = 15,
+}
+
+SoundAlerterSpellRearmPerCaster = {
+    powerwordshield = true,
+}
+
+SoundAlerterPetAuras = {
+    [19574] = true,
 }
 
 SoundAlerterSpellMeta = {
@@ -539,10 +576,12 @@ SoundAlerterSpellMeta = {
     wyvernsting = { "Hunter", "Wyvern Sting" },
     aspectofthewild = { "Hunter", "Aspect of the Wild" },
     rapidfire = { "Hunter", "Rapid Fire" },
+    bestialwrath = { "Hunter", "Bestial Wrath" },
     feigndeath = { "Hunter", "Feign Death" },
     intimidation = { "Hunter", "Intimidation" },
 
     arcanepower = { "Mage", "Arcane Power" },
+    arcanewrath = { "Mage", "Arcane Wrath" },
     coldsnap = { "Mage", "Cold Snap" },
     combustion = { "Mage", "Combustion" },
     counterspell = { "Mage", "Counterspell" },
@@ -552,6 +591,7 @@ SoundAlerterSpellMeta = {
     frozenorb = { "Mage", "Frozen Orb" },
     hotstreak = { "Mage", "Hot Streak" },
     iceblock = { "Mage", "Ice Block" },
+    icebarrier = { "Mage", "Ice Barrier" },
     iceblockdown = { "Mage", "Ice Block" },
     icyveins = { "Mage", "Icy Veins" },
     invisibility = { "Mage", "Lesser Invisibility" },
@@ -564,6 +604,7 @@ SoundAlerterSpellMeta = {
     presenceofmind = { "Mage", "Presence of Mind" },
     pyroblast = { "Mage", "Pyroblast" },
 
+    holyshield = { "Paladin", "Holy Shield" },
     auramastery = { "Paladin", "Aura Mastery" },
     avengingwrath = { "Paladin", "Avenging Wrath" },
     handoffreedom = { "Paladin", "Blessing of Freedom" },
@@ -584,6 +625,7 @@ SoundAlerterSpellMeta = {
     divinefavor = { "Paladin", "Divine Favor" },
     voiceoftruth = { "Paladin", "Voice of Truth" },
 
+    powerwordshield = { "Priest", "Power Word: Shield" },
     dispersion = { "Priest", "Dispersion" },
     dispersiondown = { "Priest", "Dispersion" },
     fearward = { "Priest", "Fear Ward" },
@@ -602,6 +644,7 @@ SoundAlerterSpellMeta = {
     feedback = { "Priest", "Feedback" },
     confoundingflash = { "Priest", "Confounding Flash" },
 
+    ghostlystrike = { "Rogue", "Ghostly Strike" },
     adrenalinerush = { "Rogue", "Adrenaline Rush" },
     adrenalinerushdown = { "Rogue", "Adrenaline Rush" },
     bladeflurry = { "Rogue", "Blade Flurry" },
@@ -650,6 +693,9 @@ SoundAlerterSpellMeta = {
     naturesswiftnessshaman = { "Shaman", "Nature's Swiftness" },
     rageofthefarseer = { "Shaman", "Rage of the Farseer" },
 
+    soullink = { "Warlock", "Soul Link" },
+    feldomination = { "Warlock", "Fel Domination" },
+    amplifycurse = { "Warlock", "Amplify Curse" },
     banish = { "Warlock", "Banish" },
     curseoftongues = { "Warlock", "Curse of Tongues" },
     deathcoil = { "Warlock", "Death Coil" },

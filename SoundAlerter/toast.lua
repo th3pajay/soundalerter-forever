@@ -143,7 +143,10 @@ local function ToastOnUpdate(toast)
         local progress = 1 - (1 - linear) * (1 - linear)
         toast:SetAlpha(progress)
         if not locked then
-            toast:SetScale(1.15 - (0.15 * progress))
+            local motion = config.motion
+            if not (motion and motion(toast, progress, 1)) then
+                toast:SetScale(1.15 - (0.15 * progress))
+            end
         end
         if secureButton then
             secureButton:SetAlpha(progress)
@@ -156,6 +159,7 @@ local function ToastOnUpdate(toast)
             end
             if not locked then
                 toast:SetScale(1.0)
+                if config.motion then config.motion(toast, 1, 1) end
                 toast.displayApplied = true
             end
         end
@@ -164,6 +168,7 @@ local function ToastOnUpdate(toast)
         local linear = (elapsed - FADE_IN_DURATION - toast.displayDuration) / FADE_OUT_DURATION
         local fadeProgress = linear * linear
         toast:SetAlpha(1 - fadeProgress)
+        if not locked and config.motion then config.motion(toast, fadeProgress, 2) end
         if secureButton then
             secureButton:SetAlpha(1 - fadeProgress)
         end
@@ -315,7 +320,37 @@ function Engine:BuildFrame(index, isSecure)
     toast:SetScript("OnEnter", BeginPause)
     toast:SetScript("OnLeave", EndPause)
 
+    if config.styleFrame then config.styleFrame(toast) end
+
     return toast
+end
+
+local function ResizePool(pool, width, height, styleFrame)
+    for i = 1, #pool do
+        local toast = pool[i]
+        toast:SetSize(width, height)
+        if styleFrame then styleFrame(toast) end
+    end
+end
+
+function Engine:Resize(width, height, style)
+    local config = self.config
+    if config.width == width and config.height == height and config.style == style then
+        self.pendingSize = nil
+        return true
+    end
+    if InCombatLockdown() then
+        local pending = self.pendingSize or {}
+        pending[1], pending[2], pending[3] = width, height, style
+        self.pendingSize = pending
+        return false
+    end
+    self.pendingSize = nil
+    if self.initialized then self:ReleaseAll() end
+    config.width, config.height, config.style = width, height, style
+    ResizePool(self.insecurePool, width, height, config.styleFrame)
+    ResizePool(self.securePool, width, height, config.styleFrame)
+    return true
 end
 
 function Engine:BuildFrameChecked(index, isSecure)
@@ -420,6 +455,8 @@ function Engine:FlushDeferred()
         button:Hide()
         button:SetAlpha(1)
     end
+    local pending = self.pendingSize
+    if pending then self:Resize(pending[1], pending[2], pending[3]) end
 end
 
 function Engine:Release(toast)
@@ -526,6 +563,7 @@ function Engine:UpdateLayout()
         local step = config.height + config.spacing
         for i, toast in ipairs(active) do
             local targetY = baseY - (i - 1) * step
+            toast.layoutX = baseX
 
             if toast.currentY == nil then
                 toast.currentY = targetY

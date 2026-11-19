@@ -52,11 +52,49 @@ local function Outline(frame, color)
     right:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
     right:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
     right:SetWidth(1)
+    return { top, bottom, left, right }
 end
+
+local BOX = { FILL = { 0.047, 0.059, 0.078 }, EDGE = { 0.29, 0.333, 0.408 } }
+
+local function EdgeColor(edges, color)
+    for index = 1, 4 do edges[index]:SetVertexColor(color[1], color[2], color[3], 1) end
+end
+
+local ACCENT = {
+    FILL = { 0.141, 0.098, 0.047 },
+    EDGE = { 0.541, 0.353, 0.11 },
+    GLOW = { 1, 0.49, 0.04 },
+    GLOW_ALPHA = 0.16,
+    GLOW_HEIGHT = 22,
+    PAD = 6,
+    HOVER = { 1, 0.49, 0.04 },
+    HOVER_ALPHA = 0.1,
+}
+
+local function NewAccent(parent)
+    local panel = CreateFrame("Frame", nil, parent)
+    panel:SetFrameLevel(parent:GetFrameLevel())
+    local fill = Paint(panel, ACCENT.FILL)
+    fill:SetAllPoints(panel)
+    local glow = Paint(panel, ACCENT.GLOW, ACCENT.GLOW_ALPHA, "BORDER")
+    glow:SetPoint("TOPLEFT", panel, "TOPLEFT", 1, -1)
+    glow:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -1, -1)
+    glow:SetHeight(ACCENT.GLOW_HEIGHT)
+    if glow.SetGradient and CreateColor then
+        glow:SetVertexColor(1, 1, 1, 1)
+        glow:SetGradient("VERTICAL", CreateColor(ACCENT.GLOW[1], ACCENT.GLOW[2], ACCENT.GLOW[3], 0), CreateColor(ACCENT.GLOW[1], ACCENT.GLOW[2], ACCENT.GLOW[3], ACCENT.GLOW_ALPHA))
+    end
+    Outline(panel, ACCENT.EDGE)
+    panel:Hide()
+    return panel
+end
+
+local FamilyFont = SA_COMPAT and SA_COMPAT.SetFont or function(region, size, flags) region:SetFont(FONT, size, flags or "") end
 
 local function Text(parent, size, color, justify)
     local label = parent:CreateFontString(nil, "OVERLAY")
-    label:SetFont(FONT, size, "")
+    FamilyFont(label, size, "")
     label:SetTextColor(color[1], color[2], color[3])
     label:SetJustifyH(justify or "LEFT")
     if label.SetWordWrap then label:SetWordWrap(false) end
@@ -360,7 +398,7 @@ local function MakeRange(parent, row, onChange)
     readout:SetAllPoints(value)
     local box = CreateFrame("EditBox", nil, holder)
     box:SetAutoFocus(false)
-    box:SetFont(FONT, 11, "")
+    FamilyFont(box, 11, "")
     box:SetJustifyH("RIGHT")
     box:SetTextInsets(4, 4, 2, 2)
     box:SetMultiLine(false)
@@ -524,7 +562,7 @@ local function MakeMultiText(parent, lines, onChange)
     scroll:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT", -TEXT_BAR, 0)
     local box = CreateFrame("EditBox", nil, scroll)
     box:SetAutoFocus(false)
-    box:SetFont(FONT, 12, "")
+    FamilyFont(box, 12, "")
     box:SetTextInsets(6, 6, 3, 3)
     box:SetMultiLine(true)
     box:SetSize(380 - TEXT_BAR, viewHeight)
@@ -596,13 +634,14 @@ local function MakeText(parent, row, onChange)
     if (row.lines or 1) > 1 then return MakeMultiText(parent, row.lines, onChange) end
     local box = CreateFrame("EditBox", nil, parent)
     box:SetAutoFocus(false)
-    box:SetFont(FONT, 12, "")
+    FamilyFont(box, 12, "")
     box:SetTextInsets(6, 6, 3, 3)
     box:SetMultiLine(false)
     box:SetSize(190, 22)
-    local fill = Paint(box, COLOR.line)
+    local fill = Paint(box, BOX.FILL)
     fill:SetAllPoints(box)
-    local control = { frame = box }
+    local edges = Outline(box, BOX.EDGE)
+    local control = { frame = box, edges = edges }
     function control:Set(value)
         if box:HasFocus() then return end
         box:SetText(value or "")
@@ -611,7 +650,11 @@ local function MakeText(parent, row, onChange)
         self:ClearFocus()
     end)
     box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    box:SetScript("OnEditFocusLost", function(self) onChange(self:GetText()) end)
+    box:SetScript("OnEditFocusGained", function() EdgeColor(edges, COLOR.accent) end)
+    box:SetScript("OnEditFocusLost", function(self)
+        EdgeColor(edges, BOX.EDGE)
+        onChange(self:GetText())
+    end)
     return control
 end
 
@@ -889,20 +932,38 @@ function Methods:Layout(settings)
     self.layoutSignature = signature
 
     local y = 0
+    local panel, panelTop
+    local function closePanel()
+        if not panel then return end
+        y = y + ACCENT.PAD
+        panel:ClearAllPoints()
+        panel:SetPoint("TOPLEFT", self.child, "TOPLEFT", 0, -panelTop)
+        panel:SetPoint("TOPRIGHT", self.child, "TOPRIGHT", 0, -panelTop)
+        panel:SetHeight(y - panelTop)
+        panel:Show()
+        panel = nil
+    end
     for _, item in ipairs(self.layout) do
         if item.kind == "heading" then
+            closePanel()
             local show = false
             for _, entry in ipairs(item.members) do
                 if entry.visible then show = true break end
             end
             item.frame:SetShown(show)
+            if item.accent and not show then item.accent:Hide() end
             if show then
                 if y > 0 then y = y + 10 end
+                if item.accent then
+                    panel, panelTop = item.accent, y
+                    y = y + ACCENT.PAD
+                end
                 item.frame:ClearAllPoints()
-                item.frame:SetPoint("TOPLEFT", self.child, "TOPLEFT", 4, -y)
+                item.frame:SetPoint("TOPLEFT", self.child, "TOPLEFT", item.accent and 10 or 4, -y)
                 y = y + 18
             end
         elseif item.kind == "divider" then
+            closePanel()
             local show = false
             for _, entry in ipairs(item.members) do
                 if entry.visible then show = true break end
@@ -930,6 +991,7 @@ function Methods:Layout(settings)
             end
         end
     end
+    closePanel()
     self.child:SetHeight(y + 12)
     self.contentHeight = y + 12
     if self.scroll then self:UpdateScroll() end
@@ -1081,7 +1143,7 @@ function Methods:AddRow(row, advanced)
         end)
     end
 
-    local entry = { spec = row, frame = frame, control = control, height = height, highlight = highlight, flash = flash }
+    local entry = { spec = row, frame = frame, control = control, height = height, highlight = highlight, flash = flash, tint = tint }
     if row.kind == "custom" then
         rule:Hide()
         entry.custom = row.build(frame, page)
@@ -1156,12 +1218,14 @@ function Methods:Populate()
         local members = {}
         for index = 1, #order do
             local heading = Text(self.child, 11, COLOR.accent)
-            heading:SetText(order[index])
-            local item = { kind = "heading", frame = heading, members = {} }
+            local accent = order[index] == self.spec.accent
+            heading:SetText(accent and ("+ " .. order[index]:upper()) or order[index])
+            local item = { kind = "heading", frame = heading, members = {}, accent = accent and NewAccent(self.child) or nil }
             self.layout[#self.layout + 1] = item
             local list = seen[order[index]]
             for position = 1, #list do
                 local entry = self:AddRow(list[position], advanced)
+                if accent then entry.tint:SetVertexColor(ACCENT.HOVER[1], ACCENT.HOVER[2], ACCENT.HOVER[3], ACCENT.HOVER_ALPHA) end
                 item.members[#item.members + 1] = entry
                 members[#members + 1] = entry
                 self.layout[#self.layout + 1] = { kind = "row", entry = entry }
@@ -1206,7 +1270,7 @@ local function BuildPage(spec)
     icon:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -2)
     icon:SetTexture(spec.icon)
     local title = Text(frame, 20, COLOR.accent)
-    title:SetFont(FONT, 20, "")
+    FamilyFont(title, 20, "")
     title:SetPoint("TOPLEFT", icon, "TOPRIGHT", 10, -1)
     title:SetText(spec.title)
     local blurb = Text(frame, 11.5, COLOR.muted)
@@ -1726,10 +1790,12 @@ Page.Kit = {
     COLOR = COLOR,
     FLAT = FLAT,
     FONT = FONT,
+    SetFont = FamilyFont,
     PAGE_HEIGHT = PAGE_HEIGHT,
     SCROLL_STEP = SCROLL_STEP,
     Paint = Paint,
     Outline = Outline,
+    BOX = BOX,
     Text = Text,
     MakeToggle = MakeToggle,
     MakeScrollbar = MakeScrollbar,

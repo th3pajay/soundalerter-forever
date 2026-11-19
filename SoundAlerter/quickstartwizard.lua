@@ -61,7 +61,10 @@ local REFRESH = {
         local bars = SoundAlerter.ResourceBar
         if bars then bars:UpdateVisibility() end
     end,
-    proximity = refreshIcon,
+    proximity = function()
+        refreshIcon()
+        SoundAlerter.Proximity:Refresh()
+    end,
     flags = refreshIcon,
     sightings = function()
         local current = profile()

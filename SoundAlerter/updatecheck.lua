@@ -5,7 +5,7 @@ SA_UpdateCheck = {}
 local Check = SA_UpdateCheck
 
 Check.PREFIX = "SoundAlerterV"
-Check.NOTICE = "A newer SoundAlerter is available. Update it through CurseForge."
+Check.NOTICE = "|cffff7d0aSoundAlerter|r has a |cffffd100newer release|r. Update it through |cffffffffCurseForge|r."
 Check.MAX_STEPS = 200
 Check.MAX_RELEASE = 9999
 Check.MAX_FAILED = 32
@@ -245,7 +245,7 @@ end
 local function notify()
     if told then return end
     told = true
-    SoundAlerter:Print(Check.NOTICE)
+    DEFAULT_CHAT_FRAME:AddMessage(Check.NOTICE)
 end
 
 local function tick(current)
