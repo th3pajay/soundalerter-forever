@@ -534,18 +534,28 @@ function Model.SavedPresets(db)
     return list
 end
 
-function Model.SaveCurrent(db, model, name)
-    local list = Model.SavedPresets(db)
-    if #list >= Model.SAVED_MAX then return nil end
-    name = cutName(name)
-    if name == "" then name = "My preset " .. (#list + 1) end
+local function currentKeys(db, model)
     local keys = {}
     for key in pairs(model.allKeys) do
         if db[key] then keys[#keys + 1] = key end
     end
     table.sort(keys)
-    local saved = { name = name, keys = keys }
+    return keys
+end
+
+function Model.SaveCurrent(db, model, name)
+    local list = Model.SavedPresets(db)
+    if #list >= Model.SAVED_MAX then return nil end
+    name = cutName(name)
+    if name == "" then name = "My preset " .. (#list + 1) end
+    local saved = { name = name, keys = currentKeys(db, model) }
     list[#list + 1] = saved
+    return saved
+end
+
+function Model.OverwriteSaved(db, model, saved)
+    saved.keys = currentKeys(db, model)
+    savedSets[saved] = nil
     return saved
 end
 

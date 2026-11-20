@@ -258,8 +258,7 @@ end
 local CHAT_EVENTS = { "CHAT_MSG_BG_SYSTEM_ALLIANCE", "CHAT_MSG_BG_SYSTEM_HORDE", "CHAT_MSG_BG_SYSTEM_NEUTRAL" }
 
 function FlagAlerts:UpdateEventRegistration()
-    local _, instanceType = IsInInstance()
-    local wanted = instanceType == "pvp" and sadb ~= nil and sadb.battlegroundAlertsEnabled and true or false
+    local wanted = SA_ZoneKind.Kind() == "battleground" and sadb ~= nil and sadb.battlegroundAlertsEnabled and true or false
     if wanted == self.eventsRegistered then return end
     self.eventsRegistered = wanted
     for _, event in ipairs(CHAT_EVENTS) do
@@ -268,8 +267,7 @@ function FlagAlerts:UpdateEventRegistration()
 end
 
 function FlagAlerts:OnZoneChanged()
-    local _, instanceType = IsInInstance()
-    local mapID = instanceType == "pvp" and GetInstanceInfo and select(8, GetInstanceInfo()) or nil
+    local mapID = SA_ZoneKind.Kind() == "battleground" and GetInstanceInfo and select(8, GetInstanceInfo()) or nil
     self.patternMode = PATTERN_MODE_BY_MAP[mapID] or "both"
     self:UpdateEventRegistration()
 end

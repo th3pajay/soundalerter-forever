@@ -172,8 +172,8 @@ function SoundAlerter:SyncAuraSounds()
 end
 
 function SoundAlerter:BattleVoiceZone()
-    local instanceType = self.cachedInstanceType
-    return (instanceType == "pvp" or instanceType == "arena") and self:IsAlertZoneAllowed() and true or false
+    local kind = SA_ZoneKind.Kind()
+    return (kind == "battleground" or kind == "arena") and self:IsAlertZoneAllowed() and true or false
 end
 
 function SoundAlerter:SyncBattleVoices()
@@ -300,7 +300,10 @@ function SoundAlerter:RunAuraSoundSync()
 end
 
 function SoundAlerter:OnConfigTableChange(event, appName)
-    if appName ~= "SoundAlerter" or self.auraSoundSyncTimer then return end
+    if appName ~= "SoundAlerter" then return end
+    self:InvalidateTrackedAuraIDs()
+    if SA_ProcVoice then SA_ProcVoice.Refresh() end
+    if self.auraSoundSyncTimer then return end
     local profile = self.db1.profile
     if not profile.engineAuraSounds and next(registered) == nil
         and not (profile.battleVoices and self:BattleVoiceZone()) and battleState.count == 0 then

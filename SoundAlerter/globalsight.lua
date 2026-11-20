@@ -327,8 +327,7 @@ end
 ResetCounters()
 
 local function Eligible()
-    local resting = IsResting and IsResting()
-    return SA_ZoneKind.Of(SoundAlerter.cachedInstanceType, SoundAlerter.cachedZonePvpType, Plain(resting)) == "world"
+    return SA_ZoneKind.Kind() == "world"
 end
 
 local function PlayerCell()

@@ -188,6 +188,10 @@ end
 QuickStart.CONSENT_TITLE = "Global sightings on"
 QuickStart.CONSENT_TEXT = "Shares the enemies you see and your rough map square with SoundAlerter users of your faction on this realm. Nothing is sent until you choose."
 QuickStart.CONSENT_OFF = "Global sightings off. Turn it back on: /sa, Proximity Alerts, Global sightings."
+QuickStart.VIEW_TITLE = "See debuffs land in combat"
+QuickStart.VIEW_TEXT = "Spell Tracker and Say my procs can use the game's Cooldown Manager to see, in combat, your debuffs land on the target and your procs such as Clearcasting. It is switched on at your next reload and its icons are hidden."
+QuickStart.VIEW_ON = "Spell Tracker will use the Cooldown Manager after your next /reload. Turn it off: /sa, Spell Tracker, Combat data."
+QuickStart.VIEW_OFF = "Cooldown Manager left as it is. Turn it on later: /sa, Spell Tracker, Combat data."
 
 function QuickStart.SeedSightingsConsent(global, existing)
     if global.sightingsConsent == nil then global.sightingsConsent = existing and "done" or "new" end
@@ -309,42 +313,25 @@ local VERSION_COLOR = "|cffffd100"
 local DIM = "|cffa0a0a0"
 
 QuickStart.WHATS_NEW = {
-    version = "0.3.24",
-    headline = "Honor, grass and gnomes",
+    version = "0.3.25",
+    headline = "Open world speaks up",
     items = {
-        "Honor view rebuilt with a side rail",
-        "Chart follows your real Honor Points",
-        "Up to five honor goals",
-        "Long grass and dead gnome bars",
-        "A texture per casting bar",
-        "Rounded casting bar corners",
-        "Voice presets as pills with Apply",
-        "Three new voice presets",
-        "Save and delete your own presets",
-        "Undo up to five steps",
-        "Eight new class voice alerts",
-        "Bestial Wrath heard on enemy pets",
-        "Power Word: Shield quiet per priest",
-        "Arcane Wrath cast alert for mages",
-        "Narrow stripe toast styles",
-        "Toasts can stay silent",
-        "Stealth alerts from any enemy in range",
-        "Diminishing returns on yourself",
-        "DR settings as one card per row",
-        "Clearer battleground rows, result edges",
-        "Add a spell section stands out",
-        "Boxes stay visible on row hover",
-        "Update notice matches the login line",
-        "Proximity alerts skip work where off",
-        "Honor view redraws only on change",
-        "One bar change rebuilds one bar",
-        "Toasts set their look once",
-        "BG voices only for target and focus",
-        "Friendlies no longer alert as enemies",
-        "Casting bar timer no longer grows stuck",
-        "Protected cast stripes no longer stretch",
-        "Kill and bonus honor split fixed",
-        "Names in any alphabet, no more boxes",
+        "Five-second rule sweep on the mana bar",
+        "Shift marks on the druid mana bar",
+        "Spell Tracker sees debuffs land in combat",
+        "Debuff stacks shown on tracker icons",
+        "Lethal skull on Spell Tracker icons",
+        "Tabs on long settings pages",
+        "Lock position moved to page tops",
+        "Close x and bottom drag on options",
+        "Say my procs hears Clearcasting",
+        "Update your own voice presets",
+        "Spell alerts do less work",
+        "World PvP switch now plays alerts outdoors",
+        "World PvP stats counted outdoors only",
+        "Poised rune P beside the energy bar",
+        "Sightings card closes without an error",
+        "No alert for buffs already up",
     },
 }
 

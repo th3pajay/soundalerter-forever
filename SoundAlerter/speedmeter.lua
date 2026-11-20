@@ -432,12 +432,15 @@ function SoundAlerter:BuildSpeedMeterOptions()
                 settings.hideAtBaseline and "hidden at base speed" or "always shown")
         end,
         preview = SpeedPreview,
-        rows = {
-            Page.Toggle("locked", "Lock position", "Unlock to drag the meter. A shaded outline and a 100% preview mark it while unlocked.", false, "General"),
-            Page.Action("Reset position", "Put the meter back where it started.", function()
+        lock = {
+            key = "locked",
+            hint = "Unlocked: drag the meter. A 100% preview shows while unlocked.",
+            reset = function()
                 local active = meter()
                 if active then active:ResetPosition() end
-            end, false, "General"),
+            end,
+        },
+        rows = {
             Page.Toggle("hideAtBaseline", "Hide at base speed", "Hide the number at exactly 100% on foot or swimming, so it only shows when something changes your speed. Walking, slows and boosts still show.", false, "General"),
             Page.Range("fontSize", "Font size", "Size of the number.", 8, 40, 1, false, "Look", " px"),
             Page.Color("boostColor", "Boosted color", "Above 100% on foot or swimming.", false, "Look"),

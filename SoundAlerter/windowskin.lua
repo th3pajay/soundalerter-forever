@@ -124,7 +124,7 @@ function Skin.Badge(widget)
     if not text then
         text = frame:CreateFontString(nil, "OVERLAY")
         text:SetFont(FONT, 11, "")
-        text:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -18, -11)
+        text:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -36, -11)
         text:SetTextColor(COLOR.muted[1], COLOR.muted[2], COLOR.muted[3])
         frame.saBadge = text
     end
@@ -133,6 +133,62 @@ function Skin.Badge(widget)
         frame.saBadgeText = badgeText
         text:SetText(badgeText)
     end
+    return true
+end
+
+local function buildChrome(widget, frame, mover, status)
+    local resize = mover:GetScript("OnMouseDown")
+    local save = mover:GetScript("OnMouseUp")
+
+    local function startMove(_, button)
+        if frame.saChromeOn and button == "LeftButton" then frame:StartMoving() end
+    end
+
+    mover:SetScript("OnMouseDown", function(self, button)
+        if frame.saChromeOn then
+            startMove(self, button)
+        elseif resize then
+            resize(self, button)
+        end
+    end)
+    status:SetScript("OnMouseDown", startMove)
+    status:SetScript("OnMouseUp", function(self, button)
+        if frame.saChromeOn and save then save(self, button) end
+    end)
+
+    local close = CreateFrame("Button", nil, frame)
+    close:SetSize(22, 20)
+    close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -6)
+    close:SetFrameLevel(frame:GetFrameLevel() + 10)
+    local mark = close:CreateFontString(nil, "OVERLAY")
+    mark:SetFont(FONT, 16, "")
+    mark:SetAllPoints(close)
+    mark:SetText("x")
+    mark:SetTextColor(COLOR.muted[1], COLOR.muted[2], COLOR.muted[3])
+    close:SetScript("OnEnter", function() mark:SetTextColor(COLOR.accent[1], COLOR.accent[2], COLOR.accent[3]) end)
+    close:SetScript("OnLeave", function() mark:SetTextColor(COLOR.muted[1], COLOR.muted[2], COLOR.muted[3]) end)
+    close:SetScript("OnClick", function()
+        if PlaySound then PlaySound(799) end
+        widget:Hide()
+    end)
+    frame:HookScript("OnHide", function()
+        frame.saChromeOn = false
+        close:Hide()
+    end)
+    frame.saClose = close
+end
+
+function Skin.Chrome(widget)
+    if type(widget) ~= "table" or not widget.frame then return false end
+    local frame = widget.frame
+    if not frame.saClose then
+        local mover = widget.sizer_s
+        local status = widget.statustext and widget.statustext.GetParent and widget.statustext:GetParent()
+        if not (mover and status and status ~= frame and mover.GetScript and status.SetScript and CreateFrame) then return false end
+        buildChrome(widget, frame, mover, status)
+    end
+    frame.saChromeOn = true
+    frame.saClose:Show()
     return true
 end
 

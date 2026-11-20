@@ -153,11 +153,6 @@ function SoundAlerter:BuildTrinketMenuOptions()
         Page.Experimental(Page.Block("Experimental", function()
             return "Click to use, right-click to swap, hover for bag trinkets. Swaps wait until combat ends."
         end, false, "General")),
-        Page.Toggle("locked", "Lock position", "Unlock to drag the bar. A shaded outline marks it while unlocked. Moving waits until combat ends.", false, "General"),
-        Page.Action("Reset position", "Put the bar back where it started.", function()
-            local active = menu()
-            if active then active:ResetPosition() end
-        end, false, "General"),
         Page.Toggle("flyout", "Bag trinkets on hover", "Hovering a trinket opens the trinkets in your bags. Click one to equip it into that slot.", false, "General"),
         Page.Toggle("tooltips", "Tooltips", "Show the item tooltip and the click hints on hover.", false, "General"),
         Page.Action("Test", "Show a sample cooldown and the waiting glow.", function()
@@ -200,6 +195,19 @@ function SoundAlerter:BuildTrinketMenuOptions()
         defaults = function() return dbDefaults.profile.trinketMenu end,
         summary = summary,
         preview = TrinketPreview,
+        tabs = {
+            { key = "menu", label = "Menu", groups = { "General", "Sets" } },
+            { key = "gear", label = "Gear & weapons", groups = { "Gear", "Weapons" } },
+            { key = "look", label = "Look", groups = { "Look" } },
+        },
+        lock = {
+            key = "locked",
+            hint = "Unlocked: drag the bar. Moving waits until combat ends.",
+            reset = function()
+                local active = menu()
+                if active then active:ResetPosition() end
+            end,
+        },
         rows = rows,
     })
 end

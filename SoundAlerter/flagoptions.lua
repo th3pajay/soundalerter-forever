@@ -163,6 +163,11 @@ function SoundAlerter:BuildFlagOptions()
         end,
         summary = summary,
         preview = FlagPreview,
+        tabs = {
+            { key = "events", label = "Flag events", groups = { "Flag events" } },
+            { key = "visual", label = "Visual alerts", groups = { "Visual alerts" } },
+            { key = "chat", label = "Chat & bases", groups = { "Chat", "Arathi Basin bases", "Performance" } },
+        },
         rows = {
             Page.Playable(Page.Toggle("f.flagPickupAudio", "Flag pickups", "A player picks up a flag.", false, "Flag events"), function() previewEvent("PICKUP") end),
             Page.Playable(Page.Toggle("f.flagDropAudio", "Flag drops", "A flag is dropped.", false, "Flag events"), function() previewEvent("DROP") end),

@@ -1533,19 +1533,10 @@ function Statistics:InitializeStatistics()
 	self:UpdateMatch()
 end
 
+local STAT_ZONE = { arena = "arena", battleground = "battleground", world = "worldPvP" }
+
 function Statistics:GetCurrentZoneType()
-	local sadb = GetDB()
-	local _, instanceType = IsInInstance()
-
-	if instanceType == "arena" then
-		return "arena"
-	elseif instanceType == "pvp" then
-		return "battleground"
-	elseif sadb and sadb.field then
-		return "worldPvP"
-	end
-
-	return nil
+	return STAT_ZONE[SA_ZoneKind.Kind()]
 end
 
 function Statistics:SpellSchoolName(school)

@@ -15,6 +15,10 @@ local UNIT_OPTIONS = { { "player", "Player (self)" }, { "target", "Target" } }
 local AURA_OPTIONS = { { "HELPFUL", "Buff" }, { "HARMFUL", "Debuff" } }
 local PLATE_FALLBACKS = { { "screen", "Use the screen spot" }, { "hide", "Hide" } }
 local ANIM_QUALITIES = { { "off", "Off" }, { "low", "Low" }, { "normal", "Normal" }, { "high", "High" } }
+local SKULL_ARTS = { { "skull", "Raid skull" }, { "tomb", "Gravestone" }, { "drop", "Blood drop" } }
+local SKULL_PREVIEW_SIZE = 22
+local PREVIEW_WIDTH = 260
+local PREVIEW_LINE_ROWS = 2
 
 local addForm = { spellID = "", unit = "player", auraType = "HELPFUL" }
 local selectedIndex = nil
@@ -108,7 +112,7 @@ local function view()
     local config = selectedIndex and list[selectedIndex]
     local selected = { valid = config ~= nil }
     if config then
-        for _, key in ipairs({ "unit", "auraType", "size", "cooldownTextSize", "auraDuration", "trackCooldown", "showWhenInactive", "onPlate" }) do
+        for _, key in ipairs({ "unit", "auraType", "size", "cooldownTextSize", "auraDuration", "trackCooldown", "showWhenInactive", "onPlate", "lethalSkull" }) do
             selected[key] = config[key]
         end
         selected.spellID = config.spellID
@@ -121,6 +125,7 @@ local function view()
         sel = selected,
         add = addForm,
         undo = { available = undoSnapshot ~= nil },
+        cdm = { use = SA_CooldownView.Use() == true, available = SA_CooldownView.Available() },
         count = #list,
         enabledCount = enabledCount,
     }
@@ -140,6 +145,8 @@ local function write(key, value)
         if selectedIndex then setIcon(selectedIndex, name, value) end
     elseif scope == "add" then
         addForm[name] = value
+    elseif scope == "cdm" and name == "use" then
+        SoundAlerter:SetCooldownViewUse(value and true or false)
     end
 end
 
@@ -191,7 +198,14 @@ local function undoPreset()
     SoundAlerter:Print("Preset undone")
 end
 
-local TrackerPreview = { height = 230 }
+local TRACKER_TABS = {
+    { key = "spells", label = "Spells", groups = { "Tracked spells", "Selected spell", "Add a spell", "Presets" } },
+    { key = "display", label = "Display", groups = { "Display" } },
+    { key = "nameplate", label = "Nameplate", groups = { "Target nameplate" } },
+    { key = "combat", label = "Combat data", groups = { "Combat data" } },
+}
+
+local TrackerPreview = { height = 290 }
 
 function TrackerPreview.build(stage)
     local state = { stage = stage, lines = {} }
@@ -201,7 +215,7 @@ function TrackerPreview.build(stage)
     state.note:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 11, "")
     state.note:SetTextColor(0.588, 0.627, 0.698)
     state.note:SetPoint("TOPLEFT", stage, "TOPLEFT", 0, 0)
-    state.note:SetWidth(240)
+    state.note:SetWidth(PREVIEW_WIDTH)
     for index = 1, PREVIEW_LINES do
         local line = stage:CreateFontString(nil, "OVERLAY")
         line:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 11, "")
@@ -210,24 +224,64 @@ function TrackerPreview.build(stage)
         else
             line:SetPoint("TOPLEFT", state.lines[index - 1], "BOTTOMLEFT", 0, -5)
         end
-        line:SetWidth(240)
+        line:SetWidth(PREVIEW_WIDTH)
         line:SetJustifyH("LEFT")
+        line:SetMaxLines(PREVIEW_LINE_ROWS)
         state.lines[index] = line
+    end
+    state.skull = stage:CreateTexture(nil, "OVERLAY")
+    state.skull:SetPoint("TOPRIGHT", state.icon, "TOPRIGHT", -1, -1)
+    state.skullTitle = stage:CreateFontString(nil, "OVERLAY")
+    state.skullTitle:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 11, "")
+    state.skullTitle:SetTextColor(0.588, 0.627, 0.698)
+    state.skullTitle:SetPoint("BOTTOMLEFT", stage, "BOTTOMLEFT", 0, SKULL_PREVIEW_SIZE + 26)
+    state.skullTitle:SetText("Lethal skull")
+    state.arts = {}
+    local column = PREVIEW_WIDTH / #SKULL_ARTS
+    for index, art in ipairs(SKULL_ARTS) do
+        local mark = stage:CreateTexture(nil, "ARTWORK")
+        mark:SetSize(SKULL_PREVIEW_SIZE, SKULL_PREVIEW_SIZE)
+        mark:SetTexture(SA_TrackerLethal.ART[art[1]])
+        mark:SetPoint("BOTTOM", stage, "BOTTOMLEFT", column * (index - 0.5), 16)
+        local label = stage:CreateFontString(nil, "OVERLAY")
+        label:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "")
+        label:SetPoint("TOP", mark, "BOTTOM", 0, -3)
+        label:SetWidth(column - 4)
+        label:SetMaxLines(1)
+        label:SetText(art[2])
+        state.arts[index] = { key = art[1], mark = mark, label = label }
     end
     return state
 end
 
 function TrackerPreview.update(state, settings)
     if not state then return end
-    local sel = settings.sel
+    local sel, g = settings.sel, settings.g
+    local chosen = SA_TrackerLethal.ART[g.skullArt] and g.skullArt or "skull"
+    for _, art in ipairs(state.arts) do
+        local active = art.key == chosen
+        art.mark:SetAlpha(active and 1 or 0.35)
+        if active then
+            art.label:SetTextColor(1, 0.82, 0)
+        else
+            art.label:SetTextColor(0.588, 0.627, 0.698)
+        end
+    end
     state.note:SetShown(not sel.valid)
     state.icon:SetShown(sel.valid)
+    local size = math.min(sel.size or 48, PREVIEW_MAX_SIZE)
+    local skullOn = sel.valid and sel.unit == "target" and sel.lethalSkull == true
+    state.skull:SetShown(skullOn)
+    if skullOn then
+        local side = math.max(6, math.floor(size * (g.skullSize or 36) / 100 + 0.5))
+        state.skull:SetSize(side, side)
+        state.skull:SetTexture(SA_TrackerLethal.ART[chosen])
+    end
     if not sel.valid then
         state.note:SetText("Click a tracked spell in the list to see how its icon looks while it is idle, active, expiring and on cooldown.")
         for index = 1, PREVIEW_LINES do state.lines[index]:SetText("") end
         return
     end
-    local size = math.min(sel.size or 48, PREVIEW_MAX_SIZE)
     state.icon:SetTexture(spellIcon(sel.spellID))
     state.icon:SetSize(size, size)
     local lines = Model.PreviewLines(sel.config, settings.g)
@@ -261,10 +315,6 @@ function SoundAlerter:BuildSpellTrackerOptions()
         rows[#rows + 1] = row
     end
 
-    rows[#rows + 1] = Page.Toggle("g.locked", "Lock position", "Unlock to drag each icon. Icons on the target's nameplate cannot be dragged.", false, "Display")
-    rows[#rows + 1] = Page.Action("Reset position", "Put every icon back at its starting spot.", function()
-        if tracker() then tracker():ResetPositions() end
-    end, false, "Display")
 
     for _, setting in ipairs({
         { "g.showTimerText", "Show aura duration numbers", "Display the aura duration countdown at the bottom of spell tracker icons.", false },
@@ -277,6 +327,11 @@ function SoundAlerter:BuildSpellTrackerOptions()
     end
     rows[#rows + 1] = Page.Select("g.animQuality", "Animation quality", "Off turns every icon animation off. Low keeps the icon effects minimal and updates timers 10 times a second. Normal adds the full pop-in, colour shift, red tint and shine. High adds extra rings and shines and updates every frame.", ANIM_QUALITIES, true, "Display")
 
+    rows[#rows + 1] = Page.Range("g.skullSize", "Lethal skull size", "Size of the lethal skull as a share of the icon. Turn the skull on per spell under Selected spell.", 10, 60, 1, false, "Display", "%")
+    rows[#rows + 1] = Page.Select("g.skullArt", "Lethal skull look", "The mark shown when your damage over time will finish the target.", SKULL_ARTS, false, "Display")
+    rows[#rows + 1] = Page.Toggle("g.skullPop", "Pulse the lethal skull", "The skull gives a short bounce every 1.6 seconds while it shows, so it catches your eye. Follows the Spell Tracker animation quality; off on Low.", false, "Display")
+    rows[#rows + 1] = Page.Visible(function(settings) return settings.cdm.available end,
+        Page.Toggle("cdm.use", "See debuffs land in combat", "Uses the game's Cooldown Manager to see, in combat, whether your debuffs landed on the target, when they fall off or are removed, their stacks, and your procs such as Clearcasting. It is switched on at your next reload or logout, and its own icons stay hidden while this is on so they do not clash with your Spell Tracker icons. Turning this off puts it back as it was at the next reload.", false, "Combat data"))
     rows[#rows + 1] = Page.Toggle("g.plateEnabled", "Show icons on the target's nameplate", "Spells tracked on your target sit in a row above its nameplate, the one ending soonest drawn larger in front. Choose per spell under Selected spell. Your own spells stay on screen.", false, "Target nameplate")
     local function plate(row) return Page.When("g.plateEnabled", row) end
     rows[#rows + 1] = plate(Page.Range("g.plateSize", "Icon size", "Size of the icons on the nameplate. The first icon is drawn 1.4 times larger.", 14, 40, 1, false, "Target nameplate", " px"))
@@ -305,6 +360,8 @@ function SoundAlerter:BuildSpellTrackerOptions()
     rows[#rows + 1] = editor(Page.Toggle("sel.showWhenInactive", "Show when inactive", "Keep the icon on screen, faded, while the aura is not active.", false, "Selected spell"))
     rows[#rows + 1] = Page.Visible(function(settings) return settings.sel.valid and settings.sel.unit == "target" end,
         Page.Toggle("sel.onPlate", "Show on the target's nameplate", "Put this icon above your target's nameplate while Target nameplate is on. Off keeps it at its screen spot.", false, "Selected spell"))
+    rows[#rows + 1] = Page.Visible(function(settings) return settings.sel.valid and settings.sel.unit == "target" end,
+        Page.Toggle("sel.lethalSkull", "Lethal skull", "A small skull in the icon's top right corner when your running bleeds and damage over time on the target will finish it. The game compares the damage with the target's health, so it also works when health is hidden. The damage per second is learned from the damage meter after each fight.", false, "Selected spell"))
     rows[#rows + 1] = editor(Page.Range("sel.size", "Icon size", "Size of the spell tracker icon in pixels.", 24, 80, 4, false, "Selected spell", " px"))
     rows[#rows + 1] = editor(Page.Range("sel.cooldownTextSize", "Cooldown text size", "Font size for the cooldown countdown text. Only visible when Cooldown is on.", 8, 32, 1, false, "Selected spell", " pt"))
     rows[#rows + 1] = editor(Page.Range("sel.auraDuration", "Aura duration in combat", "Used for the in-combat aura spiral and number when the game hides the aura. 0 means automatic: the duration is learned the last time the aura was visible out of combat. Set a value for spells that can only be used in combat.", 0, 180, 0.5, false, "Selected spell", " s"))
@@ -322,7 +379,7 @@ function SoundAlerter:BuildSpellTrackerOptions()
     end
     rows[#rows + 1] = Page.When("undo.available", Page.Action(function() return lastPreset and ("Undo " .. lastPreset) or "Undo" end, "Restore Enabled and Cooldown from before the last preset.", undoPreset, true, "Presets"))
 
-    local groupOrder = { "Tracked spells", "Selected spell", "Display", "Target nameplate", "Add a spell", "Presets" }
+    local groupOrder = { "Tracked spells", "Selected spell", "Display", "Combat data", "Target nameplate", "Add a spell", "Presets" }
     local sorted = {}
     for _, group in ipairs(groupOrder) do
         for _, row in ipairs(rows) do
@@ -342,6 +399,14 @@ function SoundAlerter:BuildSpellTrackerOptions()
         summary = summary,
         preview = TrackerPreview,
         accent = "Add a spell",
+        tabs = TRACKER_TABS,
+        lock = {
+            key = "g.locked",
+            hint = "Unlocked: drag any icon. Icons on the target's nameplate stay put.",
+            reset = function()
+                if tracker() then tracker():ResetPositions() end
+            end,
+        },
         rows = rows,
     })
     local options = Page.Options(spec, "Spell Tracker", "Interface\\Icons\\INV_Misc_PocketWatch_02", "Track important buffs and debuffs with cooldown overlays and countdown timers.", 2.87)

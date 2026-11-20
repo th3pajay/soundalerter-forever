@@ -142,25 +142,34 @@ local function summary(settings)
         settings.locked and "locked" or "unlocked, drag to move")
 end
 
+local function castTabs()
+    local bars = { "Bars", "Layout" }
+    for _, unit in ipairs(UNITS) do bars[#bars + 1] = LABELS[unit] .. " casting bar" end
+    return {
+        { key = "bars", label = "Bars", groups = bars },
+        { key = "look", label = "Look", groups = { "Look", "On the bar" } },
+        { key = "animations", label = "Animations", groups = { "Animations" } },
+    }
+end
+
 function SoundAlerter:BuildCastingBarOptions()
     local Page = SoundAlerter.Page
     local rows = {
-        Page.Toggle("locked", "Lock position", "Unlock to drag each bar. A shaded outline marks it while unlocked.", false, "General"),
         Page.Action("Apply pyramid layout", "Positions Player, Target, and Focus casting bars into a pyramid: Player centered on top, Target and Focus symmetrically below to the left and right.", function()
             local active = bars()
             if active then
                 active:ApplyPyramidLayout()
                 active:LoadSettings()
             end
-        end, false, "General"),
-        Page.Select("barTexture", "Bar texture", "The texture every casting bar uses unless it picks its own below. Long grass and Dead gnomes are casting bar only.", textureOptions(), false, "General"),
-        Page.Select("roundCorners", "Rounded corners", "Rounds the corners of every casting bar, its fill, background and animated texture included. Small, Medium and Large are 4, 7 and 11 pixels, made smaller on bars too thin for them.", CORNERS, false, "General"),
-        Page.Select("barTextureQuality", "Texture quality", "Low animates 15 times a second and drops the farthest layer. Normal is the full animation. High adds a fourth layer to Fire, Leaves, Long grass and Dead gnomes. Only animated textures are affected.", TEXTURE_QUALITIES, true, "General"),
-        Page.Toggle("showSpellIcon", "Show spell icons", "Display spell icons to the left of casting bars.", false, "General"),
-        Page.Toggle("showLockIcon", "Show a lock on casts you cannot interrupt", "Draws a small padlock on the bar while the cast cannot be interrupted. Works on enemy casts too: the game decides whether the lock shows, because the addon is not allowed to read that flag for enemies.", false, "General"),
-        Page.Toggle("hoverTooltip", "Spell tooltip on hover", "Mouse over the target or focus bar during a cast to see the full spell tooltip (rank, cost, cast time, description), even when the game hides the spell. While a cast is up the bar catches the mouse, so clicks on it stop there.", false, "General"),
-        Page.Toggle("showLatency", "Show latency shadow", "Display a red shadow at the end of the player casting bar representing network latency. Helps predict when the spell will actually cast on the server.", false, "General"),
-        Page.Select("timeFormat", "Time format", "Choose how cast time is displayed. SS.sss shows seconds with milliseconds (02.450), SS.ss shows seconds with centiseconds (02.45).", TIME_FORMATS, true, "General"),
+        end, false, "Layout"),
+        Page.Select("barTexture", "Bar texture", "The texture every casting bar uses unless it picks its own below. Long grass and Dead gnomes are casting bar only.", textureOptions(), false, "Look"),
+        Page.Select("roundCorners", "Rounded corners", "Rounds the corners of every casting bar, its fill, background and animated texture included. Small, Medium and Large are 4, 7 and 11 pixels, made smaller on bars too thin for them.", CORNERS, false, "Look"),
+        Page.Select("barTextureQuality", "Texture quality", "Low animates 15 times a second and drops the farthest layer. Normal is the full animation. High adds a fourth layer to Fire, Leaves, Long grass and Dead gnomes. Only animated textures are affected.", TEXTURE_QUALITIES, true, "Look"),
+        Page.Toggle("showSpellIcon", "Show spell icons", "Display spell icons to the left of casting bars.", false, "On the bar"),
+        Page.Toggle("showLockIcon", "Show a lock on casts you cannot interrupt", "Draws a small padlock on the bar while the cast cannot be interrupted. Works on enemy casts too: the game decides whether the lock shows, because the addon is not allowed to read that flag for enemies.", false, "On the bar"),
+        Page.Toggle("hoverTooltip", "Spell tooltip on hover", "Mouse over the target or focus bar during a cast to see the full spell tooltip (rank, cost, cast time, description), even when the game hides the spell. While a cast is up the bar catches the mouse, so clicks on it stop there.", false, "On the bar"),
+        Page.Toggle("showLatency", "Show latency shadow", "Display a red shadow at the end of the player casting bar representing network latency. Helps predict when the spell will actually cast on the server.", false, "On the bar"),
+        Page.Select("timeFormat", "Time format", "Choose how cast time is displayed. SS.sss shows seconds with milliseconds (02.450), SS.ss shows seconds with centiseconds (02.45).", TIME_FORMATS, true, "On the bar"),
         Page.Toggle("segments", "Segmented bars", "Draw faint tick marks along the bar so progress is easy to read at a glance.", false, "Animations"),
         Page.Toggle("channelPulse", "Channel pulses", "Flash the bar at the quarter points of a channelled spell. These are evenly spaced pulses, not the spell's real damage ticks, which the game does not expose.", false, "Animations"),
         Page.Select("animQuality", "Animation quality", "Off turns every animation off. Low keeps the effects minimal and redraws the fill 15 times a second, Normal adds the full animations, High adds gloss, extra rings and sub-pixel fill. Applies to every casting bar.", ANIM_QUALITIES, true, "Animations"),
@@ -191,6 +200,11 @@ function SoundAlerter:BuildCastingBarOptions()
         defaults = function() return dbDefaults.profile.castingBars end,
         summary = summary,
         preview = CastPreview,
+        lock = {
+            key = "locked",
+            hint = "Unlocked: drag any bar. A shaded outline marks each one.",
+        },
+        tabs = castTabs(),
         rows = rows,
     })
 end

@@ -1143,11 +1143,11 @@ local IDENTITY_RETRY_DELAY = 0.1
 local IDENTITY_RETRY_SPACING = 5
 local CHAT_WINDOW = 1.5
 local CHAT_POOL = 10
-local ZONE_SETTING = { arena = "proximityArena", battleground = "proximityBattleground", world = "proximityWorld", sanctuary = "proximitySanctuary" }
+local ZONE_SETTING = { arena = "proximityArena", battleground = "proximityBattleground", world = "proximityWorld", sanctuary = "proximitySanctuary", instance = "proximitySanctuary" }
 local CLASS_NAMES = LOCALIZED_CLASS_NAMES_MALE or {}
 
 local alerted, retryAt = {}, {}
-local zoneKind, chatMapID
+local chatMapID
 local rescanTicker, cleanupTicker
 local statistics
 local batch = { used = 0, total = 0, pending = false, entries = {} }
@@ -1169,12 +1169,7 @@ local function bandAllows(p, band)
 end
 
 local function zoneAllows(p)
-    local kind = zoneKind
-    if not kind then
-        kind = SA_ZoneKind.Of(SoundAlerter.cachedInstanceType, SoundAlerter.cachedZonePvpType, IsResting and IsResting())
-        zoneKind = kind
-    end
-    return p[ZONE_SETTING[kind]] and true or false
+    return p[ZONE_SETTING[SA_ZoneKind.Kind()]] and true or false
 end
 
 local function open(p, now)
@@ -1401,6 +1396,5 @@ function Proximity:Refresh()
 end
 
 function Proximity:ZoneChanged()
-    zoneKind = nil
     chatMapID = nil
 end

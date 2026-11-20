@@ -172,6 +172,12 @@ function SoundAlerter:BuildProximityOptions()
         end,
         summary = summary,
         preview = ProximityPreview,
+        tabs = {
+            { key = "detection", label = "Detection", groups = { "Where it works", "Detection", "Identification", "Stealth" } },
+            { key = "alerts", label = "Alerts", groups = { "How it alerts", "Enemy awareness", "Quiet rules", "Watchlist" } },
+            { key = "toasts", label = "Toasts", groups = { "Toast look", "Toast position", "Clicks" } },
+            { key = "sharing", label = "Sharing", groups = { "Party sharing", "Global sightings" } },
+        },
         rows = {
             Page.Toggle("p.proximityWorld", "World PvP", "Enable proximity alerts in open world PvP zones.", false, "Where it works"),
             Page.Toggle("p.proximityBattleground", "Battlegrounds", "Enable proximity alerts in battlegrounds (useful for detecting flag carriers and node defenders).", false, "Where it works"),

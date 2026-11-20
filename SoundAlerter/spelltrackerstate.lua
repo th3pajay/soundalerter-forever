@@ -13,6 +13,7 @@ local ICON_KEYS = {
     cooldownTextSize = { default = 14, reload = true },
     auraDuration = { default = 0, reload = false },
     onPlate = { default = true, reload = true },
+    lethalSkull = { default = false, reload = true },
 }
 
 local GLOBAL_KEYS = {
@@ -23,6 +24,9 @@ local GLOBAL_KEYS = {
     showReadyText = true,
     deleteWithoutConfirm = true,
     animQuality = true,
+    skullSize = true,
+    skullArt = true,
+    skullPop = true,
 }
 
 local PLATE_KEYS = {
@@ -146,6 +150,7 @@ local HIDE = { action = "hide" }
 local function clearPredicted(record)
     record.predictedExpiration = nil
     record.predictedDuration = nil
+    record.held = nil
 end
 
 local function show(record, expiration, duration, secret, predicted)
@@ -319,7 +324,7 @@ function TrackerState:Observe(index, observation, now)
         return show(record, nil, nil, true, false)
     end
 
-    if record.predictedExpiration and record.predictedExpiration > now then
+    if record.held or (record.predictedExpiration and record.predictedExpiration > now) then
         return HOLD
     end
 
@@ -342,6 +347,18 @@ function TrackerState:Predict(index, spellID, manualDuration, now)
     record.predictedExpiration = now + duration
     record.predictedDuration = duration
     return show(record, record.predictedExpiration, duration, false, true)
+end
+
+function TrackerState:IsHeld(index)
+    local record = self.records[index]
+    return record ~= nil and record.held == true
+end
+
+function TrackerState:Hold(index)
+    local record = self:Get(index)
+    clearPredicted(record)
+    record.held = true
+    return show(record, nil, nil, false, true)
 end
 
 function TrackerState:Resume(index, now)
@@ -439,4 +456,75 @@ function TrackerState:Remove(index, count)
 end
 
 SA_TrackerState = TrackerState
+end
+
+do
+local Lethal = {}
+
+Lethal.SKULL_BAR = 1000
+Lethal.POP_SCALE = 1.18
+Lethal.POP_GROW = 0.12
+Lethal.POP_SETTLE = 0.22
+Lethal.POP_REST = 1.26
+Lethal.WEIGHT_CAP = 120
+Lethal.ART = {
+    skull = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_8",
+    tomb = "Interface\\AddOns\\SoundAlerter\\Textures\\lethal_tomb",
+    drop = "Interface\\AddOns\\SoundAlerter\\Textures\\lethal_drop",
+}
+
+function Lethal.DescRate(text)
+    if type(text) ~= "string" then return nil end
+    local amount, seconds = text:match("(%d+)%s*[%a ]-damage over (%d+%.?%d*) sec")
+    amount, seconds = tonumber(amount), tonumber(seconds)
+    if not amount or not seconds or seconds <= 0 or amount <= 0 then return nil end
+    local direct = tonumber(text:match("for (%d+) damage and an additional"))
+    if not direct then
+        local low, high = text:match("for (%d+) to (%d+) [%a ]-damage and then an additional")
+        if low and high then direct = (tonumber(low) + tonumber(high)) / 2 end
+    end
+    return amount / seconds, direct and amount / (amount + direct) or 1
+end
+
+function Lethal.Learn(rates, name, damage, seconds)
+    if type(name) ~= "string" or type(damage) ~= "number" or type(seconds) ~= "number" or damage <= 0 or seconds <= 0 then return nil end
+    local entry = rates[name]
+    if not entry then
+        entry = { damage = 0, seconds = 0 }
+        rates[name] = entry
+    end
+    entry.damage, entry.seconds = entry.damage + damage, entry.seconds + seconds
+    if entry.seconds > Lethal.WEIGHT_CAP then
+        local scale = Lethal.WEIGHT_CAP / entry.seconds
+        entry.damage, entry.seconds = entry.damage * scale, Lethal.WEIGHT_CAP
+    end
+    return entry.damage / entry.seconds
+end
+
+function Lethal.Rate(rates, name, fallback)
+    local entry = rates and rates[name]
+    if entry and entry.seconds > 0 then return entry.damage / entry.seconds end
+    return fallback
+end
+
+function Lethal.MeterByName(spells, nameOf, out)
+    for name in pairs(out) do out[name] = nil end
+    if type(spells) ~= "table" then return out end
+    for index = 1, #spells do
+        local spell = spells[index]
+        local spellID, amount = spell and spell.spellID, spell and spell.totalAmount
+        if not issecretvalue(spellID) and not issecretvalue(amount) and type(spellID) == "number" and type(amount) == "number" then
+            local name = nameOf(spellID)
+            if name then out[name] = (out[name] or 0) + amount end
+        end
+    end
+    return out
+end
+
+function Lethal.Remaining(rate, expiration, now)
+    if not rate or not expiration or expiration <= now then return 0 end
+    return rate * (expiration - now)
+end
+
+SA_TrackerLethal = Lethal
 end

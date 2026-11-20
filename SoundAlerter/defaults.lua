@@ -240,6 +240,8 @@ dbDefaults = {
 			manaPositionY = -100,
 			manaScale = 1.0,
 			manaColor = {r = 0.2, g = 0.5, b = 1},
+			manaSweep = true,
+			manaShiftMarks = true,
 
 			comboEnabled = false,
 			comboPositionX = 0,
@@ -440,6 +442,9 @@ dbDefaults = {
 			plateShowIdle = false,
 			plateMax = 4,
 			plateFallback = "screen",
+			skullSize = 36,
+			skullArt = "skull",
+			skullPop = false,
 			icons = {},
 		},
 

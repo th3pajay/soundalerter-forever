@@ -46,8 +46,23 @@ local POISED = {
 	ROGUE = { spellID = 1328825, level = 18 },
 	DRUID = { spellID = 1328829, level = 32 },
 }
-local POISED_COLOR = { r = 1, g = 0.82, b = 0.2 }
-local POISED_EDGE = 2
+local RUNE_SCALE = 1.2
+local RUNE_GAP = 4
+local RUNE_COLOR = { 1, 0.83, 0.42 }
+local RUNE_DISC_ALPHA = 0.22
+local RUNE_TEXTURES = {
+	disc = CP_TEXTURE_DIR .. "poised_disc",
+	ring = CP_TEXTURE_DIR .. "poised_ring",
+	glyph = CP_TEXTURE_DIR .. "poised_p",
+	glow = CP_TEXTURE_DIR .. "poised_p_glow",
+	flash = CP_TEXTURE_DIR .. "cp_glow",
+	sheen = CP_TEXTURE_DIR .. "cb_spark",
+}
+local RUNE_FADE_IN, RUNE_FADE_OUT = 0.26, 0.2
+local RUNE_LEAVE, RUNE_LEAVE_QUICK = 0.48, 0.32
+local RUNE_RING_TURN = 24
+local RUNE_BREATH_LOW, RUNE_BREATH_TIME = 0.74, 1.5
+local RUNE_MOTES = 3
 local FLAT_TEXTURE = "Interface\\Buttons\\WHITE8X8"
 
 local VALUE_UPDATE_THROTTLE = 0.016
@@ -58,6 +73,17 @@ local ENERGY_SCALE = 100
 local ESTIMATE_ALPHA = 0.45
 local ESTIMATE_TICK = 0.25
 local ESTIMATE_TEXT = "on shift"
+local SHIFT_MARKS = 8
+local SHIFT_FORM_IDS = { 768, 5487 }
+local NOTCH_WIDTH, NOTCH_HEIGHT = 12, 7
+local NOTCH_TEXTURE = CP_TEXTURE_DIR .. "cp_triangle"
+local NOTCH_GLOW = CP_TEXTURE_DIR .. "cp_glow"
+local NOTCH_GHOST = { 0.86, 0.91, 1, 0.22 }
+local NOTCH_LIT = { 1, 0.81, 0.35, 1 }
+local NOTCH_GLOW_COLOR = { 1, 0.81, 0.35, 0.55 }
+local NOTCH_GLOW_SCALE = 2
+local NOTCH_BREATH_LOW = 0.6
+local NOTCH_BREATH_TIME = 1.3
 
 local BAR_CONFIGS = {
 	energy = {
@@ -146,6 +172,8 @@ local RESOURCE_BAR_KEYS = {
 	healthScale = true,
 	manaEnabled = true,
 	manaScale = true,
+	manaSweep = true,
+	manaShiftMarks = true,
 	poisedGlow = true,
 }
 
@@ -745,66 +773,591 @@ function ResourceBar:RegisterEvents()
 	local _, class = UnitClass("player")
 	self.poisedInfo = POISED[class]
 	if self.poisedInfo then
+		self.poisedClass = class
 		self.poisedEvents = CreateFrame("Frame")
 		self.poisedEvents:RegisterEvent("PLAYER_LEVEL_UP")
-		self.poisedEvents:SetScript("OnEvent", function(_, event, arg1, info)
-			if event == "UNIT_AURA" then
-				if info and not info.isFullUpdate and info.addedAuras == nil and info.removedAuraInstanceIDs == nil then return end
-				self:RefreshPoised()
-			else
-				self:UpdatePoisedTracking(arg1)
-			end
+		self.poisedEvents:SetScript("OnEvent", function(_, event, arg1, arg2)
+			self:OnPoisedEvent(event, arg1, arg2)
 		end)
 	end
 end
 
-function ResourceBar:CreatePoisedMarker()
-	local bar = self.energyBar
-	local marker = CreateFrame("Frame", nil, bar)
-	marker:SetPoint("TOPLEFT", bar, "TOPLEFT", -POISED_EDGE, POISED_EDGE)
-	marker:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", POISED_EDGE, -POISED_EDGE)
-	marker:SetFrameLevel(bar:GetFrameLevel() + 2)
-	local sides = {
-		{ "TOPLEFT", "TOPRIGHT", false },
-		{ "BOTTOMLEFT", "BOTTOMRIGHT", false },
-		{ "TOPLEFT", "BOTTOMLEFT", true },
-		{ "TOPRIGHT", "BOTTOMRIGHT", true },
-	}
-	for _, side in ipairs(sides) do
-		local edge = marker:CreateTexture(nil, "OVERLAY")
-		edge:SetTexture(FLAT_TEXTURE)
-		edge:SetVertexColor(POISED_COLOR.r, POISED_COLOR.g, POISED_COLOR.b, 1)
-		edge:SetPoint(side[1], marker, side[1])
-		edge:SetPoint(side[2], marker, side[2])
-		if side[3] then edge:SetWidth(POISED_EDGE) else edge:SetHeight(POISED_EDGE) end
+local function Notch(parent, layer, anchor, top, color, width, height, texture)
+	local notch = parent:CreateTexture(nil, layer)
+	notch:SetTexture(texture or NOTCH_TEXTURE)
+	notch:SetVertexColor(color[1], color[2], color[3], color[4])
+	notch:SetSize(width, height)
+	if top then
+		notch:SetTexCoord(0, 1, 1, 0)
+		notch:SetPoint("TOP", anchor, "TOPRIGHT", 0, 0)
+	else
+		notch:SetPoint("BOTTOM", anchor, "BOTTOMRIGHT", 0, 0)
 	end
-	local label = marker:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	label:SetPoint("RIGHT", bar, "RIGHT", -4, 0)
-	label:SetTextColor(POISED_COLOR.r, POISED_COLOR.g, POISED_COLOR.b, 1)
-	label:SetText("Poised")
-	marker:Hide()
-	self.poisedMarker = marker
+	return notch
 end
 
-function ResourceBar:RefreshPoised()
-	local marker = self.poisedMarker
-	if not marker then return end
-	local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, self.poisedInfo.spellID)
-	marker:SetShown(ok and aura ~= nil)
+function ResourceBar:CreateShiftMarks()
+	local bar = self.manaBar
+	local level = bar:GetFrameLevel()
+	local BarUtils = SoundAlerter.BarUtils
+	local anchors = CreateFrame("Frame", nil, bar)
+	anchors:SetAllPoints(bar)
+	local ghost = CreateFrame("Frame", nil, bar)
+	ghost:SetAllPoints(bar)
+	ghost:SetFrameLevel(level + 2)
+	local clip = CreateFrame("Frame", nil, bar)
+	clip:SetClipsChildren(true)
+	clip:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
+	clip:SetPoint("BOTTOMRIGHT", bar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+	clip:SetFrameLevel(level + 3)
+	local lit = CreateFrame("Frame", nil, clip)
+	lit:SetAllPoints(bar)
+	local width, height = BarUtils:Snap(NOTCH_WIDTH, bar), BarUtils:Snap(NOTCH_HEIGHT, bar)
+	local marks = {}
+	for index = 1, SHIFT_MARKS do
+		local step = CreateFrame("StatusBar", nil, anchors)
+		step:SetAllPoints(bar)
+		step:SetStatusBarTexture(FLAT_TEXTURE)
+		local edge = step:GetStatusBarTexture()
+		edge:SetAlpha(0)
+		marks[index] = {
+			step = step,
+			edge = edge,
+			pieces = {
+				Notch(ghost, "ARTWORK", edge, true, NOTCH_GHOST, width, height),
+				Notch(ghost, "ARTWORK", edge, false, NOTCH_GHOST, width, height),
+				Notch(lit, "OVERLAY", edge, true, NOTCH_LIT, width, height),
+				Notch(lit, "OVERLAY", edge, false, NOTCH_LIT, width, height),
+			},
+		}
+	end
+	local breath = lit:CreateAnimationGroup()
+	breath:SetLooping("BOUNCE")
+	local fade = breath:CreateAnimation("Alpha")
+	fade:SetFromAlpha(1)
+	fade:SetToAlpha(NOTCH_BREATH_LOW)
+	fade:SetDuration(NOTCH_BREATH_TIME)
+	fade:SetSmoothing("IN_OUT")
+	self.shiftGhost, self.shiftClip, self.shiftLit, self.shiftMarks, self.shiftBreath = ghost, clip, lit, marks, breath
+	self.shiftSize = { width, height }
+	self.shiftEvents = CreateFrame("Frame")
+	self.shiftEvents:SetScript("OnEvent", function(_, event, _, powerType)
+		if event == "UNIT_MAXPOWER" and powerType ~= "MANA" then return end
+		self:DrawShiftMarks()
+	end)
+end
+
+local function ManaCost(spellID)
+	local ok, costs = pcall(C_Spell.GetSpellPowerCost, spellID)
+	if not ok or type(costs) ~= "table" then return nil end
+	for index = 1, #costs do
+		local entry = costs[index]
+		if type(entry) == "table" and Plain(entry.type) == POWER_TYPE_MANA then
+			local cost = Plain(entry.cost)
+			if type(cost) == "number" and cost > 0 then return cost end
+		end
+	end
+	return nil
+end
+
+local function ShiftCost()
+	if not (C_Spell and C_Spell.GetSpellPowerCost) then return nil end
+	local cheapest
+	for index = 1, #SHIFT_FORM_IDS do
+		local cost = ManaCost(SHIFT_FORM_IDS[index])
+		if cost and (not cheapest or cost < cheapest) then cheapest = cost end
+	end
+	return cheapest
+end
+
+function ResourceBar:HideShiftMarks()
+	if not self.shiftMarks then return end
+	self.shiftBreath:Stop()
+	self.shiftGhost:Hide()
+	self.shiftClip:Hide()
+end
+
+function ResourceBar:ApplyShiftQuality()
+	local quality = self.db and self.db.comboAnimQuality
+	local breath = self.shiftBreath
+	if quality == "low" then
+		breath:Stop()
+		self.shiftLit:SetAlpha(1)
+	elseif not breath:IsPlaying() then
+		breath:Play()
+	end
+	local glow = quality == "high"
+	for index = 1, SHIFT_MARKS do
+		local mark = self.shiftMarks[index]
+		if glow and not mark.glows then
+			local width, height = self.shiftSize[1] * NOTCH_GLOW_SCALE, self.shiftSize[2] * NOTCH_GLOW_SCALE
+			mark.glows = {
+				Notch(self.shiftLit, "ARTWORK", mark.edge, true, NOTCH_GLOW_COLOR, width, height, NOTCH_GLOW),
+				Notch(self.shiftLit, "ARTWORK", mark.edge, false, NOTCH_GLOW_COLOR, width, height, NOTCH_GLOW),
+			}
+			for _, piece in ipairs(mark.glows) do piece:SetBlendMode("ADD") end
+		end
+		if mark.glows then
+			local shown = glow and mark.shown
+			mark.glows[1]:SetShown(shown)
+			mark.glows[2]:SetShown(shown)
+		end
+	end
+end
+
+function ResourceBar:DrawShiftMarks()
+	local cost = ShiftCost()
+	local okMax, maxMana = pcall(UnitPowerMax, "player", POWER_TYPE_MANA)
+	if not cost or not okMax or maxMana == nil then
+		self:HideShiftMarks()
+		return
+	end
+	local plainMax = Plain(maxMana)
+	for index = 1, SHIFT_MARKS do
+		local mark = self.shiftMarks[index]
+		local value = index * cost
+		local shown = not (plainMax and value > plainMax)
+		if shown then
+			mark.step:SetMinMaxValues(0, maxMana)
+			mark.step:SetValue(value)
+		end
+		if mark.shown ~= shown then
+			mark.shown = shown
+			mark.step:SetShown(shown)
+			for _, piece in ipairs(mark.pieces) do piece:SetShown(shown) end
+		end
+	end
+	self.shiftGhost:Show()
+	self.shiftClip:Show()
+	self:ApplyShiftQuality()
+end
+
+function ResourceBar:RefreshShiftMarks()
+	if not self.db then return end
+	local setting = self.db.manaShiftMarks
+	if type(setting) == "string" then
+		setting = setting ~= "off"
+		self.db.manaShiftMarks = setting
+	end
+	local _, class = UnitClass("player")
+	local want = SHIFTERS[class] and self.db.manaEnabled and setting == true
+	if not want then
+		if self.shiftEvents then
+			self.shiftEvents:UnregisterEvent("UNIT_MAXPOWER")
+			self.shiftEvents:UnregisterEvent("SPELLS_CHANGED")
+			self:HideShiftMarks()
+		end
+		return
+	end
+	if not self.shiftMarks then self:CreateShiftMarks() end
+	self.shiftEvents:RegisterUnitEvent("UNIT_MAXPOWER", "player")
+	self.shiftEvents:RegisterEvent("SPELLS_CHANGED")
+	self:DrawShiftMarks()
+end
+
+local function Step(group, kind, order, duration, smoothing)
+	local step = group:CreateAnimation(kind)
+	step:SetOrder(order)
+	step:SetDuration(duration)
+	if smoothing then step:SetSmoothing(smoothing) end
+	return step
+end
+
+local function Fade(group, order, from, to, duration, smoothing)
+	local step = Step(group, "Alpha", order, duration, smoothing)
+	step:SetFromAlpha(from)
+	step:SetToAlpha(to)
+	return step
+end
+
+local function Grow(group, order, factor, duration, smoothing)
+	local step = Step(group, "Scale", order, duration, smoothing)
+	step:SetScale(factor, factor)
+	return step
+end
+
+local function Shift(group, order, x, y, duration, smoothing)
+	local step = Step(group, "Translation", order, duration, smoothing)
+	step:SetOffset(x, y)
+	return step
+end
+
+local function Turn(group, order, degrees, duration, smoothing)
+	local step = Step(group, "Rotation", order, duration, smoothing)
+	step:SetDegrees(degrees)
+	return step
+end
+
+local function RuneTexture(parent, layer, path, size, alpha, blend)
+	local texture = parent:CreateTexture(nil, layer)
+	texture:SetTexture(path)
+	texture:SetVertexColor(RUNE_COLOR[1], RUNE_COLOR[2], RUNE_COLOR[3], 1)
+	texture:SetSize(size, size)
+	texture:SetPoint("CENTER", parent, "CENTER", 0, 0)
+	texture:SetAlpha(alpha)
+	if blend then texture:SetBlendMode(blend) end
+	return texture
+end
+
+function ResourceBar:CreateRune()
+	local bar = self.energyBar
+	local BarUtils = SoundAlerter.BarUtils
+	local size = BarUtils:Snap(BAR_HEIGHT * RUNE_SCALE, bar)
+	local gate = CreateFrame("Frame", nil, bar)
+	gate:SetSize(size, size)
+	gate:SetPoint("LEFT", bar, "RIGHT", BarUtils:Snap(RUNE_GAP, bar), 0)
+	gate:SetFrameLevel(bar:GetFrameLevel() + 4)
+	local holder = CreateFrame("Frame", nil, gate)
+	holder:SetAllPoints(gate)
+	holder:Hide()
+	local glyphFrame = CreateFrame("Frame", nil, holder)
+	glyphFrame:SetAllPoints(holder)
+	glyphFrame:SetFrameLevel(holder:GetFrameLevel() + 2)
+
+	local rune = { gate = gate, holder = holder, glyphFrame = glyphFrame, size = size }
+	rune.disc = RuneTexture(holder, "BACKGROUND", RUNE_TEXTURES.disc, size, RUNE_DISC_ALPHA)
+	rune.ring = RuneTexture(holder, "ARTWORK", RUNE_TEXTURES.ring, size, 0.85)
+	rune.flash = RuneTexture(holder, "OVERLAY", RUNE_TEXTURES.flash, size * 2, 0, "ADD")
+	rune.glow = RuneTexture(glyphFrame, "BACKGROUND", RUNE_TEXTURES.glow, size, 0.6, "ADD")
+	rune.glyph = RuneTexture(glyphFrame, "ARTWORK", RUNE_TEXTURES.glyph, size, 1)
+
+	local ringIn = rune.ring:CreateAnimationGroup()
+	Fade(ringIn, 1, 0, 0, 0.42)
+	Grow(ringIn, 1, 0.9, 0.01)
+	Fade(ringIn, 2, 0, 0.85, 0.15)
+	Grow(ringIn, 2, 1.12 / 0.9, 0.15, "OUT")
+	Grow(ringIn, 3, 1 / 1.12, 0.19, "IN_OUT")
+	local discIn = rune.disc:CreateAnimationGroup()
+	Fade(discIn, 1, 0, 0, 0.01)
+	Grow(discIn, 1, 0.85, 0.01)
+	Fade(discIn, 2, 0, RUNE_DISC_ALPHA, 0.3)
+	Grow(discIn, 2, 1 / 0.85, 0.3, "OUT")
+	local glyphIn = glyphFrame:CreateAnimationGroup()
+	local drop = size * 0.3
+	Fade(glyphIn, 1, 0, 0, 0.12)
+	Grow(glyphIn, 1, 1.35, 0.01)
+	Shift(glyphIn, 1, 0, drop, 0.01)
+	Fade(glyphIn, 2, 0, 1, 0.32)
+	Grow(glyphIn, 2, 0.94 / 1.35, 0.32, "OUT")
+	Shift(glyphIn, 2, 0, -drop, 0.32, "OUT")
+	Grow(glyphIn, 3, 1.03 / 0.94, 0.1, "OUT")
+	Grow(glyphIn, 4, 1 / 1.03, 0.1, "IN_OUT")
+	glyphIn:SetScript("OnFinished", function() self:StartRuneIdle() end)
+	local flashIn = rune.flash:CreateAnimationGroup()
+	Fade(flashIn, 1, 0, 0, 0.38)
+	Grow(flashIn, 1, 0.7, 0.01)
+	Fade(flashIn, 2, 0, 0.85, 0.11)
+	Grow(flashIn, 2, 1 / 0.7, 0.11, "OUT")
+	Fade(flashIn, 3, 0.85, 0, 0.27, "IN")
+	Grow(flashIn, 3, 1.5, 0.27, "OUT")
+	local fadeIn = holder:CreateAnimationGroup()
+	Fade(fadeIn, 1, 0, 1, RUNE_FADE_IN, "OUT")
+	fadeIn:SetScript("OnFinished", function() self:StartRuneIdle() end)
+	rune.appear = { ringIn, discIn, glyphIn }
+	rune.flashIn, rune.fadeIn = flashIn, fadeIn
+
+	local ringIdle = rune.ring:CreateAnimationGroup()
+	ringIdle:SetLooping("REPEAT")
+	Turn(ringIdle, 1, -360, RUNE_RING_TURN)
+	local breathe = glyphFrame:CreateAnimationGroup()
+	breathe:SetLooping("BOUNCE")
+	Fade(breathe, 1, 1, RUNE_BREATH_LOW, RUNE_BREATH_TIME, "IN_OUT")
+	rune.idle = { ringIdle, breathe }
+
+	local ringOut = rune.ring:CreateAnimationGroup()
+	rune.ringTurn = Turn(ringOut, 1, -260, RUNE_LEAVE, "IN")
+	rune.ringShrink = Grow(ringOut, 1, 0.1, RUNE_LEAVE, "IN")
+	local discOut = rune.disc:CreateAnimationGroup()
+	rune.discShrink = Grow(discOut, 1, 0.2, RUNE_LEAVE, "IN")
+	rune.discFade = Fade(discOut, 1, RUNE_DISC_ALPHA, 0, RUNE_LEAVE, "IN")
+	local glyphOut = glyphFrame:CreateAnimationGroup()
+	rune.glyphSwell = Grow(glyphOut, 1, 1.1, RUNE_LEAVE * 0.2, "OUT")
+	rune.glyphPull = Grow(glyphOut, 2, 0.05 / 1.1, RUNE_LEAVE * 0.8, "IN")
+	local holderOut = holder:CreateAnimationGroup()
+	rune.holdLit = Fade(holderOut, 1, 1, 1, RUNE_LEAVE * 0.8)
+	rune.holdDrop = Fade(holderOut, 2, 1, 0, RUNE_LEAVE * 0.2)
+	holderOut:SetScript("OnFinished", function() self:EndRuneLeave() end)
+	local fadeOut = holder:CreateAnimationGroup()
+	Fade(fadeOut, 1, 1, 0, RUNE_FADE_OUT, "IN")
+	fadeOut:SetScript("OnFinished", function() self:EndRuneLeave() end)
+	rune.leave = { ringOut, discOut, glyphOut, holderOut }
+	rune.fadeOut = fadeOut
+	rune.leaveTime = RUNE_LEAVE
+
+	local timerFrame = CreateFrame("Frame", nil, UIParent)
+	timerFrame:SetSize(1, 1)
+	timerFrame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -10, -10)
+	timerFrame:SetAlpha(0)
+	local overdue = timerFrame:CreateAnimationGroup()
+	rune.overdueStep = Fade(overdue, 1, 0, 0, SA_RuneModel.Window(SA_RuneModel.GAP))
+	overdue:SetScript("OnFinished", function() self:OnRuneOverdue() end)
+	rune.overdue, rune.window = overdue, SA_RuneModel.Window(SA_RuneModel.GAP)
+
+	rune.state, rune.gap = "off", SA_RuneModel.GAP
+	self.rune = rune
+	self:BuildRuneExtras()
+end
+
+function ResourceBar:BuildRuneExtras()
+	local rune = self.rune
+	if rune.motes or self.db.comboAnimQuality ~= "high" then return end
+	local size = rune.size
+	rune.motes = {}
+	for index = 1, RUNE_MOTES do
+		local mote = RuneTexture(rune.holder, "OVERLAY", RUNE_TEXTURES.flash, size * 0.16, 0, "ADD")
+		mote:ClearAllPoints()
+		mote:SetPoint("CENTER", rune.holder, "CENTER", (index - 2) * size * 0.22, -size * 0.18)
+		local rise = mote:CreateAnimationGroup()
+		rise:SetLooping("REPEAT")
+		Fade(rise, 1, 0, 0, 0.05 + (index - 1) * 0.6)
+		Fade(rise, 2, 0, 0.9, 0.45, "OUT")
+		Shift(rise, 2, (index - 2) * size * 0.06, size * 0.45, 1.8, "OUT")
+		Grow(rise, 2, 0.3, 1.8, "IN")
+		Fade(rise, 3, 0.9, 0, 1.35, "IN")
+		rune.motes[index] = rise
+	end
+	local sheen = rune.glyphFrame:CreateTexture(nil, "OVERLAY")
+	sheen:SetTexture(RUNE_TEXTURES.sheen)
+	sheen:SetBlendMode("ADD")
+	sheen:SetVertexColor(1, 1, 1, 1)
+	sheen:SetSize(size * 0.3, size)
+	sheen:SetPoint("RIGHT", rune.glyphFrame, "LEFT", 0, 0)
+	sheen:SetAlpha(0)
+	local mask = rune.glyphFrame:CreateMaskTexture()
+	mask:SetTexture(RUNE_TEXTURES.glyph, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	mask:SetAllPoints(rune.glyph)
+	sheen:AddMaskTexture(mask)
+	local sweep = sheen:CreateAnimationGroup()
+	sweep:SetLooping("REPEAT")
+	Fade(sweep, 1, 0.85, 0.85, 1.2)
+	Shift(sweep, 1, size * 1.3, 0, 1.2, "IN_OUT")
+	Fade(sweep, 2, 0, 0, 2.2)
+	rune.sweep = sweep
+end
+
+local function PlayAll(list)
+	for index = 1, #list do list[index]:Play() end
+end
+
+local function StopAll(list)
+	if not list then return end
+	for index = 1, #list do list[index]:Stop() end
+end
+
+function ResourceBar:StopRuneMotion()
+	local rune = self.rune
+	StopAll(rune.appear)
+	StopAll(rune.idle)
+	StopAll(rune.leave)
+	StopAll(rune.motes)
+	rune.flashIn:Stop()
+	rune.fadeIn:Stop()
+	rune.fadeOut:Stop()
+	if rune.sweep then rune.sweep:Stop() end
+end
+
+function ResourceBar:StartRuneIdle()
+	local rune = self.rune
+	if not rune or rune.state ~= "shown" then return end
+	local quality = self.db.comboAnimQuality
+	if quality == "low" then return end
+	PlayAll(rune.idle)
+	if quality == "high" then
+		self:BuildRuneExtras()
+		PlayAll(rune.motes)
+		rune.sweep:Play()
+	end
+end
+
+function ResourceBar:RuneCurve()
+	if self.runeCurve == nil then
+		self.runeCurve = false
+		if C_CurveUtil and C_CurveUtil.CreateCurve and UnitPowerPercent and Enum and Enum.LuaCurveType then
+			local ok, curve = pcall(C_CurveUtil.CreateCurve)
+			if ok and curve then
+				curve:SetType(Enum.LuaCurveType.Step)
+				curve:AddPoint(0, 0)
+				curve:AddPoint(1, 1)
+				self.runeCurve = curve
+			end
+		end
+	end
+	return self.runeCurve
+end
+
+function ResourceBar:ApplyRuneGate()
+	local rune = self.rune
+	if rune.state == "leaving" then return end
+	local curve = self:RuneCurve()
+	if not curve then return end
+	local ok, alpha = pcall(UnitPowerPercent, "player", POWER_TYPE_ENERGY, false, curve)
+	if ok then rune.gate:SetAlpha(alpha) end
+end
+
+function ResourceBar:RestartRuneTimer()
+	local rune = self.rune
+	local window = SA_RuneModel.Window(rune.gap)
+	if window ~= rune.window then
+		rune.window = window
+		rune.overdueStep:SetDuration(window)
+	end
+	rune.overdue:Stop()
+	rune.overdue:Play()
+end
+
+function ResourceBar:ShowRune()
+	local rune = self.rune
+	rune.state = "shown"
+	rune.doubt = false
+	self:StopRuneMotion()
+	self:ApplyRuneGate()
+	rune.holder:SetAlpha(1)
+	rune.holder:Show()
+	if self.db.comboAnimQuality == "low" then
+		rune.fadeIn:Play()
+		return
+	end
+	PlayAll(rune.appear)
+	if self.db.comboAnimQuality == "high" then rune.flashIn:Play() end
+end
+
+function ResourceBar:LeaveRune(quick)
+	local rune = self.rune
+	rune.state = "leaving"
+	rune.doubt = false
+	self:StopRuneMotion()
+	rune.gate:SetAlpha(1)
+	if self.db.comboAnimQuality == "low" then
+		rune.fadeOut:Play()
+		return
+	end
+	local time = quick and RUNE_LEAVE_QUICK or RUNE_LEAVE
+	if time ~= rune.leaveTime then
+		rune.leaveTime = time
+		rune.ringTurn:SetDuration(time)
+		rune.ringShrink:SetDuration(time)
+		rune.discShrink:SetDuration(time)
+		rune.discFade:SetDuration(time)
+		rune.glyphSwell:SetDuration(time * 0.2)
+		rune.glyphPull:SetDuration(time * 0.8)
+		rune.holdLit:SetDuration(time * 0.8)
+		rune.holdDrop:SetDuration(time * 0.2)
+	end
+	PlayAll(rune.leave)
+end
+
+function ResourceBar:EndRuneLeave()
+	local rune = self.rune
+	if rune.state ~= "leaving" then return end
+	self:StopRuneMotion()
+	rune.holder:Hide()
+	rune.state = rune.armed and "armed" or "off"
+	self:ApplyRuneGate()
+end
+
+function ResourceBar:OnRuneOverdue()
+	local rune = self.rune
+	if not (rune and rune.armed) then return end
+	if rune.state == "armed" then
+		self:ShowRune()
+	elseif rune.state == "shown" then
+		rune.doubt = false
+	end
+end
+
+function ResourceBar:RuneEnergyForm()
+	if self.poisedClass == "ROGUE" then return true end
+	return Plain((UnitPowerType("player"))) == POWER_TYPE_ENERGY
+end
+
+function ResourceBar:RefreshRune(reason)
+	local rune = self.rune
+	if not rune then return end
+	local armed = SA_RuneModel.Armed(rune.enabled, not InCombatLockdown(), self:RuneEnergyForm())
+	if armed == rune.armed then return end
+	rune.armed = armed
+	local events = self.poisedEvents
+	if armed then
+		events:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
+		rune.last = nil
+		if rune.state == "off" then rune.state = "armed" end
+		self:ApplyRuneGate()
+		self:RestartRuneTimer()
+	else
+		events:UnregisterEvent("UNIT_POWER_FREQUENT")
+		rune.overdue:Stop()
+		if rune.state == "shown" then
+			self:LeaveRune(reason == "combat")
+		elseif rune.state == "armed" then
+			rune.state = "off"
+		end
+	end
+end
+
+function ResourceBar:OnRuneEnergy(powerType)
+	if powerType ~= "ENERGY" then return end
+	local rune = self.rune
+	local now = GetTime()
+	if rune.last then rune.gap = SA_RuneModel.Learn(rune.gap, now - rune.last) end
+	rune.last = now
+	if rune.state == "shown" and rune.doubt then
+		self:DropRune()
+	else
+		rune.doubt = rune.state == "shown"
+		self:ApplyRuneGate()
+	end
+	self:RestartRuneTimer()
+end
+
+function ResourceBar:DropRune()
+	local rune = self.rune
+	rune.doubt = false
+	self:StopRuneMotion()
+	rune.holder:Hide()
+	rune.state = "armed"
+	self:ApplyRuneGate()
+end
+
+function ResourceBar:OnPoisedEvent(event, arg1, arg2)
+	if event == "UNIT_POWER_FREQUENT" then
+		self:OnRuneEnergy(arg2)
+	elseif event == "PLAYER_REGEN_DISABLED" then
+		self:RefreshRune("combat")
+	elseif event == "PLAYER_REGEN_ENABLED" or event == "UNIT_DISPLAYPOWER" then
+		self:RefreshRune("form")
+	elseif event == "PLAYER_LEVEL_UP" then
+		self:UpdatePoisedTracking(arg1)
+	end
+end
+
+function ResourceBar:ApplyPoisedQuality()
+	local rune = self.rune
+	if not rune or rune.state ~= "shown" then return end
+	StopAll(rune.idle)
+	StopAll(rune.motes)
+	if rune.sweep then rune.sweep:Stop() end
+	self:StartRuneIdle()
 end
 
 function ResourceBar:UpdatePoisedTracking(level)
 	local info = self.poisedInfo
 	if not info or not self.db then return end
 	level = tonumber(level) or Plain(UnitLevel("player")) or 0
-	if self.db.poisedGlow and level >= info.level then
-		if not self.poisedMarker then self:CreatePoisedMarker() end
-		self.poisedEvents:RegisterUnitEvent("UNIT_AURA", "player")
-		self:RefreshPoised()
+	local enabled = self.db.poisedGlow == true and self.db.energyEnabled == true and level >= info.level
+	local events = self.poisedEvents
+	if enabled then
+		if not self.rune then self:CreateRune() end
+		events:RegisterEvent("PLAYER_REGEN_DISABLED")
+		events:RegisterEvent("PLAYER_REGEN_ENABLED")
+		if self.poisedClass == "DRUID" then events:RegisterUnitEvent("UNIT_DISPLAYPOWER", "player") end
 	else
-		self.poisedEvents:UnregisterEvent("UNIT_AURA")
-		if self.poisedMarker then self.poisedMarker:Hide() end
+		events:UnregisterEvent("PLAYER_REGEN_DISABLED")
+		events:UnregisterEvent("PLAYER_REGEN_ENABLED")
+		events:UnregisterEvent("UNIT_DISPLAYPOWER")
 	end
+	if not self.rune then return end
+	self.rune.enabled = enabled
+	self:RefreshRune("form")
 end
 
 function ResourceBar:UNIT_POWER_FREQUENT(event, unitId, powerType)
@@ -1069,6 +1622,9 @@ function ResourceBar:UpdateVisibility()
 	if not self.db then return end
 
 	if SoundAlerter.SwingSpark then SoundAlerter.SwingSpark:Refresh() end
+	if SoundAlerter.ManaSweep then SoundAlerter.ManaSweep:Refresh() end
+	self:RefreshShiftMarks()
+	self:UpdatePoisedTracking()
 
 	for barKey, config in pairs(BAR_CONFIGS) do
 		local frameName = barKey .. "Frame"

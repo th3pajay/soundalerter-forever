@@ -178,6 +178,7 @@ function Voice:Change(entry, value)
     settings[spec.key] = value
     if spec.after then spec.after(value, settings) end
     if spec.chat then
+        if self.spec.tracking then self.spec.tracking() end
         self:RefreshChat()
     else
         self:Changed()
@@ -276,6 +277,8 @@ function Voice:BuildPresets(parent)
     self.presetApply.frame:SetPoint("RIGHT", detail, "RIGHT", -8, 0)
     self.presetDelete = Kit.MakeButton(detail, "Delete", function() self:DeleteSelectedPreset() end)
     self.presetDelete.frame:SetPoint("RIGHT", self.presetApply.frame, "LEFT", -6, 0)
+    self.presetUpdate = Kit.MakeButton(detail, "Update", function() self:UpdateSelectedPreset() end)
+    self.presetUpdate.frame:SetPoint("RIGHT", self.presetDelete.frame, "LEFT", -6, 0)
     self.undoButton = NewChip(parent, "Undo", function() self:UndoPreset() end)
     self.historyText = Text(parent, 10.5, COLOR.muted)
     self.saveBox = Kit.MakeText(parent, {}, function() end)
@@ -319,7 +322,7 @@ end
 function Voice:SelectPreset(entry)
     if not entry then return end
     self.selectedPreset = entry.saved or entry.preset
-    self.deleteArmedAt = nil
+    self.deleteArmedAt, self.updateArmedAt = nil, nil
     self:SyncPresets()
 end
 
@@ -376,6 +379,22 @@ function Voice:SaveCurrentPreset()
     self:Changed()
     self:SyncPresets()
     self:LayoutSpells()
+end
+
+function Voice:UpdateSelectedPreset()
+    local entry = self:SelectedEntry(self:PresetList())
+    if not (entry and entry.saved) then return end
+    local now = GetTime()
+    if not (self.updateArmedAt and now - self.updateArmedAt <= ARM_SECONDS) then
+        self.updateArmedAt = now
+        self.presetUpdate.label:SetText("Confirm")
+        return
+    end
+    self.updateArmedAt = nil
+    Model.OverwriteSaved(self:Db(), self.model, entry.saved)
+    self.spec.print("Preset updated: " .. entry.name)
+    self:Changed()
+    self:SyncPresets()
 end
 
 function Voice:DeleteSelectedPreset()
@@ -1047,7 +1066,7 @@ function Voice:LayoutToolbar(width)
     detail:ClearAllPoints()
     detail:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -(bottom + 2))
     detail:SetSize(width - 24, PRESET.DETAIL)
-    self.presetNote:SetWidth(math.max(60, width - 24 - 16 - 190))
+    self.presetNote:SetWidth(math.max(60, width - 24 - 16 - 260))
     bottom = bottom + 2 + PRESET.DETAIL + 6
     local save, box = self.saveButton.frame, self.saveBox.frame
     save:ClearAllPoints()
@@ -1307,6 +1326,8 @@ function Voice:SyncPresets()
         self.presetApply.frame:EnableMouse(diff.plus + diff.minus > 0)
         self.presetDelete.frame:SetShown(selected.saved ~= nil)
         if not self.deleteArmedAt then self.presetDelete.label:SetText("Delete") end
+        self.presetUpdate.frame:SetShown(selected.saved ~= nil and diff.plus + diff.minus > 0)
+        if not self.updateArmedAt then self.presetUpdate.label:SetText("Update") end
     end
     local history = self.history
     local last = history[#history]
@@ -2100,6 +2121,7 @@ function SoundAlerter:BuildVoiceAlertOptions()
         end,
         engineSupported = function() return SoundAlerter:EngineAuraSoundSupported() end,
         changed = function() SoundAlerter:OnConfigTableChange(nil, "SoundAlerter") end,
+        tracking = function() SoundAlerter:InvalidateTrackedAuraIDs() end,
         situation = function()
             local inInstance, instanceType = IsInInstance()
             return Model.PlaceFor(inInstance, instanceType, IsInGroup())

@@ -238,6 +238,7 @@ function Wizard:Toggle(row, value)
         current[row.key] = value
     elseif row.source == "heard" then
         QuickStart.SetHeard(current, row.key, value)
+        SoundAlerter:InvalidateTrackedAuraIDs()
     else
         row.item.set(current, value)
         local refresh = REFRESH[row.item.key]
@@ -527,20 +528,24 @@ local function ClearPill(frame)
     frame:Hide()
     frame:UnregisterAllEvents()
     for _, region in ipairs(frame.scripted) do
-        region:SetScript("OnClick", nil)
+        if region:HasScript("OnClick") then region:SetScript("OnClick", nil) end
         region:SetScript("OnEnter", nil)
         region:SetScript("OnLeave", nil)
     end
     frame:SetScript("OnEvent", nil)
 end
 
-function SoundAlerter:AnswerSightingsConsent(keep)
-    local global, current = self.db1 and self.db1.global, profile()
-    if not global or not current or not QuickStart.AnswerSightings(global, current, keep) then return false end
-    if pill then
+local function DropPill(kind)
+    if pill and pill.kind == kind then
         ClearPill(pill)
         pill = nil
     end
+end
+
+function SoundAlerter:AnswerSightingsConsent(keep)
+    local global, current = self.db1 and self.db1.global, profile()
+    if not global or not current or not QuickStart.AnswerSightings(global, current, keep) then return false end
+    DropPill("sightings")
     self:UpdateGlobalSight()
     if not keep then self:Print(QuickStart.CONSENT_OFF) end
     return true
@@ -567,8 +572,9 @@ local function PillEnter()
     if pill then SetPillOpen(pill, true) end
 end
 
-local function BuildPill()
+local function BuildPill(spec)
     local frame = CreateFrame("Frame", nil, UIParent)
+    frame.kind = spec.kind
     frame:SetSize(PILL_WIDTH, PILL_HEIGHT)
     frame:SetPoint("TOPRIGHT", Minimap, "BOTTOMRIGHT", 0, -22)
     frame:SetFrameStrata("HIGH")
@@ -588,7 +594,7 @@ local function BuildPill()
     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     local title = Text(head, 12, GOLD)
     title:SetPoint("LEFT", icon, "RIGHT", 7, 0)
-    title:SetText(QuickStart.CONSENT_TITLE)
+    title:SetText(spec.title)
     local close = CreateFrame("Button", nil, frame)
     close:SetSize(PILL_HEIGHT, PILL_HEIGHT)
     close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
@@ -604,11 +610,11 @@ local function BuildPill()
     text:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, 0)
     if text.SetWordWrap then text:SetWordWrap(true) end
     text:SetJustifyV("TOP")
-    text:SetText(QuickStart.CONSENT_TEXT)
-    local keep = Kit.MakeButton(body, "Keep", function() SoundAlerter:AnswerSightingsConsent(true) end)
+    text:SetText(spec.text)
+    local keep = Kit.MakeButton(body, spec.keep, function() spec.answer(true) end)
     keep.frame:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 0, 0)
     keep.label:SetTextColor(COLOR.accent[1], COLOR.accent[2], COLOR.accent[3])
-    local off = Kit.MakeButton(body, "Turn off", function() SoundAlerter:AnswerSightingsConsent(false) end)
+    local off = Kit.MakeButton(body, spec.off, function() spec.answer(false) end)
     off.frame:SetPoint("RIGHT", keep.frame, "LEFT", -6, 0)
     frame.body, frame.open, frame.pinned = body, false, false
     frame.scripted = { frame, head, close, keep.frame, off.frame }
@@ -622,7 +628,7 @@ local function BuildPill()
     end)
     close:SetScript("OnEnter", PillEnter)
     close:SetScript("OnLeave", PillLeave)
-    close:SetScript("OnClick", function() SoundAlerter:AnswerSightingsConsent(true) end)
+    close:SetScript("OnClick", function() spec.answer(spec.closeKeeps) end)
     keep.frame:HookScript("OnLeave", PillLeave)
     off.frame:HookScript("OnLeave", PillLeave)
     return frame
@@ -633,10 +639,18 @@ local function RevealPill(frame)
     FX.Appear(frame)
 end
 
-function SoundAlerter:ShowSightingsConsent()
-    local global = self.db1 and self.db1.global
-    if pill or not QuickStart.SightingsHeld(global) then return end
-    pill = BuildPill()
+local SIGHTINGS_PILL = {
+    kind = "sightings", title = QuickStart.CONSENT_TITLE, text = QuickStart.CONSENT_TEXT, keep = "Keep", off = "Turn off", closeKeeps = true,
+    answer = function(keep) SoundAlerter:AnswerSightingsConsent(keep) end,
+}
+
+local VIEW_PILL = {
+    kind = "view", title = QuickStart.VIEW_TITLE, text = QuickStart.VIEW_TEXT, keep = "Use it", off = "Not now", closeKeeps = false,
+    answer = function(use) SoundAlerter:SetCooldownViewUse(use) end,
+}
+
+local function OpenPill(spec)
+    pill = BuildPill(spec)
     if not InCombatLockdown() then
         RevealPill(pill)
         return
@@ -649,6 +663,38 @@ function SoundAlerter:ShowSightingsConsent()
     end)
 end
 
+function SoundAlerter:ShowSightingsConsent()
+    local global = self.db1 and self.db1.global
+    if pill or not QuickStart.SightingsHeld(global) then return end
+    OpenPill(SIGHTINGS_PILL)
+end
+
+function SoundAlerter:SetCooldownViewUse(use)
+    local View = SA_CooldownView
+    if not View then return end
+    View.SetUse(use)
+    DropPill("view")
+    self:Print(use and QuickStart.VIEW_ON or QuickStart.VIEW_OFF)
+end
+
+function SoundAlerter:ShowCooldownViewConsent()
+    local View = SA_CooldownView
+    if pill or not View or View.Use() ~= nil then return end
+    OpenPill(VIEW_PILL)
+end
+
+local function WantsCooldownView(addon)
+    local View = SA_CooldownView
+    if not View or View.Use() ~= nil or not View.Available() then return false end
+    local current = profile() or {}
+    if current.procVoices then return true end
+    local tracker = addon.SpellTracker and addon.SpellTracker:GetSettings()
+    for _, icon in ipairs(tracker and tracker.icons or {}) do
+        if icon.enabled and icon.unit == "target" then return true end
+    end
+    return false
+end
+
 function SoundAlerter:CheckQuickStartSetup()
     local global = self.db1 and self.db1.global
     if not global then return end
@@ -659,6 +705,9 @@ function SoundAlerter:CheckQuickStartSetup()
         self:ScheduleTimer("ShowSightingsConsent", FIRST_RUN_DELAY)
     elseif consent == "keep" then
         self:UpdateGlobalSight()
+    end
+    if consent ~= "ask" and WantsCooldownView(self) then
+        self:ScheduleTimer("ShowCooldownViewConsent", FIRST_RUN_DELAY)
     end
     local notice = QuickStart.SightingsNoticeDue(global, current, supported)
     if notice == "tell" then

@@ -152,7 +152,7 @@ function Model.TracksAuras(alert)
 end
 
 function Model.TouchesTracking(field)
-    return field == "spellid" or field == "eventtype"
+    return field == "spellid" or field == "eventtype" or field == "acceptSpellName" or field == "spellname"
 end
 
 function Model.SoundPath(alert, folder)

@@ -4,6 +4,8 @@ local Game = SA_TrackerGame
 local Border = SA_TrackerBorder
 local FX = SA_TrackerFX
 local Plate = SA_TrackerPlate
+local View = SA_CooldownView
+local Lethal = SA_TrackerLethal
 
 local Settings = SA_TrackerSettings
 local ICON_SIZE = Settings.DEFAULT_ICON_SIZE
@@ -42,6 +44,22 @@ local FINISHER_DROP_LEEWAY = 0.3
 local cooldownEnabledTrackers = {}
 local timedTrackers = {}
 local timedSet = {}
+
+local VIEW_UNITS = { "player", "target" }
+local STACK_TEXT_SCALE = 0.2
+local STACK_TEXT_MIN = 7
+local LAND_WINDOW = 0.5
+local RETARGET_GRACE = 0.15
+local METER_DELAY = 1
+local entryByIndex = {}
+local landDeadline = {}
+local viewNames = {}
+local mirrored = {}
+local skullIcons = {}
+local lethalStart = {}
+local fightSeconds = {}
+local meterTotals = {}
+local descRates, descShares = {}, {}
 
 local function OnDriverUpdate(_, elapsed)
     SpellTracker:OnUpdate(elapsed)
@@ -127,6 +145,10 @@ function SpellTracker:Initialize()
     self:CreateIconFrames()
     self:RegisterEvents()
     Plate:Setup(self)
+    local global = SoundAlerter.db1.global
+    global.cooldownView = global.cooldownView or {}
+    View.Configure(global.cooldownView)
+    View.Listen("tracker", function(name, on) SpellTracker:OnViewChange(name, on) end)
     self:LoadSettings()
 
     self.initialized = true
@@ -278,6 +300,70 @@ function SpellTracker:CreateIconText(frame)
     cooldownText:SetFont("Fonts\\FRIZQT__.TTF", CONSTANTS.DEFAULT_COOLDOWN_TEXT_SIZE, "OUTLINE")
     cooldownText:SetText("")
     frame.cooldownText = cooldownText
+
+    local stackText = textLayer:CreateFontString(nil, "OVERLAY")
+    stackText:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -CONSTANTS.ICON_INSET, CONSTANTS.ICON_INSET + 1)
+    stackText:SetJustifyH("RIGHT")
+    stackText:SetTextColor(1, 1, 1, 1)
+    stackText:SetFont("Fonts\\FRIZQT__.TTF", math.max(STACK_TEXT_MIN, math.floor(ICON_SIZE * STACK_TEXT_SCALE + 0.5)), "OUTLINE")
+    stackText:SetText("")
+    stackText.saCleared = true
+    frame.stackText = stackText
+end
+
+function SpellTracker:CreateSkull(frame)
+    local window = CreateFrame("Frame", nil, frame.textLayer)
+    window:SetClipsChildren(true)
+    window:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, -1)
+    local reach = CreateFrame("StatusBar", nil, window)
+    reach:SetPoint("TOPRIGHT", window, "TOPRIGHT", 0, 0)
+    reach:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", 0, 0)
+    reach:SetWidth(Lethal.SKULL_BAR)
+    reach:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    reach:GetStatusBarTexture():SetAlpha(0)
+    reach:SetMinMaxValues(0, 1)
+    reach:SetValue(0)
+    local mark = window:CreateTexture(nil, "OVERLAY")
+    mark:SetPoint("TOPRIGHT", reach:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+    mark:SetPoint("BOTTOMRIGHT", reach:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+    frame.skull = { window = window, reach = reach, mark = mark, value = 0 }
+    return frame.skull
+end
+
+function SpellTracker:StyleSkull(frame)
+    local skull = frame.skull
+    if not skull then return end
+    local side = math.max(6, math.floor((frame.iconSize or ICON_SIZE) * (self.db.skullSize or 36) / 100 + 0.5))
+    skull.window:SetSize(side, side)
+    skull.mark:SetWidth(side)
+    skull.mark:SetTexture(Lethal.ART[self.db.skullArt] or Lethal.ART.skull)
+    self:ApplySkullPop(skull)
+end
+
+function SpellTracker:ApplySkullPop(skull)
+    local wanted = self.db.skullPop == true and FX.tier.throb == true
+    if not wanted then
+        if skull.pop then skull.pop:Stop() end
+        return
+    end
+    local pop = skull.pop
+    if not pop then
+        pop = skull.window:CreateAnimationGroup()
+        pop:SetLooping("REPEAT")
+        local grow = pop:CreateAnimation("Scale")
+        grow:SetOrder(1)
+        grow:SetStartDelay(Lethal.POP_REST)
+        grow:SetDuration(Lethal.POP_GROW)
+        grow:SetScale(Lethal.POP_SCALE, Lethal.POP_SCALE)
+        grow:SetSmoothing("OUT")
+        local settle = pop:CreateAnimation("Scale")
+        settle:SetOrder(2)
+        settle:SetDuration(Lethal.POP_SETTLE)
+        settle:SetScale(1 / Lethal.POP_SCALE, 1 / Lethal.POP_SCALE)
+        settle:SetSmoothing("IN_OUT")
+        skull.pop = pop
+    end
+    if not pop:IsPlaying() then pop:Play() end
 end
 
 function SpellTracker:CreateIconGlow(frame)
@@ -421,8 +507,25 @@ function SpellTracker:SetComboEvents(needed)
     end
 end
 
+function SpellTracker:SetLethalEvents(needed)
+    local container = self.container
+    if not container or needed == self.lethalEvents then return end
+    self.lethalEvents = needed
+    if needed then
+        pcall(container.RegisterUnitEvent, container, "UNIT_HEALTH", "target")
+        container:RegisterEvent("PLAYER_REGEN_ENABLED")
+        self:RefreshSkullMax()
+    else
+        container:UnregisterEvent("UNIT_HEALTH")
+        container:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    end
+end
+
 function SpellTracker:OnEvent(event, ...)
-    if event == "UNIT_AURA" then
+    if event == "UNIT_HEALTH" then
+        self:RefreshSkullMax()
+        return
+    elseif event == "UNIT_AURA" then
         local unit, info = ...
         if unit == "player" then
             self:ReadAuraChanges(info)
@@ -443,6 +546,8 @@ function SpellTracker:OnEvent(event, ...)
         end
     elseif event == "PLAYER_TARGET_CHANGED" then
         self:OnTargetChanged()
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        self:CloseFight()
     elseif event == "PLAYER_ENTERING_WORLD" then
         self.targetKey = TargetKey()
         self:RefreshAllTrackers()
@@ -456,6 +561,10 @@ function SpellTracker:OnTargetChanged()
     local state = self.state
     local oldKey, newKey = self.targetKey, TargetKey()
     self.targetKey = newKey
+    self.retargetAt = GetTime()
+    for index in pairs(landDeadline) do
+        if entryByIndex[index] and entryByIndex[index].unit == "target" then landDeadline[index] = nil end
+    end
     if next(targetSpells) and (oldKey == nil or oldKey ~= newKey) then
         local now = GetTime()
         local dead = newKey ~= nil and TargetDead()
@@ -479,6 +588,37 @@ function SpellTracker:OnTargetChanged()
     end
     Plate:TargetChanged()
     QueueScan("target")
+    if #skullIcons > 0 then
+        self:RefreshSkullMax()
+        self:RefreshLethal(GetTime())
+    end
+end
+
+function SpellTracker:OnViewChange(name, on)
+    local now = GetTime()
+    for u = 1, #VIEW_UNITS do
+        local unit = VIEW_UNITS[u]
+        local config = trackedByName[unit][name]
+        local icon = config and self.db.icons[config.trackerIndex]
+        if icon and icon.enabled then
+            local index = config.trackerIndex
+            if on == nil then
+                landDeadline[index] = nil
+                if self.state:IsHeld(index) then
+                    self:HideTracker(index)
+                    QueueScan(unit)
+                end
+            elseif on then
+                landDeadline[index] = nil
+                if not self.state:IsActive(index) then
+                    local decision = self.state:Predict(index, config.spellID, icon.auraDuration, now) or self.state:Hold(index)
+                    if decision and decision.action == "show" then self:UpdateTracker(index, config.spellID, decision, unit) end
+                end
+            elseif not (unit == "target" and self.retargetAt and now - self.retargetAt < RETARGET_GRACE) and self.state:IsActive(index) then
+                self:HideTracker(index)
+            end
+        end
+    end
 end
 
 function SpellTracker:OnComboPoints()
@@ -585,6 +725,9 @@ function SpellTracker:OnTrackedCast(spellID)
             decision = state:Predict(trackerIndex, spellID, manual, now)
         end
         if decision then
+            if config.unit == "target" and View.State(config.name) == false then
+                landDeadline[trackerIndex] = now + LAND_WINDOW
+            end
             self:UpdateTracker(trackerIndex, trackedID, decision)
             if config.unit == "target" and self.comboPoints ~= nil and Game.IsFinisher(spellID) then
                 C_Timer.After(FINISHER_CHECK_DELAY, function()
@@ -732,6 +875,7 @@ function SpellTracker:UpdateTracker(trackerIndex, spellID, decision, unit, auraI
 
     if decision.expiration then
         trackTimed(trackerIndex)
+        if config.unit == "target" and not lethalStart[trackerIndex] and InCombatLockdown() then lethalStart[trackerIndex] = GetTime() end
     else
         untrackTimed(trackerIndex)
     end
@@ -788,8 +932,11 @@ function SpellTracker:HideTracker(trackerIndex)
     if frame.borderCooldown then frame.borderCooldown:Clear() end
     frame.shiftBase = nil
     untrackTimed(trackerIndex)
+    landDeadline[trackerIndex] = nil
+    if lethalStart[trackerIndex] then self:EndLethal(trackerIndex, GetTime()) end
     self.state:Hide(trackerIndex)
     self:RefreshBorder(trackerIndex)
+    if #skullIcons > 0 then self:RefreshLethal(GetTime()) end
 
     local shouldShow, alpha = self:DetermineVisibility(trackerIndex, false)
     frame.hideShow = shouldShow
@@ -837,6 +984,15 @@ function SpellTracker:OnUpdate(elapsed)
             local frame = iconFrames[trackerIndex]
             local remaining = frame and state:Remaining(trackerIndex, now)
             stats.visited = stats.visited + 1
+            local deadline = landDeadline[trackerIndex]
+            if deadline and now >= deadline then
+                landDeadline[trackerIndex] = nil
+                local entry = entryByIndex[trackerIndex]
+                if entry and View.State(entry.name) == false then
+                    self.addon:Debug("SpellTracker", "%s never landed, timer dropped", entry.name)
+                    remaining = 0
+                end
+            end
             if not remaining then
                 untrackTimed(trackerIndex)
             else
@@ -865,6 +1021,7 @@ function SpellTracker:OnUpdate(elapsed)
                 end
             end
         end
+        if #skullIcons > 0 then self:RefreshLethal(now) end
     end
 
     cooldownThrottle = cooldownThrottle + elapsed
@@ -1079,6 +1236,8 @@ function SpellTracker:SizeIcon(frame, size, cooldownTextSize)
     frame.glow:SetSize(size * 1.75, size * 1.75)
     frame.cooldownFontSize = cooldownTextSize
     frame.iconSize = size
+    frame.stackText:SetFont("Fonts\\FRIZQT__.TTF", math.max(STACK_TEXT_MIN, math.floor(size * STACK_TEXT_SCALE + 0.5)), "OUTLINE")
+    self:StyleSkull(frame)
     if frame.cooldownText then
         applyCooldownFont(frame, frame.lastCooldownText == READY_TEXT)
     end
@@ -1154,6 +1313,9 @@ function SpellTracker:RebuildTrackingLookups()
     playerAuraOwners = {}
     castMemo = {}
     auraOwnerMemo = {}
+    for index in pairs(entryByIndex) do entryByIndex[index] = nil end
+    for name in pairs(viewNames) do viewNames[name] = nil end
+    for index = #skullIcons, 1, -1 do skullIcons[index] = nil end
     for k in pairs(cooldownEnabledTrackers) do
         cooldownEnabledTrackers[k] = nil
     end
@@ -1177,8 +1339,17 @@ function SpellTracker:RebuildTrackingLookups()
                 name = name,
             }
             trackedSpellsByUnit[config.unit][config.spellID] = entry
+            entryByIndex[i] = entry
             local named = trackedByName[config.unit]
             if name and named and not named[name] then named[name] = entry end
+            if name then viewNames[name] = true end
+            if config.unit == "target" and config.lethalSkull and iconFrames[i] then
+                skullIcons[#skullIcons + 1] = i
+                local frame = iconFrames[i]
+                if not frame.skull then self:CreateSkull(frame) end
+                self:StyleSkull(frame)
+                frame.skull.window:Show()
+            end
             if config.unit == "player" then
                 playerAuraOwners[config.spellID] = i
                 if aliases then
@@ -1197,7 +1368,137 @@ function SpellTracker:RebuildTrackingLookups()
     end
     self:SetComboEvents(needsCombo)
     self:UpdateDriver()
+    self:ApplyViewLinks()
 end
+
+function SpellTracker:ApplyViewLinks()
+    for i = 1, ICON_POOL_SIZE do
+        local frame = iconFrames[i]
+        if frame and frame.skull then
+            local config = entryByIndex[i] and self.db.icons[i]
+            if not (config and config.unit == "target" and config.lethalSkull) then frame.skull.window:Hide() end
+        end
+    end
+    for name in pairs(mirrored) do
+        View.Mirror(name, nil)
+        mirrored[name] = nil
+    end
+    for name, entry in pairs(trackedByName.target) do
+        local frame = iconFrames[entry.trackerIndex]
+        if frame and entry.auraType == "HARMFUL" then
+            View.Mirror(name, frame.stackText)
+            mirrored[name] = true
+        end
+    end
+    View.Want("tracker", viewNames)
+    self:SetLethalEvents(#skullIcons > 0)
+end
+
+local function DescRate(name, spellID)
+    local rate = descRates[name]
+    if rate ~= nil then return rate or nil, descShares[name] end
+    local id = spellID
+    if C_Spell and C_Spell.GetSpellInfo then
+        local ok, info = pcall(C_Spell.GetSpellInfo, name)
+        if ok and type(info) == "table" and Game.Readable(info.spellID) then id = info.spellID end
+    end
+    local text
+    if id and C_Spell and C_Spell.GetSpellDescription then
+        local ok, value = pcall(C_Spell.GetSpellDescription, id)
+        if ok then text = Game.Readable(value) end
+    end
+    local share
+    rate, share = Lethal.DescRate(text)
+    descRates[name], descShares[name] = rate or false, share or 1
+    return rate, share or 1
+end
+
+function SpellTracker:LethalRates()
+    local char = self.addon.db1.char
+    char.lethalRates = char.lethalRates or {}
+    return char.lethalRates
+end
+
+function SpellTracker:RefreshLethal(now)
+    local rates = self:LethalRates()
+    local total = 0
+    for _, entry in pairs(trackedSpellsByUnit.target) do
+        local expiration = entry.name and self.state:Expiration(entry.trackerIndex)
+        if expiration then
+            total = total + Lethal.Remaining(Lethal.Rate(rates, entry.name, (DescRate(entry.name, entry.spellID))), expiration, now)
+        end
+    end
+    total = math.floor(total + 0.5)
+    for s = 1, #skullIcons do
+        local skull = iconFrames[skullIcons[s]].skull
+        if skull and skull.value ~= total then
+            skull.value = total
+            skull.reach:SetValue(total)
+        end
+    end
+end
+
+function SpellTracker:RefreshSkullMax()
+    if #skullIcons == 0 then return end
+    local ok, health = pcall(UnitHealth, "target")
+    if not ok or health == nil then health = 0 end
+    for s = 1, #skullIcons do
+        local skull = iconFrames[skullIcons[s]].skull
+        if skull then
+            skull.reach:SetMinMaxValues(0, health)
+            skull.reach:SetValue(skull.value)
+        end
+    end
+end
+
+function SpellTracker:EndLethal(index, now)
+    local start = lethalStart[index]
+    lethalStart[index] = nil
+    local entry = entryByIndex[index]
+    if not start or not entry or not entry.name then return end
+    local seconds = now - start
+    local record = self.state.records[index]
+    local duration = record and record.predictedDuration
+    if duration and seconds > duration then seconds = duration end
+    if seconds > 0 then fightSeconds[entry.name] = (fightSeconds[entry.name] or 0) + seconds end
+end
+
+function SpellTracker:CloseFight()
+    local now = GetTime()
+    for index in pairs(lethalStart) do
+        self:EndLethal(index, now)
+        if self.state:IsActive(index) then lethalStart[index] = now end
+    end
+    if next(fightSeconds) and not self.meterPending then
+        self.meterPending = true
+        C_Timer.After(METER_DELAY, function() SpellTracker:ReadMeter() end)
+    end
+end
+
+local function MeterName(spellID)
+    local ok, name = pcall(C_Spell.GetSpellName, spellID)
+    return ok and Game.Readable(name) or nil
+end
+
+function SpellTracker:ReadMeter()
+    self.meterPending = nil
+    if C_DamageMeter and C_DamageMeter.GetCombatSessionSourceFromType and Enum and Enum.DamageMeterSessionType and Enum.DamageMeterType then
+        local ok, source = pcall(C_DamageMeter.GetCombatSessionSourceFromType, Enum.DamageMeterSessionType.Current, Enum.DamageMeterType.DamageDone, UnitGUID("player"))
+        if ok and type(source) == "table" then
+            local totals = Lethal.MeterByName(source.combatSpells, MeterName, meterTotals)
+            local rates = self:LethalRates()
+            for name, active in pairs(fightSeconds) do
+                local damage = totals[name]
+                if damage then
+                    local _, share = DescRate(name)
+                    Lethal.Learn(rates, name, damage * (share or 1), active)
+                end
+            end
+        end
+    end
+    for name in pairs(fightSeconds) do fightSeconds[name] = nil end
+end
+
 
 function SpellTracker:LoadSettings()
     if not self.db then return end
@@ -1205,6 +1506,7 @@ function SpellTracker:LoadSettings()
     self.db.knownDurations = self.db.knownDurations or {}
     self.state:SetKnownDurations(self.db.knownDurations)
     self.db.animQuality = FX:SetQuality(self.db.animQuality)
+    if not Lethal.ART[self.db.skullArt] then self.db.skullArt = "skull" end
 
     self:MigrateIconSettings()
     self:UpdateContainerVisibility()
@@ -1246,6 +1548,12 @@ function SpellTracker:SetSetting(key, value)
         end
         if key == "showBorderTimer" then
             self:RefreshAllTrackers()
+        end
+        if key == "skullSize" or key == "skullArt" or key == "skullPop" or key == "animQuality" then
+            for i = 1, ICON_POOL_SIZE do
+                local frame = iconFrames[i]
+                if frame then self:StyleSkull(frame) end
+            end
         end
         if Settings.IsPlateKey(key) then
             self:LoadSettings()

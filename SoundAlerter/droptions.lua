@@ -150,11 +150,6 @@ end
 function SoundAlerter:BuildDRTrackerOptions()
     local Page = SoundAlerter.Page
     local rows = {
-        Page.Toggle("locked", "Lock position", "Unlock to drag each row anywhere on screen, then lock it again.", false, "General"),
-        Page.Action("Reset position", "Put every row back at its starting spot.", function()
-            local active = tracker()
-            if active then active:ResetPositions() end
-        end, false, "General"),
         Page.Action("Test", "Shows sample icons for a few seconds.", function()
             local active = tracker()
             if active then active:RunTest() end
@@ -176,6 +171,14 @@ function SoundAlerter:BuildDRTrackerOptions()
         module = tracker,
         defaults = function() return dbDefaults.profile.drTracker end,
         summary = summary,
+        lock = {
+            key = "locked",
+            hint = "Unlocked: drag any row anywhere on screen.",
+            reset = function()
+                local active = tracker()
+                if active then active:ResetPositions() end
+            end,
+        },
         rows = rows,
     })
 end

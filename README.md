@@ -9,7 +9,7 @@
 Voiced PvP alerts, bars and trackers for WoW Forever.
 
 <a href="https://www.curseforge.com/wow/addons/soundalerter-forever"><img alt="CurseForge version" src="https://img.shields.io/curseforge/v/1754014?label=CurseForge&color=F16436&logo=curseforge&logoColor=white&style=flat-square"/></a>
-<a href="https://github.com/th3pajay/soundalerter-forever/tree/develop"><img alt="Develop" src="https://img.shields.io/badge/develop-0.3.24-blue?logo=github&style=flat-square"/></a>
+<a href="https://github.com/th3pajay/soundalerter-forever/tree/develop"><img alt="Develop" src="https://img.shields.io/badge/develop-0.3.25-blue?logo=github&style=flat-square"/></a>
 <a href="https://www.curseforge.com/wow/addons/soundalerter-forever"><img alt="Downloads" src="https://img.shields.io/curseforge/dt/1754014?label=downloads&color=F16436&logo=curseforge&logoColor=white&style=flat-square"/></a>
 <a href="https://github.com/th3pajay/soundalerter-forever/commits/develop"><img alt="Last commit" src="https://img.shields.io/github/last-commit/th3pajay/soundalerter-forever/develop?label=updated&style=flat-square"/></a>
 <img alt="WoW Forever" src="https://img.shields.io/badge/WoW-Forever%201.60-E6B422?style=flat-square"/>
@@ -31,6 +31,25 @@ Voiced PvP alerts, bars and trackers for WoW Forever.
 <img src="Media/resource_mgt.gif?raw=true" width="256"/>
 <img src="Media/spell_tracker.gif?raw=true" width="256"/>
 </p>
+
+## Why SoundAlerter
+
+Most PvP addons were built on the combat log, and WoW Forever gives addons none, so they stay quiet. SoundAlerter was made for Forever from the start: it reads what the client allows, and where the client hides something, it lets the game itself draw or voice it instead of guessing.
+
+| Area | Instead of | What SoundAlerter adds |
+| --- | --- | --- |
+| Spell callouts | Voice alert addons built on the combat log | Works without the combat log, catches stealth from the aura, and the game speaks your picks in battlegrounds |
+| Interrupts | Interrupt announcers built on the combat log | The spell you stopped, your lockout, and when your interrupt is ready again |
+| Proximity | Enemy nameplates, or sighting addons | Name, distance, level, group size and auras in a toast, a watchlist, and sightings shared across your faction |
+| Flags and bases | The battleground score frame | Voiced, team-aware flag calls and Arathi Basin base alerts by name |
+| Spell tracker | The game's Cooldown Manager, or aura display addons | Any spell, anywhere or on the nameplate, timers kept per target, misses dropped, a lethal skull |
+| Resource bars | The game's player frame | Separate bars in 10 shapes, combo celebrations, swing spark, five-second rule, shift marks |
+| Casting bars, cast feed | The game's cast bars | Interrupted stamp, a look for casts you can't kick, tooltips for hidden spells, recent casts |
+| Diminishing returns | DR tracker addons, or counting in your head | One icon per crowd control category on target and focus, coloured by the next duration |
+| Trinket menu | The equipment manager, or trinket swap addons | Trinket sets, a gear set button and a weapon swap that works in combat |
+| Statistics | The scoreboard and honor tab | Alert history, your last 50 battlegrounds, honor goals and what your realm faces |
+
+**Where the game still does better:** the Cooldown Manager shows exact remaining time in combat, and the game's own cast bars can show enemy cast times the client hides from addons.
 
 ## Hear it
 

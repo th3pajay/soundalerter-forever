@@ -65,3 +65,29 @@ function Furor.Growing(clock, rank, now)
 end
 
 SA_FurorModel = Furor
+
+local Rune = {}
+
+Rune.GAP = 2
+Rune.GAP_MIN, Rune.GAP_MAX = 0.04, 5
+Rune.WINDOW_MIN, Rune.WINDOW_MAX = 0.3, 3
+Rune.WINDOW_FACTOR = 1.5
+Rune.KEEP = 0.7
+
+function Rune.Learn(gap, sample)
+    if type(sample) ~= "number" or sample <= Rune.GAP_MIN or sample >= Rune.GAP_MAX then return gap end
+    return gap * Rune.KEEP + sample * (1 - Rune.KEEP)
+end
+
+function Rune.Window(gap)
+    local window = gap * Rune.WINDOW_FACTOR
+    if window < Rune.WINDOW_MIN then return Rune.WINDOW_MIN end
+    if window > Rune.WINDOW_MAX then return Rune.WINDOW_MAX end
+    return window
+end
+
+function Rune.Armed(enabled, calm, energyForm)
+    return enabled == true and calm == true and energyForm == true
+end
+
+SA_RuneModel = Rune

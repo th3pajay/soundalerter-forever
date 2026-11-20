@@ -39,14 +39,36 @@ do
 SA_ZoneKind = {}
 
 local WORLD_TYPES = { contested = true, hostile = true, friendly = true }
+local INSTANCE_TYPES = { party = true, raid = true, scenario = true }
+local current = {}
 
 function SA_ZoneKind.Of(instanceType, pvpType, resting)
     if instanceType == "arena" or pvpType == "arena" then return "arena" end
     if instanceType == "pvp" then return "battleground" end
+    if INSTANCE_TYPES[instanceType] then return "instance" end
     if WORLD_TYPES[pvpType] then return "world" end
     if pvpType == "sanctuary" then return "sanctuary" end
     if (instanceType == nil or instanceType == "none") and not resting then return "world" end
     return "sanctuary"
+end
+
+function SA_ZoneKind.Refresh()
+    local Plain = SA_COMPAT.Plain
+    local _, instanceType = IsInInstance()
+    current.instanceType = Plain(instanceType)
+    current.pvpType = Plain(SA_COMPAT.GetZonePVPInfo())
+    local previous = current.kind
+    current.kind = SA_ZoneKind.Of(current.instanceType, current.pvpType, Plain(IsResting()))
+    return current.kind ~= previous
+end
+
+function SA_ZoneKind.Kind()
+    if not current.kind then SA_ZoneKind.Refresh() end
+    return current.kind
+end
+
+function SA_ZoneKind.Reported()
+    return current.instanceType, current.pvpType
 end
 end
 
@@ -848,5 +870,539 @@ function SA_Rearm.WaitFor(stamps, key, who, seconds, now)
     end
     byWho[who] = now
     return nil
+end
+end
+
+do
+SA_SpellAlerts = {}
+
+local Alerts = {}
+Alerts.__index = Alerts
+
+local EMPTY = {}
+local ROLE_SET = { player = "player", ally = "ally", watched = "enemy", nearby = "enemy" }
+local TRAP_KEYS = { freezingtrap = true, frosttrap = true }
+local BUBBLE = 642
+local TRINKET = 1259718
+local QUIET_NEARBY_CAST = 1245940
+local AURA_LISTS = { "selfDebuff", "enemyDebuffs", "enemyDebuffdown", "friendCCenemy", "friendCCSuccess", "enemyDebuffdownAP", "auraApplied", "auraRemoved" }
+local partyCache = {}
+
+local function clear(t)
+    for k in pairs(t) do t[k] = nil end
+end
+
+local function isParty(unit)
+    local cached = partyCache[unit]
+    if cached == nil then
+        cached = type(unit) == "string" and unit:match("^party%d$") ~= nil
+        partyCache[unit] = cached
+    end
+    return cached
+end
+
+local function scope(db, role)
+    return (db.myself and role == "watched") or (db.enemyinrange and role == "nearby")
+end
+
+local function stealthScope(db, role)
+    return (db.myself and role == "watched") or ((db.enemyinrange or db.stealthAnyEnemy) and role == "nearby") or false
+end
+
+function SA_SpellAlerts.New(out, game)
+    return setmetatable({
+        out = out, game = game,
+        maps = {}, counts = {}, used = {}, had = {}, sources = {}, fresh = {}, fields = {},
+        stealth = SA_StealthWatch.New(),
+        db = EMPTY, lists = EMPTY, pets = EMPTY,
+    }, Alerts)
+end
+
+function Alerts:Use(settings, lists, pets)
+    self.db = settings or EMPTY
+    self.lists = lists or EMPTY
+    self.pets = pets or EMPTY
+    self.sets = nil
+    self.custom = nil
+end
+
+function Alerts:Forget(unit)
+    if unit then
+        self.maps[unit], self.counts[unit], self.used[unit] = nil, nil, nil
+    else
+        clear(self.maps)
+        clear(self.counts)
+        clear(self.used)
+    end
+end
+
+local function keep(set, list, db, gate)
+    if not list then return end
+    for id, key in pairs(list) do
+        if gate or db[key] then set[id] = true end
+    end
+end
+
+local function buildSets(self)
+    local db, lists, game = self.db, self.lists, self.game
+    local player, ally, enemy = {}, {}, {}
+    if not db.dSelfDebuff then
+        keep(player, lists.selfDebuff, db, true)
+    else
+        for id, key in pairs(lists.selfDebuff or EMPTY) do
+            if TRAP_KEYS[key] then player[id] = true end
+        end
+    end
+    if not db.dArenaPartner then
+        keep(ally, lists.friendCCSuccess, db)
+        keep(ally, lists.enemyDebuffdownAP, db)
+        keep(enemy, lists.friendCCenemy, db)
+    end
+    if not db.dEnemyDebuff then keep(enemy, lists.enemyDebuffs, db) end
+    if not db.dEnemyDebuffDown then keep(enemy, lists.enemyDebuffdown, db) end
+    local applied = lists.auraApplied or EMPTY
+    local appliedVoice, appliedChat = not db.aruaApplied, db.chatauraApplied
+    for id, key in pairs(applied) do
+        if appliedChat or SA_StealthWatch.IsGroup(key) or (appliedVoice and db[key]) then enemy[id] = true end
+    end
+    local removedVoice, removedChat = not db.auraRemoved, db.chatauraRemoved
+    for id, key in pairs(lists.auraRemoved or EMPTY) do
+        if removedChat or (removedVoice and db[key]) then enemy[id] = true end
+    end
+    if db.bubbleenemy and applied[BUBBLE] then enemy[BUBBLE] = true end
+    for id, group in pairs(SA_CCChat.GROUP) do
+        if db[SA_CCChat.SELF_FRIEND[group]] then player[id], ally[id] = true, true end
+        if db[SA_CCChat.ENEMY[group]] then enemy[id] = true end
+    end
+    local names
+    for _, css in pairs(db.custom or EMPTY) do
+        local events = css.eventtype
+        if events and (events.SPELL_AURA_APPLIED or events.SPELL_AURA_REMOVED) and css.spellid then
+            local id = tonumber(css.spellid)
+            if id then player[id], ally[id], enemy[id] = true, true, true end
+            if css.acceptSpellName and css.spellname then
+                names = names or {}
+                names[css.spellname] = true
+            end
+        end
+    end
+    if names then
+        local seen = {}
+        local function scan(list)
+            for id in pairs(list or EMPTY) do
+                if not seen[id] then
+                    seen[id] = true
+                    local name = game.SpellName(id)
+                    if name and names[name] then player[id], ally[id], enemy[id] = true, true, true end
+                end
+            end
+        end
+        for i = 1, #AURA_LISTS do scan(lists[AURA_LISTS[i]]) end
+        scan(SA_CCChat.GROUP)
+    end
+    local sets = { player = player, ally = ally, enemy = enemy }
+    self.sets = sets
+    return sets
+end
+
+function Alerts:Tracked(role)
+    return (self.sets or buildSets(self))[ROLE_SET[role]] or EMPTY
+end
+
+local function link(self, spellID)
+    return self.game.Link(spellID) or "Unknown Spell"
+end
+
+local function say(self, template, area, spell, enemy, friend, target)
+    local fields = self.fields
+    fields.spell, fields.enemy, fields.friend, fields.target = spell, enemy, friend, target
+    self.out.Say(template, fields, area)
+    fields.spell, fields.enemy, fields.friend, fields.target = nil, nil, nil, nil
+end
+
+local function customIndex(self)
+    local index = self.custom
+    if index then return index end
+    index = { ids = {}, names = {} }
+    for _, css in pairs(self.db.custom or EMPTY) do
+        local events = css.eventtype
+        if events then
+            local id = tonumber(css.spellid)
+            for event, on in pairs(events) do
+                if on then
+                    if id then
+                        local byEvent = index.ids[event]
+                        if not byEvent then byEvent = {} index.ids[event] = byEvent end
+                        local bucket = byEvent[id]
+                        if not bucket then bucket = {} byEvent[id] = bucket end
+                        bucket[#bucket + 1] = css
+                    end
+                    if css.acceptSpellName then
+                        local named = index.names[event]
+                        if not named then named = {} index.names[event] = named end
+                        named[#named + 1] = css
+                    end
+                end
+            end
+        end
+    end
+    self.custom = index
+    return index
+end
+
+local function fire(self, css, event, source, dest, spellID)
+    local game, out = self.game, self.out
+    if not (game.MatchUnit(dest, css.destuidfilter, css.destcustomname)
+        and game.MatchUnit(source, css.sourceuidfilter, css.sourcecustomname)
+        and game.MatchType(dest, css.desttypefilter)
+        and game.MatchType(source, css.sourcetypefilter)) then return end
+    local debug = self.db.debugmode
+    if debug then
+        out.Debug("CustomSound", "%s matched on %s (spell %s, source %s -> dest %s)", tostring(css.name), event, tostring(spellID), tostring(source and game.Name(source)), tostring(dest and game.Name(dest)))
+    end
+    if not css.chatAlert then
+        out.CustomSound(css.soundfilepath)
+    elseif out.Ready(true, "custom") then
+        local enemy = ""
+        if event ~= "SPELL_CAST_START" then
+            enemy = (dest and game.Name(dest)) or (source and game.Name(source)) or ""
+        end
+        say(self, css.chatalerttext, "custom", link(self, spellID), enemy)
+    end
+end
+
+local function custom(self, event, source, dest, spellID)
+    local all = self.db.custom
+    if not all or not next(all) then return end
+    local game = self.game
+    if game.Secret(spellID) then return end
+    local index = customIndex(self)
+    local byEvent = index.ids[event]
+    local bucket = byEvent and byEvent[spellID]
+    if bucket then
+        for i = 1, #bucket do fire(self, bucket[i], event, source, dest, spellID) end
+    end
+    local named = index.names[event]
+    if named then
+        local spellName = game.SpellName(spellID)
+        if spellName then
+            for i = 1, #named do
+                local css = named[i]
+                if tonumber(css.spellid) ~= spellID and css.spellname == spellName then
+                    fire(self, css, event, source, dest, spellID)
+                end
+            end
+        end
+    end
+end
+
+function Alerts:Custom(event, source, dest, spellID)
+    custom(self, event, source, dest, spellID)
+end
+
+local function stealthChat(self, group, spellID, name, role)
+    local db = self.db
+    local isVanish, isStealth, isProwl = group == "vanish", group == "stealth", group == "prowl"
+    local wanted = ((db.vanishenemy and isVanish) or (db.stealthenemy and isStealth) or (db.prowlenemy and isProwl))
+        and (role == "watched" or ((db.vanishTF and isVanish) or (db.stealthTF and isStealth) or (db.prowlTF and isProwl)))
+    if self.out.Ready(wanted, "spells") then
+        say(self, db.enemychat, "spells", link(self, spellID), name)
+    end
+end
+
+local function stealthAlert(self, unit, role, spellID, kind, source, name, guid)
+    local db, out, game = self.db, self.out, self.game
+    local debug = db.debugmode
+    if not stealthScope(db, role) then
+        if debug then out.Log("%s %d %s dropped: scope (target and focus %s, enemies in range %s)", unit, spellID, kind, tostring(db.myself), tostring(db.enemyinrange)) end
+        return
+    end
+    if (source == "castSuccess" and db.castSuccess) or (source == "auraApplied" and db.aruaApplied) then
+        if debug then out.Log("%s %d %s dropped: %s alerts are muted", unit, spellID, kind, source) end
+        return
+    end
+    local list = self.lists[source] or EMPTY
+    local band = db.stealthKeepWatch and game.Range(unit) or nil
+    if not SA_StealthWatch.Decide(self.stealth, guid, kind, band, db, game.Now(), spellID, source) then
+        if debug then out.Log("%s %d %s dropped: already alerted, or first sight with on-sight off", unit, spellID, kind) end
+        return
+    end
+    local played = not (source == "auraApplied" and game.BattleVoices()) and out.Play(list, spellID, unit, guid, name)
+    if debug then out.Log("%s %d %s band %s: voice %s (%s)", unit, spellID, kind, tostring(band), played and "played" or "not played", tostring(list[spellID])) end
+    stealthChat(self, list[spellID], spellID, name, role)
+    if db.shareAlertsSend then out.Share(unit, guid, spellID, name) end
+    if SA_StealthWatch.Watching(self.stealth) > 0 then out.Watch() end
+end
+
+local function applied(self, unit, role, spellID, source, firstSight)
+    local db, lists, out, game = self.db, self.lists, self.out, self.game
+    if not firstSight then custom(self, "SPELL_AURA_APPLIED", source, unit, spellID) end
+
+    if role == "ally" then
+        if firstSight then return end
+        if not db.dArenaPartner then out.Play(lists.friendCCSuccess or EMPTY, spellID, unit) end
+        local kind = SA_CCChat.Kind(spellID, db)
+        if kind and out.Ready(true, "spells") then
+            local enemy = source and game.Name(source) or "An enemy"
+            say(self, kind == "sap" and db.sapfriendtext or db.friendchat, "spells", link(self, spellID), enemy, game.Name(unit) or "a friend")
+        end
+        return
+    end
+
+    if role == "player" then
+        if firstSight then return end
+        local selfList = lists.selfDebuff or EMPTY
+        if not db.dSelfDebuff and (game.Engine("player", "Added", spellID) or out.Play(selfList, spellID, unit)) then
+            out.SelfDebuff()
+        end
+        if source and TRAP_KEYS[selfList[spellID]] then out.TrapLanded(source, spellID) end
+        local kind = SA_CCChat.Kind(spellID, db)
+        if kind and out.Ready(true, "spells") then
+            if kind == "cc" then
+                say(self, db.selfchat, "spells", link(self, spellID), source and game.Name(source) or "An enemy", nil, "me")
+            else
+                say(self, db.sapselftext, "spells", link(self, spellID))
+            end
+        end
+        return
+    end
+
+    local name = game.Name(unit)
+    if not name then return end
+    local guid = game.GUID(unit)
+    if not guid then return end
+
+    local appliedList = lists.auraApplied or EMPTY
+    if SA_StealthWatch.IsGroup(appliedList[spellID]) then
+        stealthAlert(self, unit, role, spellID, firstSight and "sight" or "added", "auraApplied", name, guid)
+        return
+    end
+    if firstSight then return end
+
+    if source ~= nil and isParty(source) and not db.dArenaPartner then
+        out.Play(lists.friendCCenemy or EMPTY, spellID, unit)
+    elseif not db.dEnemyDebuff and not game.Engine(unit, "Added", spellID) then
+        out.Play(lists.enemyDebuffs or EMPTY, spellID, unit, guid, name)
+    end
+
+    if out.Ready(true, "spells") then
+        if SA_CCChat.OnEnemy(spellID, db) then say(self, db.enemychat, "spells", link(self, spellID), name) end
+        if db.bubbleenemy and spellID == BUBBLE then say(self, db.bubbleenemytext, "spells", nil, name) end
+    end
+
+    if scope(db, role) then
+        if not db.aruaApplied and not game.BattleVoices() then out.Play(appliedList, spellID, unit) end
+        if out.Ready(db.chatauraApplied and appliedList[spellID], "spells") then
+            say(self, db.enemybuffchat, "spells", link(self, spellID), name)
+        end
+    end
+end
+
+local function removed(self, unit, role, spellID)
+    local db, lists, out, game = self.db, self.lists, self.out, self.game
+    custom(self, "SPELL_AURA_REMOVED", nil, unit, spellID)
+    if role == "ally" then
+        if not db.dArenaPartner then out.Play(lists.enemyDebuffdownAP or EMPTY, spellID, unit) end
+        return
+    end
+    if role == "player" then return end
+    if SA_StealthWatch.IsGroup((lists.auraApplied or EMPTY)[spellID]) then
+        SA_StealthWatch.Clear(self.stealth, game.GUID(unit))
+    end
+    local name = game.Name(unit)
+    if not name then return end
+    if not db.dEnemyDebuffDown and not game.Engine(unit, "Removed", spellID) then
+        out.Play(lists.enemyDebuffdown or EMPTY, spellID, unit)
+    end
+    if out.Ready(db.chatdownfriend and SA_CCChat.OnEnemy(spellID, db), "spells") then
+        say(self, db.ccDownChat, "spells", link(self, spellID), name)
+    end
+    local removedList = lists.auraRemoved or EMPTY
+    if not db.auraRemoved then out.Play(removedList, spellID, unit) end
+    if out.Ready(db.chatauraRemoved and removedList[spellID], "spells") then
+        say(self, db.auraRemovedChat, "spells", link(self, spellID), name)
+    end
+end
+
+local function track(self, unit, instance, spellID)
+    local map, count = self.maps[unit], self.counts[unit]
+    if map[instance] then return false end
+    map[instance] = spellID
+    local n = (count[spellID] or 0) + 1
+    count[spellID] = n
+    return n == 1
+end
+
+local function untrack(self, unit, instance)
+    local map, count = self.maps[unit], self.counts[unit]
+    local spellID = map[instance]
+    if not spellID then return nil end
+    map[instance] = nil
+    local n = count[spellID] - 1
+    if n > 0 then
+        count[spellID] = n
+        return nil
+    end
+    count[spellID] = nil
+    return spellID
+end
+
+local function resync(self, unit, role, tracked, secretAdded, fresh)
+    local had, sources, maps, counts = self.had, self.sources, self.maps, self.counts
+    clear(had)
+    clear(sources)
+    local previous = counts[unit]
+    local firstSight = previous == nil
+    local before = self.used[unit]
+    if before == tracked then before = nil end
+    self.used[unit] = tracked
+    if previous then
+        for spellID in pairs(previous) do had[spellID] = true end
+        clear(previous)
+        clear(maps[unit])
+    else
+        maps[unit], counts[unit] = {}, {}
+    end
+    local game, probed = self.game, 0
+    for spellID in pairs(tracked) do
+        probed = probed + 1
+        local found, instance, source = game.Aura(unit, spellID)
+        if found then
+            track(self, unit, instance or ("spell" .. spellID), spellID)
+            sources[spellID] = source
+        end
+    end
+    self.out.Probed(probed, secretAdded)
+    local now = counts[unit]
+    for spellID in pairs(now) do
+        if not had[spellID] then
+            local quiet = firstSight or (before ~= nil and not before[spellID])
+            if quiet and fresh and fresh[spellID] then quiet = false end
+            applied(self, unit, role, spellID, sources[spellID], quiet)
+        end
+    end
+    for spellID in pairs(had) do
+        if not now[spellID] and tracked[spellID] then removed(self, unit, role, spellID) end
+    end
+end
+
+function Alerts:Resync(unit, role, secretAdded)
+    resync(self, unit, role, self:Tracked(role), secretAdded)
+end
+
+function Alerts:Aura(unit, role, info, petOnly)
+    local game = self.game
+    local tracked = petOnly and self.pets or self:Tracked(role)
+    local secret = game.Secret
+    if not self.maps[unit] then
+        local fresh = self.fresh
+        clear(fresh)
+        if info ~= nil and not secret(info) then
+            local full, added = info.isFullUpdate, info.addedAuras
+            if not (full ~= nil and secret(full)) and not full and added ~= nil and not secret(added) then
+                for _, aura in ipairs(added) do
+                    local spellID = aura.spellId
+                    if spellID ~= nil and not secret(spellID) and tracked[spellID] then fresh[spellID] = true end
+                end
+            end
+        end
+        resync(self, unit, role, tracked, nil, fresh)
+        return "first"
+    end
+    if info == nil or secret(info) then return "unreadable", "unreadable" end
+    local full, added, gone = info.isFullUpdate, info.addedAuras, info.removedAuraInstanceIDs
+    if (full ~= nil and secret(full)) or (added ~= nil and secret(added)) or (gone ~= nil and secret(gone)) or full then
+        return "unreadable", "unreadable"
+    end
+    local needs = false
+    if added then
+        local debug, appliedList = self.db.debugmode, self.lists.auraApplied or EMPTY
+        for _, aura in ipairs(added) do
+            local spellID, instance = aura.spellId, aura.auraInstanceID
+            if spellID == nil or secret(spellID) or (instance ~= nil and secret(instance)) then
+                needs = true
+            elseif tracked[spellID] and track(self, unit, instance, spellID) then
+                if debug and SA_StealthWatch.IsGroup(appliedList[spellID]) then
+                    self.out.Log("%s %d seen in a UNIT_AURA delta", unit, spellID)
+                end
+                local source = aura.sourceUnit
+                if source ~= nil and secret(source) then source = nil end
+                applied(self, unit, role, spellID, source, false)
+            end
+        end
+    end
+    if gone then
+        for _, instance in ipairs(gone) do
+            if instance ~= nil and secret(instance) then
+                needs = true
+            else
+                local spellID = untrack(self, unit, instance)
+                if spellID then removed(self, unit, role, spellID) end
+            end
+        end
+    end
+    return "delta", needs and "secret" or nil
+end
+
+function Alerts:Cast(unit, role, kind, spellID)
+    local db, lists, out, game = self.db, self.lists, self.out, self.game
+    if kind == "start" then
+        custom(self, "SPELL_CAST_START", unit, nil, spellID)
+        if not scope(db, role) then return end
+        local key = (lists.castStart or EMPTY)[spellID]
+        if not key or (not db.chatcastStart and (db.castStart or not db[key])) then return end
+        local guid = game.GUID(unit)
+        local name = guid and game.Name(unit)
+        if not name then return end
+        if not db.castStart then out.Play(lists.castStart, spellID, unit, guid, name) end
+        if out.Ready(db.chatcastStart and key, "spells") then
+            say(self, db.castStartChat, "spells", link(self, spellID), name)
+        end
+        return
+    end
+    local guid = game.GUID(unit)
+    local name = guid and game.Name(unit)
+    if not name then return end
+    out.EnemyCast(spellID, name)
+    custom(self, "SPELL_CAST_SUCCESS", unit, nil, spellID)
+    if out.Ready(db.trinketalert and spellID == TRINKET, "spells") then
+        say(self, db.trinketalerttext, "spells", nil, name)
+    end
+    if spellID == TRINKET and db.trinket then
+        out.Trinket(unit, guid, name)
+    elseif scope(db, role) and not db.castSuccess then
+        local list = lists.castSuccess or EMPTY
+        if SA_StealthWatch.IsGroup(list[spellID]) then
+            stealthAlert(self, unit, role, spellID, "added", "castSuccess", name, guid)
+        elseif not (role == "nearby" and db.enemyinrange and spellID == QUIET_NEARBY_CAST) then
+            out.Play(list, spellID, unit, guid, name)
+        end
+    end
+end
+
+function Alerts:SharedStealth(guid, spellID, name)
+    local db, game = self.db, self.game
+    local list = self.lists.auraApplied or EMPTY
+    if not SA_StealthWatch.IsGroup(list[spellID]) or db.aruaApplied or not game.ZoneAllowed() then return false end
+    if not SA_StealthWatch.Decide(self.stealth, guid, "added", nil, db, game.Now(), spellID, "auraApplied") then return false end
+    local played = self.out.Play(list, spellID, nil, guid, name)
+    if db.debugmode then self.out.Log("shared %d from the group: voice %s", spellID, played and "played" or "not played") end
+    return played and true or false
+end
+
+function Alerts:Tick()
+    local db, stealth, game = self.db, self.stealth, self.game
+    if not db.stealthKeepWatch then SA_StealthWatch.Reset(stealth) end
+    if SA_StealthWatch.Watching(stealth) == 0 then return false end
+    if not game.ZoneAllowed() then return true end
+    local now = game.Now()
+    for guid, entry in SA_StealthWatch.NextWatching, stealth, nil do
+        local unit = game.FindWatched(guid)
+        if unit and SA_StealthWatch.Decide(stealth, guid, "tick", game.Range(unit), db, now) then
+            self.out.Play(self.lists[entry.source] or EMPTY, entry.spellID, unit, guid, game.Name(unit))
+        end
+    end
+    SA_StealthWatch.Sweep(stealth, now)
+    return true
 end
 end

@@ -212,8 +212,8 @@ end
 
 
 local function canAnnounce()
-    local kind = SoundAlerter.cachedInstanceType
-    return state and state.best.release > 0 and not InCombatLockdown() and kind ~= "arena" and kind ~= "pvp"
+    local kind = SA_ZoneKind.Kind()
+    return state and state.best.release > 0 and not InCombatLockdown() and kind ~= "arena" and kind ~= "battleground"
 end
 
 local function groupChannel()

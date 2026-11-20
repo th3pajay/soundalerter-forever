@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.3.25
+
+## Stacking debuffs
+
+### New
+
+Resource Bar
+- Five-second rule on the mana bar: after a spell that costs mana, a thin line runs across the bar for five seconds, the time until your spirit regen starts again. The next mana spell starts it over, except one made free by Clearcasting while combat data is on. On by default whenever the mana bar is shown; switch it off or preview it under the Mana bar settings.
+- Shift marks for druids: small gold notches on the top and bottom edge of the mana bar, one pair for each shift your mana pays for, so two lit pairs means two shifts left. Shifts you cannot afford stay as faint notches and light up from the left as your mana returns. They breathe gently on Normal and glow on High, following the combo point animation quality. On by default with the mana bar; switch it off under the Mana bar settings.
+
+![Mana bar timers and the Poised rune](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/mana-timers.png)
+
+Spell Tracker
+- See your debuffs land in combat. With the new Combat data switch, Spell Tracker uses the game's own Cooldown Manager to see whether your bleed or debuff landed on the target. A dodged or parried cast drops its timer, a debuff that runs out or is removed early ends its timer at once, and switching back to an earlier target shows its debuffs again straight away. You are asked once with a small card under the minimap; it is switched on at your next reload and the Cooldown Manager's own icons are hidden.
+- Debuff stacks such as Lacerate show in the corner of the icon in combat.
+- Lethal skull: a small skull in the top right corner of a target icon when your running bleeds and damage over time will finish the target. The game compares the damage with the target's health, so it also works when health is hidden. Turn it on per spell under Selected spell; size and look (Raid skull, Gravestone or Blood drop) are under Display, and the live preview shows all three inside its card. An optional pulse (off by default) gives the skull a short bounce every 1.6 seconds while it shows. It learns your real damage from the damage meter after each fight.
+
+![Spell Tracker landing check, stacks and lethal skull](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/tracker-combat.png)
+
+Options
+- Long settings pages now have tabs: Resource Management (Bars, Combo points, Timers & marks, Look), Spell Tracker, Proximity, Trinket Menu, Flag alerts, Cast Feed and Casting Bars. Each page remembers the tab you last had open. Resource Management now keeps each bar's switch, colour and scale together, and the Poised rune, five-second rule, shift marks and swing spark are always in view on their own tab instead of under More options. Its preview now shows the rune, the sweep, the shift marks, the swing spark and an outline on each bar while unlocked.
+- Lock position now sits at the top right of every page that has it, next to the on/off switch where there is one, with Reset position beside Reset to defaults. While unlocked, a strip across the top says so and has a Lock button. Your settings are unchanged.
+- The options window has an x in its top right corner to close it, and you can now drag it by the bottom bar as well as the title. The bottom edge no longer resizes it; the bottom right corner and the right edge still do.
+
+Voice Alerts
+- Say my procs now also hears buff procs: Clearcasting (druid, mage and shaman), Nature's Grace and Shadow Trance, in and out of combat (in combat through the Combat data switch). /sa procs lists which still need a voice file.
+- Your own presets can be updated in place: when your switches differ from the selected saved preset, an Update button (click twice to confirm) saves the current switches into that preset under the same name, instead of making a new one.
+
+### Improved
+
+Voice Alerts
+- Spell alerts do less work on every aura change: each unit only looks up the spells it can trigger (yourself about a quarter as many as before, allies about a tenth), and spells whose voice and chat line are both off are skipped. Custom alerts are matched straight from the spell instead of checking every custom alert. Chat lines now show the spell's name when the game has no link for it.
+
+![When enemy buff voices play, and fewer lookups per unit](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/buff-voices.png)
+
+### Fixed
+
+Zones
+- With World PvP switched on (the default), spell and voice alerts now play in the open world. WoW Forever never says whether a zone is contested, so the switch never matched and only All zones let open-world alerts through.
+- Statistics no longer file alerts from dungeons and cities under world PvP when the World PvP switch is on. Only the open world counts as world PvP now, whatever your zone switches say. Counts already saved stay as they are.
+
+Resource Bar
+- The Poised marker is redone as a gold rune P just right of the energy bar. It shows only out of combat, in Cat Form or on a rogue, with full energy, stamping down with a ring pulse. It implodes into its centre the moment combat starts or you leave Cat Form, and goes out at once when you spend energy. A stray energy update while you are already full no longer hides it. Its animation follows the combo point animation quality. The old marker never lit up and raised a Lua error in combat; both are gone.
+
+Global sightings
+- Answering the Global sightings card under the minimap (Keep or Turn off) raised a Lua error while the card closed. It now closes cleanly.
+
+Voice Alerts
+- "Enemy gains it" alerts such as Thorns no longer play when you target an enemy, or their nameplate appears, while they already have the buff. Only a buff gained while you can see them is called out, including one cast right after you target them, such as a paladin bubbling the moment you click them. Buffs and debuffs already on you after a reload stay quiet too, and custom aura alerts follow the same rule.
+
 ## 0.3.24
 
 ## Honor, grass and dead gnomes

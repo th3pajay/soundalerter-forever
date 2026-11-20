@@ -54,7 +54,10 @@ function SoundAlerter:ShowConfig()
         restoreWindow()
 	    AceConfigDialog:Open(CONFIG)
         local opened = AceConfigDialog.OpenFrames[CONFIG]
-        if opened then pcall(SA_WindowSkin.Badge, opened) end
+        if opened then
+            pcall(SA_WindowSkin.Badge, opened)
+            pcall(SA_WindowSkin.Chrome, opened)
+        end
         if opened and sadb.flatWindow ~= false then pcall(SA_WindowSkin.Apply, opened) end
         if opened and opened.frame and not opened.frame.saRemembersPage then
             opened.frame.saRemembersPage = true

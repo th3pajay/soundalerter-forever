@@ -12,6 +12,8 @@ local RIGHT_WIDTH = 280
 local ROW_WITH_HINT = 40
 local ROW_PLAIN = 28
 local SCROLL_STEP = 48
+local TAB_HEIGHT = 30
+local BANNER_HEIGHT = 30
 
 local COLOR = {
     card = { 0.09, 0.11, 0.145 },
@@ -272,6 +274,8 @@ function Page.Module(config)
         summary = function(settings) return config.summary(settings, config.module()) end,
         preview = config.preview,
         rows = config.rows,
+        tabs = config.tabs,
+        lock = config.lock,
     })
     local options = Page.Options(spec, config.title, config.icon, config.desc, config.order)
     Page.Guard(options, config.title, config.key, config.module)
@@ -892,8 +896,8 @@ end
 function Methods:Change(key, value)
     self.spec.set(key, value)
     self:Refresh()
-    for index = 1, #self.rows do
-        local entry = self.rows[index]
+    for index = 1, #self.active do
+        local entry = self.active[index]
         if entry.spec.key == key then
             if entry.spec.kind ~= "range" then SA_MenuFX.Flash(entry.flash) end
             break
@@ -904,24 +908,89 @@ end
 function Methods:Reset()
     local defaults = self.spec.defaults and self.spec.defaults()
     if not defaults then return end
-    for index = 1, #self.rows do
-        local row = self.rows[index].spec
+    local rows = self.spec.rows
+    for index = 1, #rows do
+        local row = rows[index]
         local value = row.key and Resolve(defaults, row.key)
         if value ~= nil then
             if type(value) == "table" then value = { r = value.r, g = value.g, b = value.b } end
             self.spec.set(row.key, value)
         end
     end
+    if self.spec.lock then
+        local value = Resolve(defaults, self.spec.lock.key)
+        if value ~= nil then self.spec.set(self.spec.lock.key, value) end
+    end
     self:Refresh()
 end
 
+local function TabStore()
+    local global = SoundAlerter.db1 and SoundAlerter.db1.global
+    if not global then return nil end
+    global.optionsTabs = global.optionsTabs or {}
+    return global.optionsTabs
+end
+
+function Methods:TabFor(row)
+    return self.tabOfGroup[row.group] or self.spec.tabs[1].key
+end
+
+function Methods:SelectTab(key, animate)
+    if not self.tabButtons[key] or key == self.tab then return end
+    if self.layout then
+        for _, item in ipairs(self.layout) do
+            local region = item.frame or (item.entry and item.entry.frame) or item.line
+            if region then region:Hide() end
+            if item.caption then item.caption:Hide() end
+            if item.accent then item.accent:Hide() end
+        end
+    end
+    local previous = self.tabButtons[self.tab]
+    if previous then previous.label:SetTextColor(COLOR.muted[1], COLOR.muted[2], COLOR.muted[3]) end
+    self.tab = key
+    local button = self.tabButtons[key]
+    button.label:SetTextColor(COLOR.text[1], COLOR.text[2], COLOR.text[3])
+    self.tabLine:SetWidth(button.width)
+    SA_MenuFX.Glide(self.tabLine, self.tabTrack, button.x, animate)
+    local store = TabStore()
+    if store then store[self.spec.title] = key end
+    self:Populate(key)
+    self.layoutSignature = nil
+    self.scroll:SetVerticalScroll(0)
+    if self.settings then self:Refresh() end
+    if animate then SA_MenuFX.Appear(self.child) end
+end
+
+function Methods:PlaceScroll()
+    local top = HEADER_HEIGHT + (self.tabTrack and TAB_HEIGHT or 0) + (self.banner and self.banner:IsShown() and BANNER_HEIGHT or 0)
+    if top == self.scrollTop then return end
+    self.scrollTop = top
+    self.scroll:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, -top)
+end
+
+function Methods:RefreshLock(settings)
+    local lock = self.spec.lock
+    if not lock then return end
+    local locked = Resolve(settings, lock.key) and true or false
+    if locked == self.locked then return end
+    local first = self.locked == nil
+    self.locked = locked
+    local tint = locked and COLOR.on or COLOR.accent
+    self.lockPill.label:SetText(locked and "Locked" or "Unlocked")
+    self.lockPill.label:SetTextColor(tint[1], tint[2], tint[3])
+    EdgeColor(self.lockPill.edges, tint)
+    self.banner:SetShown(not locked)
+    self:PlaceScroll()
+    if not locked and not first then SA_MenuFX.Appear(self.banner) end
+end
+
 function Methods:Visibility(settings)
-    local bits = {}
-    for index = 1, #self.rows do
-        local entry = self.rows[index]
+    local bits = { self.tab or "" }
+    for index = 1, #self.active do
+        local entry = self.active[index]
         local row = entry.spec
         entry.visible = not row.visible or (row.visible(settings) and true or false)
-        bits[index] = (entry.visible and "1" or "0") .. ((row.kind == "block" or row.kind == "custom") and tostring(entry.height) or "")
+        bits[index + 1] = (entry.visible and "1" or "0") .. ((row.kind == "block" or row.kind == "custom") and tostring(entry.height) or "")
     end
     return table.concat(bits)
 end
@@ -1012,9 +1081,10 @@ function Methods:Refresh()
         self.masterLabel:SetTextColor(tint[1], tint[2], tint[3])
     end
     self.summary:SetText(self.spec.summary and self.spec.summary(settings) or "")
+    self:RefreshLock(settings)
 
-    for index = 1, #self.rows do
-        local entry = self.rows[index]
+    for index = 1, #self.active do
+        local entry = self.active[index]
         local row = entry.spec
         if row.kind == "select" and type(row.options) == "function" then
             entry.control:SetOptions(row.options(settings))
@@ -1200,20 +1270,36 @@ function Methods:AddRow(row, advanced)
         end)
     end
     self.rows[#self.rows + 1] = entry
+    self.active[#self.active + 1] = entry
     return entry
 end
 
-function Methods:Populate()
-    self.layout = {}
+function Methods:Populate(tab)
+    self.layouts = self.layouts or {}
+    local built = self.layouts[tab or ""]
+    if built then
+        self.layout, self.active = built.layout, built.active
+        return
+    end
+    self.layout, self.active = {}, {}
+    self.layouts[tab or ""] = { layout = self.layout, active = self.active }
+    local function wanted(row)
+        return not tab or self:TabFor(row) == tab
+    end
     local function block(advanced)
         local order, seen = {}, {}
         for index = 1, #self.spec.rows do
             local row = self.spec.rows[index]
-            if row.advanced == advanced then
+            if row.advanced == advanced and wanted(row) then
                 if not seen[row.group] then seen[row.group] = {}; order[#order + 1] = row.group end
                 local list = seen[row.group]
                 list[#list + 1] = row
             end
+        end
+        if tab then
+            local rank, seenAt = self.groupRank, {}
+            for position = 1, #order do seenAt[order[position]] = position end
+            table.sort(order, function(a, b) return (rank[a] or 1000 + seenAt[a]) < (rank[b] or 1000 + seenAt[b]) end)
         end
         local members = {}
         for index = 1, #order do
@@ -1236,7 +1322,8 @@ function Methods:Populate()
     block(false)
     local hasAdvanced = false
     for index = 1, #self.spec.rows do
-        if self.spec.rows[index].advanced then hasAdvanced = true break end
+        local row = self.spec.rows[index]
+        if row.advanced and wanted(row) then hasAdvanced = true break end
     end
     if hasAdvanced then
         local line = Paint(self.child, COLOR.line)
@@ -1275,7 +1362,7 @@ local function BuildPage(spec)
     title:SetText(spec.title)
     local blurb = Text(frame, 11.5, COLOR.muted)
     blurb:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -3)
-    blurb:SetPoint("RIGHT", frame, "RIGHT", -150, 0)
+    blurb:SetPoint("RIGHT", frame, "RIGHT", (spec.lock and spec.lock.reset) and -250 or -150, 0)
     blurb:SetText(spec.blurb or "")
 
     page.master = MakeToggle(frame, function(value) page:Change("enabled", value) end)
@@ -1297,6 +1384,37 @@ local function BuildPage(spec)
     reset:SetScript("OnClick", function() page:Reset() end)
     reset:SetScript("OnEnter", function() resetLabel:SetTextColor(COLOR.accent[1], COLOR.accent[2], COLOR.accent[3]) end)
     reset:SetScript("OnLeave", function() resetLabel:SetTextColor(COLOR.muted[1], COLOR.muted[2], COLOR.muted[3]) end)
+
+    local lock = spec.lock
+    if lock then
+        local function flip() page:Change(lock.key, not page.locked) end
+        local pill = CreateFrame("Button", nil, frame)
+        pill:SetSize(70, 18)
+        if spec.master == false then
+            pill:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
+        else
+            pill:SetPoint("RIGHT", page.masterLabel, "LEFT", -10, 0)
+        end
+        local fill = Paint(pill, COLOR.card)
+        fill:SetAllPoints(pill)
+        local label = Text(pill, 11, COLOR.on, "CENTER")
+        label:SetPoint("CENTER", pill, "CENTER", 0, 0)
+        pill:SetScript("OnClick", flip)
+        SA_MenuFX.Press(pill, fill, label)
+        page.lockPill = { frame = pill, label = label, edges = Outline(pill, COLOR.on) }
+        if lock.reset then
+            reset:SetWidth(resetLabel:GetStringWidth() + 4)
+            local where = CreateFrame("Button", nil, frame)
+            where:SetSize(100, 16)
+            where:SetPoint("RIGHT", reset, "LEFT", -14, 0)
+            local whereLabel = Text(where, 11, COLOR.muted, "RIGHT")
+            whereLabel:SetAllPoints(where)
+            whereLabel:SetText("Reset position")
+            where:SetScript("OnClick", function() lock.reset() end)
+            where:SetScript("OnEnter", function() whereLabel:SetTextColor(COLOR.accent[1], COLOR.accent[2], COLOR.accent[3]) end)
+            where:SetScript("OnLeave", function() whereLabel:SetTextColor(COLOR.muted[1], COLOR.muted[2], COLOR.muted[3]) end)
+        end
+    end
 
     page.summary = Text(frame, 11.5, COLOR.muted)
     page.summary:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -56)
@@ -1369,7 +1487,71 @@ local function BuildPage(spec)
     if page.infoBody.SetWordWrap then page.infoBody:SetWordWrap(true) end
     page.infoBody:SetJustifyV("TOP")
 
-    page:Populate()
+    if lock then
+        local banner = CreateFrame("Frame", nil, frame)
+        banner:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -(HEADER_HEIGHT + (spec.tabs and TAB_HEIGHT or 0)))
+        banner:SetPoint("RIGHT", scroll, "RIGHT", 0, 0)
+        banner:SetHeight(BANNER_HEIGHT - 6)
+        local fill = Paint(banner, ACCENT.FILL)
+        fill:SetAllPoints(banner)
+        Outline(banner, ACCENT.EDGE)
+        local text = Text(banner, 11.5, COLOR.text)
+        text:SetPoint("LEFT", banner, "LEFT", 10, 0)
+        text:SetText(lock.hint or "Unlocked: drag to move. Lock again when you are done.")
+        local again = MakeButton(banner, "Lock", function() page:Change(lock.key, true) end)
+        again.frame:SetHeight(18)
+        again.frame:SetPoint("RIGHT", banner, "RIGHT", -6, 0)
+        text:SetPoint("RIGHT", again.frame, "LEFT", -8, 0)
+        banner:Hide()
+        page.banner = banner
+    end
+
+    if spec.tabs then
+        local track = CreateFrame("Frame", nil, frame)
+        track:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -HEADER_HEIGHT)
+        track:SetPoint("RIGHT", scroll, "RIGHT", 0, 0)
+        track:SetHeight(TAB_HEIGHT - 6)
+        local base = Paint(track, COLOR.line, 1, "BORDER")
+        base:SetPoint("BOTTOMLEFT", track, "BOTTOMLEFT", 0, 0)
+        base:SetPoint("BOTTOMRIGHT", track, "BOTTOMRIGHT", 0, 0)
+        base:SetHeight(1)
+        local rail = CreateFrame("Frame", nil, track)
+        rail:SetPoint("BOTTOMLEFT", track, "BOTTOMLEFT", 0, 0)
+        rail:SetPoint("BOTTOMRIGHT", track, "BOTTOMRIGHT", 0, 0)
+        rail:SetHeight(2)
+        page.tabLine = Paint(rail, COLOR.accent, 1, "ARTWORK")
+        page.tabLine:SetHeight(2)
+        page.tabTrack = rail
+        page.tabOfGroup, page.tabButtons, page.groupRank = {}, {}, {}
+        local x = 0
+        for _, tab in ipairs(spec.tabs) do
+            for rank, group in ipairs(tab.groups or {}) do
+                page.tabOfGroup[group] = tab.key
+                page.groupRank[group] = rank
+            end
+            local button = CreateFrame("Button", nil, track)
+            local label = Text(button, 12, COLOR.muted, "CENTER")
+            label:SetPoint("CENTER", button, "CENTER", 0, 1)
+            label:SetText(tab.label)
+            local width = math.floor(label:GetStringWidth() + 24 + 0.5)
+            button:SetSize(width, TAB_HEIGHT - 8)
+            button:SetPoint("BOTTOMLEFT", track, "BOTTOMLEFT", x, 2)
+            local key = tab.key
+            button:SetScript("OnClick", function() page:SelectTab(key, true) end)
+            local tint = Paint(button, COLOR.line, 0.5)
+            tint:SetAllPoints(button)
+            tint:Hide()
+            SA_MenuFX.Hover(button, tint)
+            page.tabButtons[key] = { frame = button, label = label, x = x, width = width }
+            x = x + width + 2
+        end
+        local store = TabStore()
+        local saved = store and store[spec.title]
+        page:SelectTab(page.tabButtons[saved] and saved or spec.tabs[1].key, false)
+    else
+        page:Populate()
+    end
+    page:PlaceScroll()
     page:SetInfo(nil)
     return page
 end
