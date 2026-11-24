@@ -137,60 +137,12 @@ local BAR_CONFIGS = {
 	}
 }
 
-local RESOURCE_BAR_KEYS = {
-	energyColor = true,
-	rageColor = true,
-	healthColor = true,
-	manaColor = true,
-	comboActiveColor = true,
-	comboMaxColor = true,
-	comboInactiveColor = true,
-	comboStyle = "circle",
-	comboCelebration = true,
-	comboAnimQuality = true,
-	comboExit = true,
-	fullCPSound = true,
-	barTexture = true,
-	barTextureQuality = true,
-	healthHeight = true,
-	comboPositionX = true,
-	comboPositionY = true,
-	comboScale = true,
-	comboTextPositionX = true,
-	comboTextPositionY = true,
-	locked = true,
-	comboEnabled = true,
-	comboTextEnabled = true,
-	energyEnabled = true,
-	energyScale = true,
-	rageEnabled = true,
-	rageScale = true,
-	rageFade = true,
-	swingSpark = true,
-	swingSparkFlash = true,
-	healthEnabled = true,
-	healthScale = true,
-	manaEnabled = true,
-	manaScale = true,
-	manaSweep = true,
-	manaShiftMarks = true,
-	poisedGlow = true,
-}
-
 function ResourceBar:GetSettings()
 	return self.db
 end
 
-function ResourceBar:SetSetting(key, value)
-	if not RESOURCE_BAR_KEYS[key] then
-		error("ResourceBar:SetSetting - unknown setting key '"..tostring(key).."'", 2)
-	end
-	self.db[key] = value
-end
-
 function ResourceBar:Initialize()
 	if self.initialized then return end
-	self.db = SoundAlerter.db1.profile.resourceBar
 	self.initialized = false
 
 	self.cachedColors = {}
@@ -237,10 +189,6 @@ function ResourceBar:Initialize()
 	self:CreateCPFrame()
 	self:CreateCPTextFrame()
 	self:RegisterEvents()
-	self:LoadSettings()
-	self:ApplyBarTexture()
-	self:CacheColors()
-	self:UpdateVisibility()
 
 	self.initialized = true
 end
@@ -1369,11 +1317,11 @@ function ResourceBar:UNIT_POWER_FREQUENT(event, unitId, powerType)
 end
 
 function ResourceBar:UI_SCALE_CHANGED()
-	self:LoadSettings()
+	self:Layout()
 end
 
 function ResourceBar:DISPLAY_SIZE_CHANGED()
-	self:LoadSettings()
+	self:Layout()
 end
 
 function ResourceBar:UNIT_MAXPOWER(event, unitId, powerType)
@@ -1537,7 +1485,53 @@ function ResourceBar:ApplyBarTexture()
 	end
 end
 
-function ResourceBar:LoadSettings()
+local BAR_FRAMES = { energyScale = "energyFrame", rageScale = "rageFrame", healthScale = "healthFrame", manaScale = "manaFrame", comboScale = "comboFrame" }
+local COLOR_UPDATES = { energyColor = "UpdateEnergyBar", rageColor = "UpdateRageBar", healthColor = "UpdateHealthBar", manaColor = "UpdateManaBar" }
+local VISIBILITY = { locked = true, swingSpark = true, manaSweep = true, manaShiftMarks = true, energyEnabled = true, rageEnabled = true, rageFade = true, healthEnabled = true, manaEnabled = true, comboEnabled = true, comboTextEnabled = true }
+local COMBO_COLORS = { comboActiveColor = true, comboMaxColor = true, comboInactiveColor = true }
+local CELEBRATION_KEYS = { comboCelebration = true, comboAnimQuality = true, comboExit = true }
+
+local function applyKey(bar, key)
+	if key == "barTexture" or key == "barTextureQuality" then
+		bar:ApplyBarTexture()
+	elseif VISIBILITY[key] then
+		bar:UpdateVisibility()
+	elseif BAR_FRAMES[key] then
+		local frame = bar[BAR_FRAMES[key]]
+		if frame then frame:SetScale(bar.db[key]) end
+	elseif COLOR_UPDATES[key] then
+		bar:CacheColors()
+		bar[COLOR_UPDATES[key]](bar)
+	elseif CELEBRATION_KEYS[key] then
+		bar:ApplyCelebration()
+		if key == "comboAnimQuality" then
+			bar:RefreshShiftMarks()
+			bar:ApplyPoisedQuality()
+		end
+	elseif key == "poisedGlow" then
+		bar:UpdatePoisedTracking()
+	elseif key == "comboStyle" then
+		bar:ApplyCPStyle()
+	elseif COMBO_COLORS[key] then
+		bar:CacheColors()
+		bar:RefreshComboColors()
+	end
+end
+
+function ResourceBar:Apply(changedKey)
+	if not self.db then return end
+	if changedKey ~= nil and changedKey ~= "healthHeight" then
+		applyKey(self, changedKey)
+		return
+	end
+	self:CacheColors()
+	self:Layout()
+	self:ApplyBarTexture()
+	self:ApplyCelebration()
+	self:UpdateVisibility()
+end
+
+function ResourceBar:Layout()
 	if not self.db then return end
 
 	local BarUtils = SoundAlerter.BarUtils
@@ -1678,21 +1672,12 @@ function ResourceBar:ResetPositions()
 		self.db[prefix .. "PositionX"] = nil
 		self.db[prefix .. "PositionY"] = nil
 	end
-	self:LoadSettings()
+	self:Layout()
 end
 
 function ResourceBar:SetLocked(locked)
 	if not self.db then return end
-
-	self.db.locked = locked
-	self:UpdateVisibility()
+	self:SetSetting("locked", locked)
 end
 
-function ResourceBar:OnProfileChanged()
-	self.db = SoundAlerter.db1.profile.resourceBar
-	self:CacheColors()
-	self:LoadSettings()
-	self:ApplyBarTexture()
-	self:ApplyCelebration()
-	self:UpdateVisibility()
-end
+SA_Modules.Register({ key = "ResourceBar", module = ResourceBar, db = "resourceBar", title = "Resource bars", nav = { section = "Displays", order = 21 }, options = "BuildResourceBarOptions", enabled = { "energyEnabled", "rageEnabled", "healthEnabled", "manaEnabled", "comboEnabled" } })

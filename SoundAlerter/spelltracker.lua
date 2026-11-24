@@ -123,15 +123,6 @@ local stats = { ticks = 0, visited = 0, shifts = 0, idle = 0, cooldownTicks = 0,
 function SpellTracker:Initialize()
     if self.initialized then return end
 
-    local SoundAlerter = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
-    if not SoundAlerter then
-        error("SpellTracker:Initialize() called before addon is ready")
-        return
-    end
-
-    self.addon = SoundAlerter
-    self.db = self.addon.db1.profile.spellTracker
-
     self.state = SA_TrackerState.New()
     stats.since = GetTime()
     self.cachedTime = 0
@@ -149,7 +140,6 @@ function SpellTracker:Initialize()
     global.cooldownView = global.cooldownView or {}
     View.Configure(global.cooldownView)
     View.Listen("tracker", function(name, on) SpellTracker:OnViewChange(name, on) end)
-    self:LoadSettings()
 
     self.initialized = true
 end
@@ -1500,7 +1490,7 @@ function SpellTracker:ReadMeter()
 end
 
 
-function SpellTracker:LoadSettings()
+function SpellTracker:Reload()
     if not self.db then return end
 
     self.db.knownDurations = self.db.knownDurations or {}
@@ -1535,29 +1525,32 @@ function SpellTracker:GetSettings()
     return self.db
 end
 
-function SpellTracker:SetSetting(key, value)
-    if not Settings.IsGlobalKey(key) then
-        error("SpellTracker:SetSetting - unknown setting key '"..tostring(key).."'", 2)
+local SKULL_KEYS = { skullSize = true, skullArt = true, skullPop = true, animQuality = true }
+
+function SpellTracker:Apply(changedKey)
+    if changedKey == nil then
+        self:Reload()
+        return
     end
-    if key == "locked" then
-        self:SetLocked(value)
-    else
-        self.db[key] = value
-        if key == "animQuality" then
-            self.db.animQuality = FX:SetQuality(value)
+    local db = self.db
+    if changedKey == "locked" then
+        self:SetLocked(db.locked)
+        return
+    end
+    if changedKey == "animQuality" then
+        db.animQuality = FX:SetQuality(db.animQuality)
+    end
+    if changedKey == "showBorderTimer" then
+        self:RefreshAllTrackers()
+    end
+    if SKULL_KEYS[changedKey] then
+        for i = 1, ICON_POOL_SIZE do
+            local frame = iconFrames[i]
+            if frame then self:StyleSkull(frame) end
         end
-        if key == "showBorderTimer" then
-            self:RefreshAllTrackers()
-        end
-        if key == "skullSize" or key == "skullArt" or key == "skullPop" or key == "animQuality" then
-            for i = 1, ICON_POOL_SIZE do
-                local frame = iconFrames[i]
-                if frame then self:StyleSkull(frame) end
-            end
-        end
-        if Settings.IsPlateKey(key) then
-            self:LoadSettings()
-        end
+    end
+    if Settings.IsPlateKey(changedKey) then
+        self:Reload()
     end
 end
 
@@ -1565,7 +1558,7 @@ function SpellTracker:SetIconSetting(index, key, value)
     local icon = self.db and self.db.icons[index]
     if not icon then return end
     if Settings.SetIcon(icon, key, value) then
-        self:LoadSettings()
+        self:Reload()
     end
 end
 
@@ -1593,11 +1586,6 @@ function SpellTracker:SetLocked(locked)
     self:RestoreIconStates()
 end
 
-function SpellTracker:OnProfileChanged()
-    self.db = self.addon.db1.profile.spellTracker
-    self:LoadSettings()
-end
-
 function SpellTracker:ReloadIcons()
     self.db = self.addon.db1.profile.spellTracker
     if not self.db then return end
@@ -1608,7 +1596,7 @@ function SpellTracker:ReloadIcons()
     for _, icon in ipairs(self.db.icons) do
         Settings.Backfill(icon)
     end
-    self:LoadSettings()
+    self:Reload()
 end
 
 function SpellTracker:AddTrackedSpell(spellID, unit, auraType)
@@ -1630,7 +1618,7 @@ function SpellTracker:AddTrackedSpell(spellID, unit, auraType)
         posY = defaultY,
     })
 
-    self:LoadSettings()
+    self:Reload()
     return true
 end
 
@@ -1644,7 +1632,7 @@ function SpellTracker:RemoveTrackedSpell(index)
     for i = index, count do
         self:ResetFrameDisplay(iconFrames[i])
     end
-    self:LoadSettings()
+    self:Reload()
     self:ReapplyPredictedAuras(index)
 end
 
@@ -1686,3 +1674,4 @@ end
 SpellTracker.MAX_ICONS = ICON_POOL_SIZE
 
 SoundAlerter.SpellTracker = SpellTracker
+SA_Modules.Register({ key = "SpellTracker", module = SpellTracker, db = "spellTracker", title = "Spell Tracker", nav = { section = "Displays", order = 27 }, options = "BuildSpellTrackerOptions", check = function(path) return Settings.IsGlobalKey(path) end })

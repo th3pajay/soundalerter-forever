@@ -1,5 +1,71 @@
 # Changelog
 
+## 0.4.00
+
+## Cooldowns pulse back
+
+### New
+
+PulseDown
+- PulseDown, a new page under Displays: when a spell, item, potion or pet ability comes off cooldown, its icon pulses on screen so you see what is ready again. It works in combat too, because the game itself times every cooldown, and it costs nothing while it waits. Off by default; switch it on, unlock it to drag the icon where you want it, and press Test to see it.
+- Ten kinds of cooldowns, each with its own switch and all on: class abilities, spell charges, racial and general spells, pet abilities, profession cooldowns, trinkets, other equipped items, potions, healthstones and bandages, and other usable items. Potions and healthstones share one timer, so they pulse once. Cooldowns shorter than 2.5 seconds never pulse (adjustable), and a Never pulse list starts with your Hearthstone.
+- Every look is yours to pick, on Animation and Border tabs with a live preview: 14 entrances, 6 effects while shown, 12 exits, 6 shapes, 10 border styles, 12 border animations, 4 colour modes, and the time for each step. When several cooldowns come back together they show one after another, the newest replaces the last, or three sit side by side.
+
+![PulseDown: how it works, every look, ten kinds](https://raw.githubusercontent.com/th3pajay/soundalerter-forever/main/Media/changelog/pulsedown.png)
+
+Statistics
+- The Snapshot box now has its own tabs in the BG view. Now shows your last match and where you placed in your team for each stat, against your average. Form shows your streak, your last 10 results and your win rate over time. Maps compares your maps and the enemy classes you meet most. Bests lists your records; click one to open that match.
+- The Honor view gets its own Snapshot tabs too. Today shows honor today against your usual day, the way to the cap and your next goal. Sources splits 30 days into battleground, kill and world PvP honor. Earners shows which battleground pays the most honor per hour. Calendar shows your last 14 days.
+- Battleground debrief: clicking the result pill after a match opens a debrief you can drag anywhere (it remembers the spot for each character). Your team against the enemy on the map's own score, killing blows and damage; your team's podium on damage, or on healing if you healed more, with your place when you are not in the top three; your five personal records with NEW on any you beat, measured against your best before this match; and your top five damage spells with their icons. It has a soft shadow, a red or green band behind the result with your faction crest, shaded bars, medal-edged podium steps with class icons, a bar showing how close each record came to your best, and larger, sharper text. Closing it stops everything it was animating. It is on by default; switch it off under Statistics, Battlegrounds tab, and the pill opens the small result card again. `/sa debrief` opens your last match at any time.
+
+Trinket Menu
+- Two new keys under Key Bindings, SoundAlerter section: Switch to DPS weapons and Switch to healing weapons. Each always puts on that pair, also in combat, so you no longer have to know which pair you wear before you press the toggle.
+- With the menu collapsed to a diamond, every weapon switch fades the pair's name in and out under the diamond: DPS in amber, Healing in green. While you wear your DPS weapons the diamond itself turns red; with your healing weapons, or with the weapon button off, it keeps its usual teal.
+
+### Changed
+
+Interrupts
+- The interrupt-ready voice now learns your interrupt's cooldown from the game's own timer, instead of checking ten times a second while the cooldown runs.
+
+Voice Alerts
+- A preset you save now keeps your Chat Alerts settings too: what gets announced, the stealth filters, the Proximity and Battleground switches, the channels of every area and your message texts. Apply brings them back with your voice switches, Undo takes both back, and Update stores both. A preset saved before this keeps your chat as it is until you press Update on it. The built-in presets still change only the voice switches.
+
+Trinket Menu
+- Sharper text on the buttons and under the diamond: labels, hotkeys, cooldown numbers and the weapon name now use Arial Narrow at a whole number of screen pixels with a one-pixel shadow, instead of an outlined font that smeared between pixels. It follows your UI scale and resizes itself when you change it.
+
+Proximity
+- Turning Proximity Alerts on from its options page now switches on the zones you hear alerts in when no proximity zone is on yet, falling back to World PvP, the same as the key, the minimap click and the setup wizard. The key and minimap click used to switch on World PvP only; their chat line now names the zones that came on.
+
+Battlegrounds
+- Flag and base alerts now count in Statistics when their voice plays instead of when it is queued, so alerts the voice queue replaced or dropped as stale no longer add to your totals. Flag and base chat lines now show in your own chat when no chat channel is available, like every other alert line.
+
+Performance
+- /sa perf adds a PulseDown line: events and the time each takes, cooldown reads, reads skipped, timers armed, pulses and callbacks.
+- Every texture is now stored compressed, the same pixels in about a fifth of the space: the Textures folder goes from 3.0 MB to 0.6 MB.
+
+Under the hood
+- Every feature now starts, follows a profile switch and saves its settings through one shared path, instead of each keeping its own copy of that code. Features behave the same way, and a new feature no longer has to be added by hand to six separate lists, which is how the Profiles overview fell out of date.
+- A setting is checked against the addon's own defaults before it is saved, so a mistyped or outdated setting name is refused instead of quietly stored.
+- Every settings change, from an options page, a key binding, the minimap menu, the setup wizard or a slash command, now goes through one path, so it has the same effect wherever you make it.
+- Every voice alert now plays through one shared step for its zone and quiet rules, re-arm, statistics and playback, so alerts behave the same way. Proc voices and Notices now also report when voice playback is unavailable.
+
+### Fixed
+
+Casting bars
+- The Pop entrance no longer dips and then snaps at the end: its two size steps now join smoothly.
+
+Statistics
+- In the BG and Honor views the Snapshot box no longer says tracking is off while it is on.
+
+Profiles
+- The overview on the Profiles page now lists every feature that has an on switch. PulseDown, DR tracker, Speed meter, Trinket Menu, Footsteps and Minimap tracking were missing.
+
+Global sightings
+- Joining the hidden sightings channel no longer triggers an "action blocked" error when a fight or a battleground starts: the join, and the switch to the next day's channel, now wait until you leave combat.
+
+Spell Tracker
+- Pounce Bleed now shows on its tracker icon in combat whichever rank of Pounce you cast, instead of only the rank the icon was set to.
+
 ## 0.3.25
 
 ## Stacking debuffs

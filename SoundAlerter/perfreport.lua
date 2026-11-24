@@ -57,6 +57,15 @@ local function read()
     }
 end
 
+function Report.PulseLine()
+    if not (SA_CooldownWatch and SA_Pulse) then return nil end
+    local counts, live, made = SA_CooldownWatch.Stats()
+    local stats = SA_Pulse.stats
+    if counts.events == 0 and stats.pulses == 0 then return nil end
+    return string.format("PulseDown: %d events, %.1f µs each, %d cooldown reads, %d skipped without a read, %d armed, %d ready, %d pulses, %d callbacks; %d timers running of %d made",
+        counts.events, counts.events > 0 and (counts.ms or 0) * 1000 / counts.events or 0, counts.reads, counts.rejects, counts.arms, counts.ready, stats.pulses, stats.callbacks, live, made)
+end
+
 function SoundAlerter:PerfReport()
     local kb = memory()
     local lines = {}
@@ -71,6 +80,8 @@ function SoundAlerter:PerfReport()
         end
     end
     if kb then lines[#lines + 1] = string.format("Memory: %.1f MB", kb / 1024) end
+    local pulse = Report.PulseLine()
+    if pulse then lines[#lines + 1] = pulse end
     self:Print("|cffFFD700=== SoundAlerter performance ===|r")
     for _, text in ipairs(lines) do self:Print("  " .. text) end
     local global = self.db1 and self.db1.global

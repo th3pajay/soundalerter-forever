@@ -56,32 +56,6 @@ local CAST_BAR_UNITS = {
 	focus = { frameName = "SoundAlerterCastingBar_Focus", titleText = "Focus Cast", defaultY = -260 },
 }
 
-local CASTING_BAR_GROUP_KEYS = {
-	locked = true,
-	barTexture = true,
-	barTextureQuality = true,
-	timeFormat = true,
-	showSpellIcon = true,
-	showLatency = true,
-	showLockIcon = true,
-	hoverTooltip = true,
-	animQuality = true,
-	segments = true,
-	channelPulse = true,
-	roundCorners = true,
-}
-
-local CASTING_BAR_UNIT_KEYS = {
-	enabled = true,
-	barTexture = true,
-	width = true,
-	height = true,
-	orientation = true,
-	fillDirection = true,
-	PositionX = true,
-	PositionY = true,
-}
-
 function CastingBars:GetSettings()
 	return self.db
 end
@@ -101,21 +75,6 @@ local function plainFlag(value)
 	return value
 end
 
-function CastingBars:SetSetting(key, value)
-	local unit, field = key:match("^(%a+)%.(%a+)$")
-	if unit then
-		if not CAST_BAR_UNITS[unit] or not CASTING_BAR_UNIT_KEYS[field] then
-			error("CastingBars:SetSetting - unknown setting key '"..tostring(key).."'", 2)
-		end
-		self.db[unit][field] = value
-	else
-		if not CASTING_BAR_GROUP_KEYS[key] then
-			error("CastingBars:SetSetting - unknown setting key '"..tostring(key).."'", 2)
-		end
-		self.db[key] = value
-	end
-end
-
 function CastingBars:ApplyPyramidLayout()
 	self.db.player.PositionX = 0
 	self.db.player.PositionY = -200
@@ -128,14 +87,6 @@ end
 function CastingBars:Initialize()
 	if self.initialized then return end
 
-	local SoundAlerter = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
-	if not SoundAlerter then
-		error("CastingBars:Initialize() called before addon is ready")
-		return
-	end
-
-	self.addon = SoundAlerter
-	self.db = self.addon.db1.profile.castingBars
 	self.initialized = false
 	self.updating = false
 	stats.since = GetTime()
@@ -149,8 +100,6 @@ function CastingBars:Initialize()
 	end
 
 	self:RegisterEvents()
-
-	self:LoadSettings()
 
 	self.initialized = true
 end
@@ -422,7 +371,7 @@ function CastingBars:OnEvent(event, unit)
 		self:RefreshUnit("focus")
 		return
 	elseif event == "UI_SCALE_CHANGED" or event == "DISPLAY_SIZE_CHANGED" then
-		self:LoadSettings()
+		self:Apply()
 		return
 	end
 
@@ -1060,8 +1009,35 @@ function CastingBars:FormatTime(seconds)
 	return string_format("%02d.%03d", wholeSecs, math_floor((seconds - wholeSecs) * 1000))
 end
 
-function CastingBars:LoadSettings()
+local FULL_APPLY = { locked = true, animQuality = true, segments = true }
+local TEXTURE_KEYS = { barTexture = true, barTextureQuality = true, roundCorners = true }
+local VERTICAL_FILL = { up = true, down = true }
+local HORIZONTAL_FILL = { left = true, right = true }
+
+local function matchFill(bars, unit)
+	local unitDB = bars.db[unit]
+	local fill = unitDB.fillDirection
+	if unitDB.orientation == "vertical" and not VERTICAL_FILL[fill] then
+		bars:SetSetting(unit .. ".fillDirection", "up")
+		return true
+	elseif unitDB.orientation == "horizontal" and not HORIZONTAL_FILL[fill] then
+		bars:SetSetting(unit .. ".fillDirection", "right")
+		return true
+	end
+	return false
+end
+
+function CastingBars:Apply(changedKey)
 	if not self.db then return end
+	if changedKey ~= nil then
+		if TEXTURE_KEYS[changedKey] or changedKey:match("%.barTexture$") then
+			self:UpdateTexture()
+			return
+		end
+		local unit, field = changedKey:match("^(%a+)%.(.+)$")
+		if field == "orientation" and matchFill(self, unit) then return end
+		if not (unit or FULL_APPLY[changedKey]) then return end
+	end
 
 	local BarUtils = self.addon.BarUtils
 	local locked = self.db.locked
@@ -1141,24 +1117,12 @@ end
 
 function CastingBars:SetLocked(locked)
 	if not self.db then return end
-
-	self.db.locked = locked
-
-	self:LoadSettings()
-end
-
-function CastingBars:OnProfileChanged()
-	local SoundAlerter = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
-	if not SoundAlerter then return end
-
-	self.addon = SoundAlerter
-	self.db = self.addon.db1.profile.castingBars
-
-	self.textureApplied = false
-
-	if self.initialized then
-		self:LoadSettings()
-	end
+	self:SetSetting("locked", locked)
 end
 
 SoundAlerter.CastingBars = CastingBars
+local function SwitchProfile(module)
+	module.textureApplied = false
+	module:Apply(nil)
+end
+SA_Modules.Register({ key = "CastingBars", module = CastingBars, db = "castingBars", title = "Casting bars", nav = { section = "Displays", order = 22 }, options = "BuildCastingBarOptions", enabled = { "player.enabled", "target.enabled", "focus.enabled" }, profile = SwitchProfile })

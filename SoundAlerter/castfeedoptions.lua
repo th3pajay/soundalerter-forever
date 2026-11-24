@@ -18,20 +18,19 @@ local function feed()
 end
 
 local function write(active, key, value)
-    active:SetSetting((key:gsub("^rows%.", "")), value)
-    active:LoadSettings()
-    if key == "auraDisplay" and SoundAlerter.AuraDisplay then SoundAlerter.AuraDisplay:Refresh(true) end
+    active:SetSetting(key, value)
 end
 
 local function copyToAll(unit)
     local active = feed()
     if not active then return end
     local source = active:GetSettings().rows[unit]
-    for _, target in ipairs(UNITS) do
-        active:SetSetting(target .. ".direction", source.direction)
-        active:SetSetting(target .. ".scale", source.scale)
-    end
-    active:LoadSettings()
+    SA_Modules.Batch(function()
+        for _, target in ipairs(UNITS) do
+            active:SetSetting("rows." .. target .. ".direction", source.direction)
+            active:SetSetting("rows." .. target .. ".scale", source.scale)
+        end
+    end)
 end
 
 local FeedPreview = { height = 90 }

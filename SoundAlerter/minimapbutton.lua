@@ -26,10 +26,7 @@ function MinimapButton:GetSettings()
     return profile().minimapButton
 end
 
-function MinimapButton:SetSetting(key, value)
-    if not Model.Assign(self:GetSettings(), key, value) then
-        error("MinimapButton:SetSetting - bad setting '" .. tostring(key) .. "'", 2)
-    end
+function MinimapButton:Apply()
 end
 
 function MinimapButton:UpdateIcon()
@@ -336,3 +333,14 @@ function SoundAlerter:BuildMinimapButtonOptions()
 end
 
 SoundAlerter.MinimapButton = MinimapButton
+
+local function CreatedByCore()
+end
+
+local function Valid(path, value)
+    return Model.IsValidKey(path) and Model.IsValidValue(path, value)
+end
+
+SA_Modules.Register({ key = "MinimapButton", module = MinimapButton, db = "minimapButton", title = "Minimap button", nav = { section = "Setup", order = 3 }, options = "BuildMinimapButtonOptions", check = Valid, start = CreatedByCore })
+
+SA_Modules.OnEnabledChanged(function() MinimapButton:UpdateIcon() end)

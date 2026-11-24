@@ -20,6 +20,16 @@ function BarUtils:SavePosition(frame, db, prefix)
 	db[prefix .. "PositionY"] = y - (screenHeight / 2)
 end
 
+BarUtils.CRISP_FONT = "Fonts\\ARIALN.TTF"
+BarUtils.CRISP_MIN_PX = 8
+
+function BarUtils:CrispFont(text, units, ppu, font)
+	local px = math.floor(units * ppu + 0.5)
+	if px < self.CRISP_MIN_PX then px = self.CRISP_MIN_PX end
+	text:SetFont(font or self.CRISP_FONT, px / ppu, "")
+	text:SetShadowOffset(1 / ppu, -1 / ppu)
+end
+
 function BarUtils:PixelsPerUnit(frame)
 	if not GetPhysicalScreenSize then return 1 end
 

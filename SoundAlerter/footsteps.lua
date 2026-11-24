@@ -22,10 +22,6 @@ local PLAYER_PIN_PATTERNS = { "GroupMembers", "UnitPosition", "PlayerArrow" }
 local DOT_TEXTURE = "Interface\\AddOns\\SoundAlerter\\Textures\\circle.tga"
 local ZOOM_EVENTS = { "MINIMAP_UPDATE_ZOOM", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED" }
 
-local SETTING_KEYS = {
-    enabled = true, showMinimap = true, showWorldMap = true, rotation = true, dotSize = true, color = true, spacing = true, ageFade = true,
-}
-
 local function show(value)
     if issecretvalue(value) then return "secret" end
     return tostring(value)
@@ -206,14 +202,6 @@ end
 
 function Footsteps:GetSettings()
     return self.db
-end
-
-function Footsteps:SetSetting(key, value)
-    if not SETTING_KEYS[key] then
-        error("Footsteps:SetSetting - unknown setting key '"..tostring(key).."'", 2)
-    end
-    self.db[key] = value
-    self:LoadSettings()
 end
 
 function Footsteps:GetCount()
@@ -459,7 +447,7 @@ function Footsteps:Detach()
     self:HideMapDots(0)
 end
 
-function Footsteps:LoadSettings()
+function Footsteps:Apply()
     local db = self.db
     if not db or not self.driver then return end
 
@@ -497,18 +485,6 @@ function Footsteps:OnEnterWorld(isInitialLogin, isReloadingUi)
     end
     Model.Break(self.trail)
     self.zoomDirty = true
-end
-
-function Footsteps:OnProfileChanged()
-    local addon = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
-    if not addon then return end
-
-    self.addon = addon
-    self.db = addon.db1.profile.footsteps
-
-    if self.initialized then
-        self:LoadSettings()
-    end
 end
 
 function Footsteps:PrintHelp()
@@ -581,19 +557,10 @@ end
 function Footsteps:Initialize()
     if self.initialized then return end
 
-    local addon = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
-    if not addon then
-        error("Footsteps:Initialize() called before addon is ready")
-        return
-    end
-
-    self.addon = addon
-    self.db = addon.db1.profile.footsteps
-
-    local store = addon.db1.char.footsteps
+    local store = self.addon.db1.char.footsteps
     if type(store) ~= "table" then
         store = {}
-        addon.db1.char.footsteps = store
+        self.addon.db1.char.footsteps = store
     end
     self.trail = Model.Init(store, TRAIL_CAP)
     self.mapping = Model.MAPPINGS[self.trail.axes]
@@ -625,7 +592,6 @@ function Footsteps:Initialize()
     end
 
     self.initialized = true
-    self:LoadSettings()
 end
 
 local function module()
@@ -729,3 +695,4 @@ function SoundAlerter:BuildFootstepsOptions()
 end
 
 SoundAlerter.Footsteps = Footsteps
+SA_Modules.Register({ key = "Footsteps", module = Footsteps, db = "footsteps", title = "Footsteps", nav = { section = "Displays", order = 26 }, options = "BuildFootstepsOptions", enabled = { "enabled" } })

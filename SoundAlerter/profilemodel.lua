@@ -106,17 +106,32 @@ function Model.HeaderText(current, count)
     return "Active: " .. current .. " \194\183 " .. count .. (count == 1 and " profile" or " profiles")
 end
 
-Model.MODULES = {
-    { "Proximity", { { "proximityEnabled" } } },
+local CORE_MODULES = {
     { "Watchlist", { { "watchlistEnabled" } } },
-    { "Battlegrounds", { { "battlegroundAlertsEnabled" } } },
-    { "Toasts", { { "proximityToasts", "enabled" } } },
-    { "Notices", { { "notices", "enabled" } } },
-    { "Casting bars", { { "castingBars", "player", "enabled" }, { "castingBars", "target", "enabled" }, { "castingBars", "focus", "enabled" } } },
-    { "Resource bars", { { "resourceBar", "energyEnabled" }, { "resourceBar", "rageEnabled" }, { "resourceBar", "healthEnabled" }, { "resourceBar", "manaEnabled" }, { "resourceBar", "comboEnabled" } } },
-    { "Cast feed", { { "castFeed", "enabled" } } },
-    { "Statistics", { { "statistics", "enabled" } } },
 }
+local modules
+
+function Model.Modules()
+    if modules then return modules end
+    local list = {}
+    for index = 1, #CORE_MODULES do list[index] = CORE_MODULES[index] end
+    local entries = SA_Modules.Entries()
+    for index = 1, #entries do
+        local entry = entries[index]
+        if entry.enabled then
+            local paths = {}
+            for at = 1, #entry.enabled do
+                local parts = {}
+                if entry.db then parts[1] = entry.db end
+                for part in entry.enabled[at]:gmatch("[^%.]+") do parts[#parts + 1] = part end
+                paths[at] = parts
+            end
+            list[#list + 1] = { entry.title, paths }
+        end
+    end
+    modules = list
+    return list
+end
 
 local function walk(root, path)
     local value = root
@@ -137,7 +152,7 @@ function Model.Overview(profile, defaults, into)
     local overview = into or {}
     local modules = overview.modules or {}
     local count = 0
-    for index, module in ipairs(Model.MODULES) do
+    for index, module in ipairs(Model.Modules()) do
         local on = false
         for _, path in ipairs(module[2]) do
             if pathOn(profile, defaults, path) then

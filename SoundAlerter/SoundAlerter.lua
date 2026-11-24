@@ -70,87 +70,80 @@ end
 function SoundAlerter:ChangeProfile()
 	sadb = self.db1.profile
 	SA_ChatAreas.Migrate(sadb)
-	SA_Secret.SetEnabled(sadb.hiddenSpells)
-	SA_Secret.Reset()
 	self:InvalidateTrackedAuraIDs()
-	self:UpdateScoreboardTracking()
-	self:ApplyTotemPlates()
-	self:ApplyNameplateRange()
-	self:UpdatePartyShare()
-	self:UpdateGlobalSight()
 	self:OnConfigTableChange(nil, "SoundAlerter")
-	if self.UpdateCheck then self.UpdateCheck:Refresh() end
 	self:OnOptionsProfileChanged()
 
-	for _,v in SoundAlerter:IterateModules() do
-		if type(v.ChangeProfile) == 'function' then
-			v:ChangeProfile()
-		end
-	end
+	SA_Modules.ApplyProfile(self.db1.profile)
+end
 
-	if self.ProximityToasts then
-		self.ProximityToasts:OnProfileChanged()
-	end
+local Core = {}
+SoundAlerter.Core = Core
 
-	self.Proximity:Refresh()
+local function ApplyHiddenSpells()
+	SA_Secret.SetEnabled(sadb.hiddenSpells)
+	SA_Secret.Reset()
+end
 
-	if self.ResourceBar then
-		self.ResourceBar:OnProfileChanged()
-	end
+local function RefreshUpdateCheck()
+	if SoundAlerter.UpdateCheck then SoundAlerter.UpdateCheck:Refresh() end
+end
 
-	if self.CastingBars then
-		self.CastingBars:OnProfileChanged()
-	end
+local CORE_SETTINGS = {
+	"hiddenSpells", "scoreboardClassFallback", "showTotemPlates", "overrideNameplateRange", "nameplateRange",
+	"shareAlertsSend", "shareAlertsReceive", "globalSightings", "globalQuality", "globalPanelZone",
+	"globalPanelWorld", "globalMinimap", "globalMapMarkers", "updateNotice", "chatalerts", "all",
+	"welcomeLine", "flatWindow", "menuAnimations", "spelldebug",
+	"stealthAnyEnemy", "stealthOnSight", "stealthKeepWatch", "stealthWatchBand", "stealthWatchGap",
+	"enemyTargetsYou", "enemyTargetsYouCooldown", "enemyCastingAtYou",
+	"quietOnTaxi", "quietWhenDead", "quietOutsidePvPFlag", "snoozeMinutes",
+	"watchlistEnabled", "watchNamesText", "watchGuildsText", "stealthenemy",
+}
 
-	if self.SpellTracker then
-		self.SpellTracker:OnProfileChanged()
-	end
+local CORE_APPLY = {
+	hiddenSpells = ApplyHiddenSpells,
+	scoreboardClassFallback = "UpdateScoreboardTracking",
+	showTotemPlates = "ApplyTotemPlates",
+	overrideNameplateRange = "ApplyNameplateRange",
+	nameplateRange = "ApplyNameplateRange",
+	shareAlertsSend = "UpdatePartyShare",
+	shareAlertsReceive = "UpdatePartyShare",
+	globalSightings = "UpdateGlobalSight",
+	globalQuality = "UpdateGlobalSight",
+	globalPanelZone = "UpdateGlobalMap",
+	globalPanelWorld = "UpdateGlobalMap",
+	globalMinimap = "UpdateGlobalMap",
+	globalMapMarkers = "UpdateGlobalMap",
+	updateNotice = RefreshUpdateCheck,
+}
 
-	if self.CastFeed then
-		self.CastFeed:OnProfileChanged()
-	end
+local CORE_START = {
+	ApplyHiddenSpells, "UpdateScoreboardTracking", "ApplyTotemPlates", "ApplyNameplateRange",
+	"UpdatePartyShare", "UpdateGlobalSight", RefreshUpdateCheck,
+}
 
-	if self.AuraDisplay then
-		self.AuraDisplay:Refresh(true)
-	end
-
-	if self.SpeedMeter then
-		self.SpeedMeter:OnProfileChanged()
-	end
-
-	if self.TrinketMenu then
-		self.TrinketMenu:OnProfileChanged()
-	end
-
-	if self.DRTracker then
-		self.DRTracker:OnProfileChanged()
-	end
-
-	if self.FlagAlerts then
-		self.FlagAlerts:OnProfileChanged()
-	end
-
-	if self.MinimapTracking then
-		self.MinimapTracking:OnProfileChanged()
-	end
-
-	self:UpdateMinimapButtonIcon()
-
-	if self.Footsteps then
-		self.Footsteps:OnProfileChanged()
-	end
-
-	if self.Notices then
-		self.Notices:OnProfileChanged()
-	end
-
-	if sadb.statistics and sadb.statistics.enabled then
-		local Statistics = self:GetModule("Statistics")
-		if Statistics then
-			Statistics:InitializeStatistics()
-		end
+local function RunCoreStep(step)
+	if type(step) == "string" then
+		SoundAlerter[step](SoundAlerter)
+	else
+		step()
 	end
 end
+
+function Core:Initialize()
+end
+
+function Core:Apply(changedKey)
+	if changedKey == nil then
+		for i = 1, #CORE_START do RunCoreStep(CORE_START[i]) end
+		return
+	end
+	local step = CORE_APPLY[changedKey]
+	if step then RunCoreStep(step) end
+	if changedKey == "hiddenSpells" and SoundAlerter.AuraDisplay then SoundAlerter.AuraDisplay:Refresh() end
+end
+
+SA_Modules.Register({ key = "Core", module = Core, flat = CORE_SETTINGS, title = "Core" })
 
 function SoundAlerter:OnProfileCopied(event, db, sourceProfileKey)
 
@@ -177,7 +170,43 @@ local function AddonVersion()
     return addonVersion or nil
 end
 
-local rearmSeconds, rearmAt = {}, {}
+local rearmSeconds = {}
+
+local CUSTOM_SOUNDS = "Interface\\Addons\\SoundAlerter\\CustomSounds\\"
+local statistics
+
+local function RecordAlert(category, spellID, guid, name, school, class)
+    statistics = statistics or SoundAlerter:GetModule("Statistics", true)
+    if statistics then statistics:RecordAlert(category, spellID, guid, name, school, class) end
+end
+
+local function PlayAlert(sound, custom, channel)
+    local ok, willPlay
+    if custom then
+        ok, willPlay = SoundAlerter:PlayVoice(CUSTOM_SOUNDS .. sound, "Master")
+    else
+        ok, willPlay = SoundAlerter:PlayVoice(sadb.sapath .. sound, channel)
+    end
+    return ok and willPlay and true or false
+end
+
+local emitter = SA_AlertEmit.New({
+    Play = PlayAlert,
+    Record = RecordAlert,
+    Debug = function(...) SoundAlerter:Debug(...) end,
+}, {
+    Now = GetTime,
+    Plain = Plain,
+    Setting = function(key) return sadb[key] end,
+    ZoneAllowed = function() return SoundAlerter:IsAlertZoneAllowed() end,
+    Quiet = function() return SoundAlerter:IsQuiet() end,
+    RearmSeconds = function(key) return rearmSeconds[key] end,
+    RearmByCaster = function(key) return SoundAlerterSpellRearmPerCaster and SoundAlerterSpellRearmPerCaster[key] end,
+    Diag = function() return SoundAlerter.diag end,
+})
+
+SoundAlerter.Emitter = emitter
+
 
 function SoundAlerter:OnInitialize()
     self.moduleInitErrors = {}
@@ -247,18 +276,6 @@ function SoundAlerter:OnInitialize()
 	self:CreateMinimapButton()
 end
 
-function SoundAlerter:InitializeModule(moduleName)
-    local module = self[moduleName]
-    if not module then return end
-
-    local ok, err = pcall(module.Initialize, module)
-    if not ok then
-        self:Print("|cffFF7D0ASoundAlerter|r: "..moduleName.." failed to initialize and has been disabled for this session — "..tostring(err))
-        self.moduleInitErrors[moduleName] = tostring(err)
-        self[moduleName] = nil
-    end
-end
-
 function SoundAlerter:OnEnable()
     self:RegisterEvent("PLAYER_ENTERING_WORLD")
     self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -286,61 +303,21 @@ function SoundAlerter:OnEnable()
     self.enemyOnYouAt = {}
     SA_Plates.Reset()
     self.stealthTimer = nil
-    SA_Secret.SetEnabled(sadb.hiddenSpells)
     self:SubscribeCastEvents()
     self.enterWorldTime = 0
 
-    self:ApplyNameplateRange()
-    self:ApplyTotemPlates()
-    self:UpdatePartyShare()
-    self:UpdateGlobalSight()
-    if self.UpdateCheck then self.UpdateCheck:Refresh() end
-
     self:ResetDiagnostics()
 
-    self:InitializeModule("ProximityToasts")
-    self:InitializeModule("ResourceBar")
-    self:InitializeModule("CastingBars")
-    self:InitializeModule("SpellTracker")
-    self:InitializeModule("CastFeed")
-    self:InitializeModule("AuraDisplay")
-    self:InitializeModule("SpeedMeter")
-    self:InitializeModule("TrinketMenu")
-    self:InitializeModule("DRTracker")
-    self:InitializeModule("MinimapTracking")
-    self:InitializeModule("Footsteps")
-    self:InitializeModule("SpellTest")
-    self:InitializeModule("Notices")
+    SA_Modules.Start(self.db1.profile, self)
     self:CheckQuickStartSetup()
 
-    local Statistics = self:GetModule("Statistics")
-    if Statistics then
-        local ok, err = pcall(Statistics.Enable, Statistics)
-        if not ok then
-            self:Print("|cffFF7D0ASoundAlerter|r: Statistics failed to initialize and has been disabled for this session — "..tostring(err))
-            self.moduleInitErrors.Statistics = tostring(err)
-        end
-    end
-
     self:StartAuraSounds()
-
-    self.Proximity:Refresh()
-
 end
 
 function SoundAlerter:PlayTrinket(sourceGUID, sourceName)
-    SoundAlerter:PlayVoice(sadb.sapath.."Trinket.mp3");
-
-    if sadb.statistics and sadb.statistics.enabled then
-        local Statistics = self:GetModule("Statistics")
-        if Statistics then
-            Statistics:RecordAlert("trinketAlerts", nil, sourceGUID, sourceName)
-        end
-    end
-end
-
-function SoundAlerter:Interrupted()
-    SoundAlerter:PlayVoice(sadb.sapath.."Interrupted.mp3");
+    local context = emitter:Context("trinket")
+    context.sound, context.category, context.guid, context.name = "Trinket.mp3", "trinketAlerts", sourceGUID, sourceName
+    emitter:Emit(context)
 end
 
 local function IsChatBlocked()
@@ -372,21 +349,17 @@ SoundAlerter.ResolveChatChannel = ResolveChatChannel
 SoundAlerter.voiceFailures = 0
 
 function SoundAlerter:PlayVoice(path, channel)
-    local ok = PlaySoundFile and pcall(PlaySoundFile, path, channel)
+    local ok, willPlay = false, nil
+    if PlaySoundFile then ok, willPlay = pcall(PlaySoundFile, path, channel) end
     if not ok then
         self.voiceFailures = self.voiceFailures + 1
         if self.voiceFailures == 1 then
             self:Print("Voice playback unavailable on this client.")
         end
         self:Debug("Sound", "playback failed (%d): %s", self.voiceFailures, tostring(path))
+        return false
     end
-    return ok
-end
-
-function SoundAlerter:RecordStat(category)
-    if not (sadb.statistics and sadb.statistics.enabled) then return end
-    local statistics = self:GetModule("Statistics")
-    if statistics then statistics:RecordAlert(category) end
+    return ok, willPlay
 end
 
 local CHAT_INTERVAL = 1.5
@@ -441,7 +414,7 @@ function SoundAlerter:SendChat(message, channels)
     end
     if sent then
         if diag then diag.chatSent = diag.chatSent + 1 end
-        self:RecordStat("chatAlerts")
+        RecordAlert("chatAlerts")
     end
     return sent
 end
@@ -450,11 +423,6 @@ local LOCAL_PREFIX = "|cff33ff99SoundAlerter|r: "
 
 local function SendPlain(message, area)
     return SoundAlerter:SendChat(message, SA_ChatAreas.Channels(sadb, area))
-end
-
-function SoundAlerter:SendChatGroups(message, area)
-    if not SA_AlertText.Ready(true, area) then return false end
-    return SendPlain(message, area)
 end
 
 local function AddLocalLine(line)
@@ -485,57 +453,6 @@ local function HiddenSpellIcon(hiddenSpellID)
     local ok, piece = pcall(JoinIcon, icon, link)
     if not ok then return nil end
     return piece
-end
-
-local statisticsModule
-
-local DUPLICATE_ALERT_WINDOW = 0.3
-local recentAlerts = {}
-
-function SoundAlerter:PlaySpell(list, spellID, sourceGUID, sourceName)
-    local key = list[spellID]
-    if key then
-        if not sadb[key] then return end
-        local now = GetTime()
-        local rearm = rearmSeconds[key]
-        if rearm then
-            local who = SoundAlerterSpellRearmPerCaster and SoundAlerterSpellRearmPerCaster[key] and (Plain(sourceGUID) or sourceName)
-            local wait
-            if who then
-                wait = SA_Rearm.WaitFor(rearmAt, key, who, rearm, now)
-            else
-                wait = SA_Rearm.Wait(rearmAt, key, rearm, now)
-            end
-            if wait then
-                self:Debug("Sound", "%s.mp3 held (re-arms in %.0f s)", key, wait)
-                return
-            end
-        end
-        local guid = Plain(sourceGUID)
-        local last = recentAlerts[spellID]
-        if last then
-            if now - last.at < DUPLICATE_ALERT_WINDOW and last.guid == guid then
-                local diag = self.diag
-                diag.duplicateAlerts = diag.duplicateAlerts + 1
-                local pair = last.unit .. " then " .. tostring(self.alertUnit)
-                diag.duplicateTokens[pair] = (diag.duplicateTokens[pair] or 0) + 1
-            end
-        else
-            last = {}
-            recentAlerts[spellID] = last
-        end
-        last.at, last.guid, last.unit = now, guid, tostring(self.alertUnit)
-        self:Debug("Sound", "%s.mp3 (spell %d, source %s)", list[spellID], spellID, tostring(sourceName or "?"))
-        SoundAlerter:PlayVoice(sadb.sapath..list[spellID]..".mp3");
-
-        if sadb.statistics and sadb.statistics.enabled then
-            statisticsModule = statisticsModule or self:GetModule("Statistics")
-            if statisticsModule then
-                statisticsModule:RecordAlert("spellAlerts", spellID, sourceGUID, sourceName)
-            end
-        end
-        return true
-    end
 end
 
 SoundAlerter.scoreboardClasses = {}
@@ -763,6 +680,7 @@ function SoundAlerter:HandleCommand(input)
         self:Print("  |cffFFFFFF/sa meter|r - Check what the game's damage meter reports for match results")
         self:Print("  |cffFFFFFF/sa perf|r - Show how much frame time and memory SoundAlerter uses")
         self:Print("  |cffFFFFFF/sa procs|r - List the procs seen since login and which have a voice")
+        self:Print("  |cffFFFFFF/sa debrief|r - Open the debrief of your last battleground")
         self:Print("  |cffFFFFFF/sa updates|r - Show what the update notice knows")
         self:Print("  |cffFFFFFF/sa global|r - Global sightings status: channel, messages, tracked enemies, ignored senders; |cffFFFFFF/sa global mute <name>|r or |cffFFFFFFunmute <name>|r (saved for all your characters)")
         self:Print("  |cffFFFFFF/sa snooze [minutes]|r / |cffFFFFFF/sa unsnooze|r - Silence proximity and enemy awareness alerts for a while")
@@ -827,6 +745,8 @@ function SoundAlerter:HandleCommand(input)
         if self.Statistics and self.Statistics.PrintMeter then self.Statistics:PrintMeter() end
     elseif command == "perf" then
         self:PerfReport()
+    elseif command == "debrief" then
+        self:ShowBGDebrief()
     elseif command == "procs" then
         self:ProcList()
     elseif command == "updates" then
@@ -978,7 +898,7 @@ function SoundAlerter:ShowPerformanceStats(argument)
     local diag = self.diag
     self:Print("=== |cffFF7D0AAlert Diagnostics|r ===")
 
-    self:Print("Same spell alerted twice within " .. DUPLICATE_ALERT_WINDOW .. " s: |cffFFFFFF" .. diag.duplicateAlerts .. "|r")
+    self:Print("Same spell alerted twice within " .. SA_AlertEmit.DUPLICATE_WINDOW .. " s: |cffFFFFFF" .. diag.duplicateAlerts .. "|r")
     for pair, count in pairs(diag.duplicateTokens) do
         self:Print("  " .. pair .. ": |cffFFFFFF" .. count .. "|r")
     end
@@ -1024,18 +944,13 @@ function SoundAlerter:AnnounceEnemyInterrupt(announcement)
             enemyName, tostring(abilitySpellID), tostring(interruptedSpellID or "unknown"),
             tostring(not sadb.interrupt), tostring(not sadb.chatalerts and sadb.interruptenemy and true or false), tostring(sadb.interruptemote and true or false))
     end
-    if sadb.statistics and sadb.statistics.enabled then
-        local Statistics = self:GetModule("Statistics")
-        if Statistics then
-            Statistics:RecordAlert("interruptAlerts")
-        end
-    end
     if sadb.interruptemote then
         pcall(DoEmote, "ROAR")
     end
-    if not sadb.interrupt then
-        SoundAlerter:PlayVoice(sadb.sapath .. SA_Interrupt.EnemySound(unit, sadb))
-    end
+    local context = emitter:Context("interrupt")
+    context.category = "interruptAlerts"
+    if not sadb.interrupt then context.sound = SA_Interrupt.EnemySound(unit, sadb) end
+    emitter:Emit(context)
     if not SA_AlertText.Ready(sadb.interruptenemy, "spells") then return end
     local interrupted = interruptedSpellID and (GetSpellLink(interruptedSpellID) or GetSpellInfo(interruptedSpellID))
     if not interrupted then interrupted = SA_AlertText.Hidden(HiddenSpellIcon(hiddenSpellID), "spell") end
@@ -1058,8 +973,10 @@ end
 
 function SoundAlerter:InterruptReady()
     self.interruptReadyTimer = nil
-    if sadb.interruptReadyVoice and not sadb.interrupt and self:IsAlertZoneAllowed() then
-        self:PlayVoice(sadb.sapath .. "interruptready.mp3")
+    if sadb.interruptReadyVoice and not sadb.interrupt and emitter:Open("interruptReady") then
+        local context = emitter:Context("interruptReady")
+        context.sound = "interruptready.mp3"
+        emitter:Emit(context)
     end
 end
 
@@ -1076,7 +993,9 @@ function SoundAlerter:AnnounceSelfInterrupted(announcement)
     if not sadb.interrupt then
         local interruptKey = self.spellList.interruptFriend[ability]
         if not interruptKey or sadb[interruptKey] then
-            SoundAlerter:PlayVoice(sadb.sapath.."lockout.mp3")
+            local context = emitter:Context("lockout")
+            context.sound = "lockout.mp3"
+            emitter:Emit(context)
         end
     end
     if SA_AlertText.Ready(sadb.interruptself, "spells") then
@@ -1166,7 +1085,7 @@ function SoundAlerter:LOSS_OF_CONTROL_ADDED(event, first, second)
     if not (C_LossOfControl and C_LossOfControl.GetActiveLossOfControlData) then return end
     local index = SA_LossOfControl.PlayerIndex(Plain(first), Plain(second))
     if not index then return end
-    if not self:IsAlertZoneAllowed() then return end
+    if not emitter:Open("lossOfControl") then return end
     local ok, data = pcall(C_LossOfControl.GetActiveLossOfControlData, index)
     if not ok or type(data) ~= "table" then return end
     local category = SA_LossOfControl.Category(Plain(data.locType))
@@ -1175,8 +1094,9 @@ function SoundAlerter:LOSS_OF_CONTROL_ADDED(event, first, second)
     if not SA_LossOfControl.ShouldSpeak(sadb, lossOfControlState, category, now) then return end
     lossOfControlState.lastSpoken[category] = now
     self:Debug("LossOfControl", "%s (%s)", category, tostring(Plain(data.locType)))
-    self:PlayVoice(sadb.sapath .. SA_LossOfControl.Voice(category))
-    self:RecordStat("lossOfControlAlerts")
+    local context = emitter:Context("lossOfControl")
+    context.sound, context.category = SA_LossOfControl.Voice(category), "lossOfControlAlerts"
+    emitter:Emit(context)
 end
 
 local probeLog = SA_DebugLog.NewProbe(function(value) return issecretvalue(value) end)
@@ -1413,7 +1333,9 @@ function SoundAlerter:UNIT_AURA(event, unit, updateInfo)
                 DRINK_SPELL = GetSpellInfo(DRINK_SPELL_ID) or false
             end
             if DRINK_SPELL and UnitAura(unit, DRINK_SPELL) then
-                SoundAlerter:PlayVoice(sadb.sapath.."drinking.mp3");
+                local context = emitter:Context("drinking")
+                context.sound = "drinking.mp3"
+                emitter:Emit(context)
             end
         end
         return
@@ -1425,7 +1347,7 @@ function SoundAlerter:UNIT_AURA(event, unit, updateInfo)
         petOnly = true
     end
     if isAlly and (Plain(UnitIsPlayer(unit)) ~= true or Plain(UnitIsEnemy("player", unit)) ~= false) then return end
-    if not self:IsAlertZoneAllowed() then
+    if not emitter:Open("spell") then
         if isTargetOrFocus then self:StealthLog("%s aura update ignored: zone gate", unit) end
         return
     end
@@ -1454,16 +1376,15 @@ local CLASS_AUDIO_MAP = {
 SoundAlerter.CLASS_AUDIO_MAP = CLASS_AUDIO_MAP
 
 spellAlerts = SA_SpellAlerts.New({
-    Play = function(list, spellID, unit, guid, name)
-        if unit then SoundAlerter.alertUnit = unit end
-        return SoundAlerter:PlaySpell(list, spellID, guid, name)
-    end,
+    Play = function(list, spellID, unit, guid, name) return emitter:Spell(list, spellID, unit, guid, name) end,
     Ready = SA_AlertText.Ready,
     Say = SA_AlertText.Say,
     Log = function(...) SoundAlerter:StealthLog(...) end,
     Debug = function(...) SoundAlerter:Debug(...) end,
     CustomSound = function(file)
-        SoundAlerter:PlayVoice("Interface\\Addons\\SoundAlerter\\CustomSounds\\" .. file, "Master")
+        local context = emitter:Context("custom")
+        context.sound, context.custom = file, true
+        emitter:Emit(context)
     end,
     SelfDebuff = function() lossOfControlState.lastSelfDebuffAt = GetTime() end,
     TrapLanded = function(sourceUnit, spellID)
@@ -1486,7 +1407,9 @@ spellAlerts = SA_SpellAlerts.New({
         if class and sadb.class then
             local classAudioFile = CLASS_AUDIO_MAP[class]
             if classAudioFile then
-                SoundAlerter:PlayVoice(sadb.sapath .. classAudioFile .. ".mp3")
+                local context = emitter:Context("trinket")
+                context.sound = classAudioFile .. ".mp3"
+                emitter:Emit(context)
             end
             SoundAlerter:ScheduleTimer(function() SoundAlerter:PlayTrinket(guid, name) end, 0.4)
         else
@@ -1597,7 +1520,7 @@ function SoundAlerter:AlertEnemyOnYou(unit, kind)
     local rule = ENEMY_ON_YOU[kind]
     if not sadb[rule.setting] then return end
     if not HostilePlayer(unit) then return end
-    if not self:IsAlertZoneAllowed() or self:IsQuiet() then return end
+    if not emitter:Open("enemyOnYou") then return end
     local guid = SA_Plates.UnitKey(unit)
     if not guid then return end
     local now = GetTime()
@@ -1607,8 +1530,9 @@ function SoundAlerter:AlertEnemyOnYou(unit, kind)
     if targetsYou ~= true then return end
     SA_Spacing.Mark(self.enemyOnYouAt, kind, guid, now)
     self:Debug("Targeting", "%s on you from %s", kind, unit)
-    self:PlayVoice(sadb.sapath .. rule.voice)
-    self:RecordStat("awarenessAlerts")
+    local context = emitter:Context("enemyOnYou")
+    context.sound, context.category = rule.voice, "awarenessAlerts"
+    emitter:Emit(context)
 end
 
 local groupUnitCache = {}
@@ -1746,12 +1670,11 @@ function SoundAlerter:SubscribeCastEvents()
 end
 
 function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
-    self.alertUnit = unit
     if unit == "target" or unit == "focus" or unit == "mouseover" then
         interrupts:CastStarted(unit, not issecretvalue(spellID) and spellID or nil, GetTime())
     end
     if not unit or not IsRelevantCastUnit(unit) then return end
-    if not self:IsAlertZoneAllowed() then return end
+    if not emitter:Open("spell") then return end
     if not HostilePlayer(unit) then return end
     castStartedAt[unit] = GetTime()
     self:AlertEnemyOnYou(unit, "casting")
@@ -1767,7 +1690,7 @@ function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
         for i = 1, #ARENA_TARGET_UNITS do
             if playerName == SafeUnitName(ARENA_TARGET_UNITS[i]) then return end
         end
-        self:PlaySpell(self.spellList.friendCCs, spellID)
+        emitter:Spell(self.spellList.friendCCs, spellID, unit)
         return
     end
 
@@ -1777,13 +1700,12 @@ function SoundAlerter:UNIT_SPELLCAST_START(event, unit, castGUID, spellID)
 end
 
 function SoundAlerter:UNIT_SPELLCAST_SUCCEEDED(event, unit, castGUID, spellID)
-    self.alertUnit = unit
     if unit == "player" or (unit == "pet" and sadb.interruptPets) then
         self:RecordPlayerInterrupt(spellID)
         return
     end
     if not unit or not IsRelevantCastUnit(unit) then return end
-    if not self:IsAlertZoneAllowed() then return end
+    if not emitter:Open("spell") then return end
     if not HostilePlayer(unit) then return end
     self:AlertInstantOnYou(unit)
     if issecretvalue(spellID) then return end
@@ -1797,7 +1719,7 @@ end
 function SoundAlerter:UNIT_SPELLCAST_INTERRUPTED(event, unit, castGUID, spellID, interruptedBy)
     if unit ~= "player" and unit ~= "target" and unit ~= "focus" and unit ~= "mouseover" then return end
     castStartedAt[unit] = nil
-    if not self:IsAlertZoneAllowed() then return end
+    if not emitter:Open("interrupt") then return end
     if sadb.debugmode then
         self:ProbeValue("interrupted " .. unit .. " spell/by", spellID, interruptedBy)
         if interruptedBy ~= nil and not issecretvalue(interruptedBy) then

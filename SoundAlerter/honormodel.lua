@@ -378,4 +378,179 @@ function Model.Comma(value)
     return sign .. out
 end
 
+do
+    Model.SNAP_DAYS = 30
+    Model.SNAP_WEEK = 7
+    Model.SNAP_CALENDAR = 14
+    Model.SNAP_MIN = 3
+    Model.SNAP_EARNERS = 5
+    Model.snapshotBuilds = 0
+    local SPAN, WEEK, CALENDAR, MIN, EARNERS = Model.SNAP_DAYS, Model.SNAP_WEEK, Model.SNAP_CALENDAR, Model.SNAP_MIN, Model.SNAP_EARNERS
+    local ceil = math.ceil
+
+    local function newDays(count)
+        local days = {}
+        for index = 1, count do days[index] = { bg = 0, kills = 0, world = 0, total = 0 } end
+        return days
+    end
+
+    local function newSnapshot()
+        return {
+            build = 0,
+            span = newDays(SPAN),
+            today = { goal = {} },
+            sources = {},
+            earners = { rows = {}, pool = {} },
+            calendar = {},
+        }
+    end
+
+    local snapshots = setmetatable({}, { __mode = "k" })
+    local EMPTY = Model.Store({})
+    local NO_HISTORY = {}
+
+    local function earnerRow(earners, name)
+        local rows, pool = earners.rows, earners.pool
+        for index = 1, #rows do
+            if rows[index].map == name then return rows[index] end
+        end
+        local row = pool[#rows + 1]
+        if not row then
+            row = {}
+            pool[#rows + 1] = row
+        end
+        row.map, row.n, row.honor, row.seconds = name, 0, 0, 0
+        rows[#rows + 1] = row
+        return row
+    end
+
+    local function byEarning(a, b)
+        if a.ranked ~= b.ranked then return a.ranked end
+        if a.ranked and a.perHour ~= b.perHour then return a.perHour > b.perHour end
+        if a.n ~= b.n then return a.n > b.n end
+        return a.map < b.map
+    end
+
+    local function build(out, store, history, today, offset)
+        out.build = out.build + 1
+        Model.snapshotBuilds = Model.snapshotBuilds + 1
+        local span = out.span
+        local since = store.since
+        for index = 1, SPAN do
+            local day = span[index]
+            local bg, world = Model.DayTotal(store, today - index + 1)
+            day.bg, day.kills, day.world = bg, 0, world
+        end
+        local earners = out.earners
+        local rows = earners.rows
+        for index = #rows, 1, -1 do rows[index] = nil end
+        local matchesToday, bestToday = 0, 0
+        for index = 1, #history do
+            local record = history[index]
+            local honor, kills = Model.Split(record)
+            local day = Model.DayOf(record.at or 0, offset)
+            local slot = today - day + 1
+            local entry = slot >= 1 and slot <= SPAN and span[slot] or nil
+            if entry then
+                if since == nil or day < since then entry.bg = entry.bg + honor end
+                if kills then entry.kills = entry.kills + kills end
+            end
+            if slot == 1 then
+                matchesToday = matchesToday + 1
+                if honor > bestToday then bestToday = honor end
+            end
+            local row = earnerRow(earners, record.map or "?")
+            row.n = row.n + 1
+            row.honor = row.honor + honor
+            row.seconds = row.seconds + (record.length or 0)
+        end
+        local bg30, kills30, world30 = 0, 0, 0
+        local paceSum, paceCount, prevSum, prevCount = 0, 0, 0, 0
+        local calTotal, calPlayed, calMax, weekMax = 0, 0, 0, 0
+        local reach = since and (today - since + 1) or 0
+        for index = 1, SPAN do
+            local day = span[index]
+            if day.kills > day.bg then day.kills = day.bg end
+            day.bg = day.bg - day.kills
+            day.total = day.bg + day.kills + day.world
+            bg30, kills30, world30 = bg30 + day.bg, kills30 + day.kills, world30 + day.world
+            if index <= Model.PACE_DAYS and index <= reach then
+                paceSum, paceCount = paceSum + day.total, paceCount + 1
+            end
+            if index >= 2 and index <= Model.PACE_DAYS + 1 and index <= reach then
+                prevSum, prevCount = prevSum + day.total, prevCount + 1
+            end
+            if index <= CALENDAR then
+                calTotal = calTotal + day.total
+                if day.total > 0 then calPlayed = calPlayed + 1 end
+                if day.total > calMax then calMax = day.total end
+            end
+            if index <= WEEK and day.total > weekMax then weekMax = day.total end
+        end
+        local pace = paceCount > 0 and paceSum / paceCount or nil
+        local first = span[1]
+        local now = out.today
+        now.total, now.bg, now.kills, now.world = first.total, first.bg, first.kills, first.world
+        now.average = prevCount > 0 and prevSum / prevCount or nil
+        now.delta = now.average and now.average > 0 and (first.total - now.average) / now.average or nil
+        now.pace = pace
+        now.matches, now.best = matchesToday, bestToday
+        local balance = Model.Balance(store)
+        local cap = store.wallet and store.wallet.cap
+        now.balance, now.cap = balance, cap
+        local left, warn = Model.CapState(balance, cap)
+        now.capLeft, now.capWarn = left, warn
+        now.capShown = left ~= nil and balance >= cap * Model.CAP_SHOW
+        now.capDays = left and left > 0 and pace and pace > 0 and ceil(left / pace) or nil
+        local goal, goals = now.goal, store.goals or NO_HISTORY
+        goal.name, goal.cost, goal.left, goal.days, goal.fraction, goal.index = nil, nil, nil, nil, nil, nil
+        now.goalCount = #goals
+        for index = 1, #goals do
+            local item = goals[index]
+            if (balance or 0) < item.cost then
+                goal.name, goal.cost, goal.index = item.name, item.cost, index
+                goal.left = item.cost - (balance or 0)
+                goal.days = Model.GoalDays(balance or 0, item.cost, pace)
+                goal.fraction = item.cost > 0 and (balance or 0) / item.cost or 0
+                break
+            end
+        end
+        local sources = out.sources
+        sources.bg, sources.kills, sources.world = bg30, kills30, world30
+        sources.total = bg30 + kills30 + world30
+        sources.max = weekMax
+        local calendar = out.calendar
+        calendar.total, calendar.played, calendar.max = calTotal, calPlayed, calMax
+        calendar.average = calTotal / CALENDAR
+        for index = 1, #rows do
+            local row = rows[index]
+            row.ranked = row.n >= MIN and row.seconds > 0
+            row.perHour = row.seconds > 0 and row.honor / (row.seconds / 3600) or 0
+            row.perMatch = row.n > 0 and row.honor / row.n or 0
+            row.length = row.n > 0 and row.seconds / row.n or 0
+        end
+        table.sort(rows, byEarning)
+        for index = #rows, EARNERS + 1, -1 do rows[index] = nil end
+        earners.best = rows[1] and rows[1].ranked and rows[1] or nil
+        earners.matches = #history
+    end
+
+    function Model.Snapshot(store, history, today, offset, version)
+        store = store or EMPTY
+        history = history or NO_HISTORY
+        local cached = snapshots[store]
+        if not cached then
+            cached = { out = newSnapshot() }
+            snapshots[store] = cached
+        elseif cached.history == history and cached.head == history[1] and cached.count == #history
+            and cached.today == today and cached.version == version and cached.offset == offset then
+            return cached.out
+        end
+        cached.history, cached.head, cached.count = history, history[1], #history
+        cached.today, cached.version, cached.offset = today, version, offset
+        build(cached.out, store, history, today, offset)
+        return cached.out
+    end
+end
+
 SA_HonorModel = Model

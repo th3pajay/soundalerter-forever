@@ -150,10 +150,11 @@ local function MatchUnit(names, guilds, guid, unit)
     return kind, name, guild
 end
 
-local function FireWatchAlert(self, profile, guid, name, guild, now, spotter)
+local function FireWatchAlert(self, guid, name, guild, now, spotter)
     watchAlertAt[guid] = now
-    self:PlayVoice(profile.sapath .. "watchlist.mp3")
-    self:RecordStat("watchlistAlerts")
+    local context = self.Emitter:Context("watch")
+    context.sound, context.category = "watchlist.mp3", "watchlistAlerts"
+    self.Emitter:Emit(context)
     self:Print(string.format("|cffFF7D0AWatchlist:|r %s%s is nearby%s", tostring(name or "A watched player"), guild and (" <" .. guild .. ">") or "", spotter and (" (spotted by " .. spotter .. ")") or ""))
 end
 
@@ -214,7 +215,7 @@ function SoundAlerter:ToggleWatchName(name)
     local profile = self.db1.profile
     local text, result = SA_Watchlist.Toggle(profile.watchNamesText, name, false)
     if not result then return nil end
-    profile.watchNamesText = text
+    self.Core:SetSetting("watchNamesText", text)
     ReportChange(self, profile, name:match("^%s*(.-)%s*$"), result)
     return result
 end
@@ -226,8 +227,8 @@ function SoundAlerter:AlertSharedWatch(guid, name, sender)
     local now = GetTime()
     local last = watchAlertAt[guid]
     if last and now - last < WATCH_SPACING then return false end
-    if not self:IsAlertZoneAllowed() or self:IsQuiet() then return false end
-    FireWatchAlert(self, profile, guid, name, nil, now, sender)
+    if not self.Emitter:Open("watch") then return false end
+    FireWatchAlert(self, guid, name, nil, now, sender)
     return true
 end
 
@@ -237,10 +238,10 @@ function SoundAlerter:AlertGlobalWatch(record, sender)
     local now = GetTime()
     local last = watchAlertAt[guid]
     if last and now - last < WATCH_SPACING then return false end
-    if not self:IsAlertZoneAllowed() or self:IsQuiet() then return false end
+    if not self.Emitter:Open("watch") then return false end
     local spotter = type(sender) == "string" and sender:match("^[^-]*") or nil
     if spotter == "" then spotter = nil end
-    FireWatchAlert(self, self.db1.profile, guid, record.name, nil, now, spotter)
+    FireWatchAlert(self, guid, record.name, nil, now, spotter)
     local toasts = self.ProximityToasts
     if toasts and toasts:GetSettings().enabled then
         toasts:ShowToast(record.name, record.class, nil, guid, record.level, nil, spotter and ("WATCHED  spotted by " .. spotter) or "WATCHED", nil, nil, true)
@@ -260,14 +261,14 @@ function SoundAlerter:CheckWatchlist(unit)
     local now = GetTime()
     local last = watchAlertAt[guid]
     if last and now - last < WATCH_SPACING then return kind end
-    if not self:IsAlertZoneAllowed() or self:IsQuiet() then return kind end
+    if not self.Emitter:Open("watch") then return kind end
 
     if name == nil then
         name = SafeUnitName(unit)
         guild = Plain((GetGuildInfo(unit)))
     end
     self:Debug("Watchlist", "%s matched by %s (guild %s)", tostring(name), kind, tostring(guild))
-    FireWatchAlert(self, profile, guid, name, guild, now)
+    FireWatchAlert(self, guid, name, guild, now)
     if profile.shareAlertsSend and not byName then self:ShareAlert("W", guid, 0, SafeUnitClass(unit), nil, name) end
     return kind
 end
@@ -305,7 +306,7 @@ function SoundAlerter:HandleWatchCommand(command, rest)
 
     if command == "watch" then
         local text, added = SA_Watchlist.Add(profile[field], entry, isGuild)
-        profile[field] = text
+        self.Core:SetSetting(field, text)
         if added then
             ReportChange(self, profile, entry, "added")
         else
@@ -313,7 +314,7 @@ function SoundAlerter:HandleWatchCommand(command, rest)
         end
     else
         local text, removed = SA_Watchlist.Remove(profile[field], entry, isGuild)
-        profile[field] = text
+        self.Core:SetSetting(field, text)
         if removed then
             ReportChange(self, profile, entry, "removed")
         else

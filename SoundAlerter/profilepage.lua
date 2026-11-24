@@ -409,7 +409,7 @@ function Profile:BuildStage(parent)
     box:SetScript("OnEditFocusLost", function() self:EndRename() end)
     stage.renameBox = box
 
-    for index, module in ipairs(Model.MODULES) do
+    for index, module in ipairs(Model.Modules()) do
         local chip = CreateFrame("Frame", nil, frame)
         chip:SetHeight(CHIP_HEIGHT)
         local chipFill = Paint(chip, COLOR.line)

@@ -9,10 +9,6 @@ local PREVIEW_GOLD = { 1, 0.83, 0.42 }
 local PREVIEW_UNLOCKED = { 1, 0.49, 0.04 }
 
 local BAR_KEYS = { "energy", "rage", "health", "mana" }
-local BAR_FRAMES = { energyScale = "energyFrame", rageScale = "rageFrame", healthScale = "healthFrame", manaScale = "manaFrame", comboScale = "comboFrame" }
-local COLOR_UPDATES = { energyColor = "UpdateEnergyBar", rageColor = "UpdateRageBar", healthColor = "UpdateHealthBar", manaColor = "UpdateManaBar" }
-local VISIBILITY = { swingSpark = true, manaSweep = true, manaShiftMarks = true, energyEnabled = true, rageEnabled = true, rageFade = true, healthEnabled = true, manaEnabled = true, comboEnabled = true, comboTextEnabled = true }
-local COMBO_COLORS = { comboActiveColor = true, comboMaxColor = true, comboInactiveColor = true }
 local CELEBRATIONS = SoundAlerter.CPCelebration:Styles()
 local QUALITIES = SoundAlerter.CPCelebration:Qualities()
 local EXITS = SoundAlerter.CPCelebration:Exits()
@@ -41,34 +37,6 @@ end
 
 local function write(active, key, value)
     active:SetSetting(key, value)
-    if key == "locked" then
-        active:SetLocked(value)
-    elseif key == "barTexture" or key == "barTextureQuality" then
-        active:ApplyBarTexture()
-    elseif VISIBILITY[key] then
-        active:UpdateVisibility()
-    elseif BAR_FRAMES[key] then
-        local frame = active[BAR_FRAMES[key]]
-        if frame then frame:SetScale(value) end
-    elseif key == "healthHeight" then
-        active:LoadSettings()
-    elseif COLOR_UPDATES[key] then
-        active:CacheColors()
-        active[COLOR_UPDATES[key]](active)
-    elseif key == "comboCelebration" or key == "comboAnimQuality" or key == "comboExit" then
-        active:ApplyCelebration()
-        if key == "comboAnimQuality" then
-            active:RefreshShiftMarks()
-            active:ApplyPoisedQuality()
-        end
-    elseif key == "poisedGlow" then
-        active:UpdatePoisedTracking()
-    elseif key == "comboStyle" then
-        active:ApplyCPStyle()
-    elseif COMBO_COLORS[key] then
-        active:CacheColors()
-        active:RefreshComboColors()
-    end
 end
 
 local function shifter()

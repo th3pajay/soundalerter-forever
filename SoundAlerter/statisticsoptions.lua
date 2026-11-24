@@ -24,8 +24,10 @@ local function view()
     local mode = settings.overviewMode
     data.mode = MODES[mode] and mode or "all"
     data.bgPill = settings.bgPill ~= false
+    data.bgDebrief = settings.bgDebrief ~= false
     if data.mode == "bg" then
         data.bg = active:GetBG()
+        data.bgSnapshot = SA_BGResult.Snapshot(data.bg)
         return data
     end
     if data.mode == "honor" then
@@ -33,6 +35,7 @@ local function view()
         data.honor = active:GetHonor()
         data.now = time()
         data.today, data.offset = active:HonorDay(data.now)
+        data.honorSnapshot = SA_HonorModel.Snapshot(data.honor, data.bg and data.bg.history, data.today, data.offset, active:HonorVersion())
         return data
     end
     local sorts = active:GetSortState()
@@ -64,6 +67,10 @@ local function write(key, value)
     end
     if key == "mode" then
         active:SetSetting("overviewMode", MODES[value] and value or "all")
+        return
+    end
+    if key == "bgDebrief" then
+        active:SetSetting("bgDebrief", value and true or false)
         return
     end
     if key == "bgPill" then
@@ -138,10 +145,14 @@ local function newTile(parent, x, y)
     fill:SetAllPoints(frame)
     local value = Kit.Text(frame, 17, Kit.COLOR.text)
     value:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -4)
+    value:SetWidth(112)
     local caption = Kit.Text(frame, 10.5, Kit.COLOR.muted)
     caption:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 8, 4)
-    local tile = {}
+    caption:SetWidth(112)
+    local tile = { frame = frame }
     function tile:Set(item)
+        if self.shownValue == item.value and self.shownCaption == item.caption and self.shownHot == item.hot then return end
+        self.shownValue, self.shownCaption, self.shownHot = item.value, item.caption, item.hot
         value:SetText(item.value)
         caption:SetText(item.caption)
         local color = item.hot and Kit.COLOR.accent or Kit.COLOR.text
@@ -1046,13 +1057,18 @@ local VIEWS = {
     global = { build = buildBars, bind = function(widgets, fresh) bindBars(widgets, fresh) end },
 }
 
+local SNAP_VIEWS = {}
+local openBGMatch
+
 local function selectTab(state, key)
     local Kit = SoundAlerter.Page.Kit
     local changed = state.tab ~= key
     state.tab = key
-    for _, tab in ipairs(TABS) do
+    state.tabs[state.set] = key
+    local live = state.live
+    for _, tab in ipairs(state.list) do
         local active = tab[1] == key
-        state.views[tab[1]]:SetShown(active and state.model ~= nil)
+        state.views[tab[1]]:SetShown(active and live)
         local button = state.buttons[tab[1]]
         local color = active and Kit.COLOR.accent or Kit.COLOR.muted
         button.label:SetTextColor(color[1], color[2], color[3])
@@ -1070,6 +1086,20 @@ local function selectTab(state, key)
         if changed or state[dirtyKey] then
             state[dirtyKey] = false
             spec.bind(widgets, changed)
+        end
+    end
+    local snapView = SNAP_VIEWS[key]
+    local snap = state.snap
+    if snapView and snap and live then
+        local widgets = state.widgets[key]
+        if not widgets then
+            widgets = snapView.build(state.views[key])
+            state.widgets[key] = widgets
+        end
+        if state.boundSnap[key] ~= snap or state.boundBuild[key] ~= snap.build then
+            state.boundSnap[key], state.boundBuild[key] = snap, snap.build
+            state.binds = state.binds + 1
+            snapView.bind(widgets, snap, state.snapSettings)
         end
     end
 end
@@ -1173,15 +1203,824 @@ local function bindRivals(widgets, model)
     end
 end
 
+local SNAP = {
+    GOLD = { 1, 0.82, 0 },
+    GOLD_SOFT = { 1, 0.886, 0.47 },
+    WORLD = { 0.435, 0.659, 1 },
+    LOSS = { 1, 0.36, 0.36 },
+    TAB_WIDTH = 63,
+    TAB_STEP = 65,
+    ROWS = 7,
+    MAP_ROWS = 6,
+    MAP_STEP = 42,
+    EARNER_ROWS = 5,
+    EARNER_STEP = 48,
+    RATE_BARS = 41,
+    CHART_HEIGHT = 56,
+    WEEK = 7,
+    CALENDAR = 14,
+    UP = "Interface\\Buttons\\Arrow-Up-Up",
+    DOWN = "Interface\\Buttons\\Arrow-Down-Up",
+}
+local SNAP_SETS = {
+    bg = { { "bgnow", "Now" }, { "form", "Form" }, { "maps", "Maps" }, { "bests", "Bests" } },
+    honor = { { "today", "Today" }, { "sources", "Sources" }, { "earners", "Earners" }, { "calendar", "Calendar" } },
+}
+
+do
+    local snapText = setmetatable({}, { __mode = "k" })
+    local snapWidth = setmetatable({}, { __mode = "k" })
+    local snapColor = setmetatable({}, { __mode = "k" })
+    local snapAlpha = setmetatable({}, { __mode = "k" })
+
+    local function put(region, text)
+        if snapText[region] ~= text then
+            snapText[region] = text
+            region:SetText(text)
+        end
+    end
+
+    local function putWidth(region, width)
+        if snapWidth[region] ~= width then
+            snapWidth[region] = width
+            region:SetWidth(width)
+        end
+    end
+
+    local function putColor(region, color, alpha)
+        alpha = alpha or 1
+        if snapColor[region] ~= color or snapAlpha[region] ~= alpha then
+            snapColor[region], snapAlpha[region] = color, alpha
+            SoundAlerter.Page.Kit.Tint(region, color, alpha)
+        end
+    end
+
+    local function tipEnter(self)
+        if self.tipTitle then SoundAlerter.Page.Kit.ShowTip(self, self.tipTitle, self.tipBody) end
+    end
+
+    local function tipLeave()
+        SoundAlerter.Page.Kit.HideTip()
+    end
+
+    local function tipFrame(parent, x, y, width, height, kind)
+        local frame = CreateFrame(kind or "Frame", nil, parent)
+        frame:SetSize(width, height)
+        frame:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -y)
+        frame:EnableMouse(true)
+        frame:SetScript("OnEnter", tipEnter)
+        frame:SetScript("OnLeave", tipLeave)
+        return frame
+    end
+
+    local function snapLabel(parent, size, color, justify, x, y, width)
+        local text = SoundAlerter.Page.Kit.Text(parent, size, color, justify)
+        if justify == "RIGHT" then
+            text:SetPoint("TOPRIGHT", parent, "TOPLEFT", x, -y)
+        else
+            text:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -y)
+        end
+        if width then text:SetWidth(width) end
+        return text
+    end
+
+    local function snapEmpty(view)
+        local text = snapLabel(view, 11.5, SoundAlerter.Page.Kit.COLOR.muted, "CENTER", 0, 120, PANEL_WIDTH)
+        return text
+    end
+
+    local function showParts(parts, shown)
+        for index = 1, #parts do parts[index]:SetShown(shown) end
+    end
+
+    local function comma(value) return SA_HonorModel.Comma(value) end
+    local function minutes(seconds) return math.floor((seconds or 0) / 60 + 0.5) .. " min" end
+    local function percent(value) return value and (math.floor(value * 100 + 0.5) .. "%") or "-" end
+
+    local function ordinal(rank)
+        local last, tens = rank % 10, rank % 100
+        if tens >= 11 and tens <= 13 then return rank .. "th" end
+        if last == 1 then return rank .. "st" end
+        if last == 2 then return rank .. "nd" end
+        if last == 3 then return rank .. "rd" end
+        return rank .. "th"
+    end
+
+    local function statText(index, value)
+        if index == SA_BGResult.DAMAGE or index == SA_BGResult.HEALING then return SA_BGResult.Short(value) end
+        return comma(value)
+    end
+
+    local function resultColor(result)
+        local Kit = SoundAlerter.Page.Kit
+        if result == "won" then return Kit.COLOR.on end
+        if result == "lost" then return SNAP.LOSS end
+        return Kit.COLOR.text
+    end
+
+    local function resultText(result)
+        if result == "won" then return "Victory" end
+        if result == "lost" then return "Defeat" end
+        return "Match over"
+    end
+
+    local function dayText(at)
+        return at and date("%d %b", at) or ""
+    end
+
+    local function newStack(parent, y, height, count)
+        local Kit = SoundAlerter.Page.Kit
+        local track = Kit.Paint(parent, Kit.COLOR.track, 1, "BORDER")
+        track:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -y)
+        track:SetSize(PANEL_WIDTH, height)
+        local parts = {}
+        for index = 1, count do
+            local part = Kit.Paint(parent, Kit.COLOR.track, 1, "ARTWORK")
+            part:SetHeight(height)
+            part:Hide()
+            parts[index] = part
+        end
+        local stack = { parts = parts, track = track }
+        function stack:Set(values, colors, total)
+            local x = 0
+            for index = 1, count do
+                local part = parts[index]
+                local width = total > 0 and PANEL_WIDTH * (values[index] or 0) / total or 0
+                if width >= 1 then
+                    part:ClearAllPoints()
+                    part:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -y)
+                    putWidth(part, width)
+                    putColor(part, colors[index])
+                    part:Show()
+                    x = x + width
+                else
+                    part:Hide()
+                end
+            end
+        end
+        function stack:SetShown(shown)
+            track:SetShown(shown)
+            if not shown then for index = 1, count do parts[index]:Hide() end end
+        end
+        return stack
+    end
+
+    local function newColumns(parent, y, count, width, height, segments)
+        local Kit = SoundAlerter.Page.Kit
+        local gap = count > 1 and (PANEL_WIDTH - count * width) / (count - 1) or 0
+        local columns = { frames = {} }
+        for index = 1, count do
+            local frame = tipFrame(parent, (index - 1) * (width + gap), y, width, height)
+            frame.base = Kit.Paint(frame, Kit.COLOR.track, 1, "BORDER")
+            frame.base:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+            frame.base:SetSize(width, 2)
+            frame.parts = {}
+            for part = 1, segments do
+                local texture = Kit.Paint(frame, Kit.COLOR.track, 1, "ARTWORK")
+                texture:SetWidth(width)
+                texture:Hide()
+                frame.parts[part] = texture
+            end
+            columns.frames[index] = frame
+        end
+        function columns:Set(index, values, colors, top)
+            local frame = self.frames[index]
+            local offset = 0
+            for part = 1, segments do
+                local texture = frame.parts[part]
+                local size = top > 0 and height * (values[part] or 0) / top or 0
+                if size >= 1 then
+                    texture:ClearAllPoints()
+                    texture:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, offset)
+                    texture:SetHeight(size)
+                    putColor(texture, colors[part])
+                    texture:Show()
+                    offset = offset + size
+                else
+                    texture:Hide()
+                end
+            end
+            frame.base:SetShown(offset == 0)
+        end
+        return columns
+    end
+
+    local function legend(parent, y, entries)
+        local Kit = SoundAlerter.Page.Kit
+        local x = 0
+        local items = {}
+        for index, entry in ipairs(entries) do
+            local swatch = Kit.Paint(parent, entry[2], 1, "ARTWORK")
+            swatch:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -(y + 2))
+            swatch:SetSize(8, 8)
+            local text = snapLabel(parent, 10, Kit.COLOR.muted, nil, x + 12, y)
+            text:SetText(entry[1])
+            x = x + 12 + #entry[1] * 5 + 14
+            items[index] = swatch
+            items[#entries + index] = text
+        end
+        return items
+    end
+
+    local function setBadge(row, rank, of)
+        local Kit = SoundAlerter.Page.Kit
+        put(row.rank, ordinal(rank) .. " / " .. of)
+        if rank == 1 then
+            putColor(row.badge, SNAP.GOLD, 0.18)
+            putColor(row.rank, SNAP.GOLD)
+        elseif rank <= 3 then
+            putColor(row.badge, Kit.COLOR.on, 0.18)
+            putColor(row.rank, Kit.COLOR.on)
+        else
+            putColor(row.badge, Kit.COLOR.line, 0.8)
+            putColor(row.rank, Kit.COLOR.muted)
+        end
+    end
+
+    local function setArrow(texture, direction)
+        if direction == 0 then
+            texture:Hide()
+            return
+        end
+        texture:SetTexture(direction > 0 and SNAP.UP or SNAP.DOWN)
+        putColor(texture, direction > 0 and SoundAlerter.Page.Kit.COLOR.on or SNAP.LOSS)
+        texture:Show()
+    end
+
+    local function buildBGNow(view)
+        local Kit = SoundAlerter.Page.Kit
+        local widgets = { rows = {} }
+        widgets.result = snapLabel(view, 17, Kit.COLOR.text, nil, 0, 0)
+        widgets.when = snapLabel(view, 10.5, Kit.COLOR.muted, "RIGHT", PANEL_WIDTH, 5)
+        widgets.where = snapLabel(view, 10.5, Kit.COLOR.muted, nil, 0, 24, PANEL_WIDTH)
+        widgets.caption = newCaption(view, 44, "YOUR PLACE IN THE TEAM")
+        widgets.caption.right:SetText("vs your average")
+        for index = 1, SNAP.ROWS do
+            local frame = tipFrame(view, 0, 60 + (index - 1) * 24, PANEL_WIDTH, 22)
+            local row = { frame = frame }
+            row.label = Kit.Text(frame, 11.5, Kit.COLOR.text)
+            row.label:SetPoint("LEFT", frame, "LEFT", 2, 0)
+            row.value = Kit.Text(frame, 11.5, Kit.COLOR.text, "RIGHT")
+            row.value:SetPoint("RIGHT", frame, "RIGHT", -78, 0)
+            row.arrow = frame:CreateTexture(nil, "ARTWORK")
+            row.arrow:SetSize(12, 12)
+            row.arrow:SetPoint("RIGHT", frame, "RIGHT", -60, 0)
+            row.badge = Kit.Paint(frame, Kit.COLOR.line, 0.8, "BORDER")
+            row.badge:SetSize(52, 15)
+            row.badge:SetPoint("RIGHT", frame, "RIGHT", -2, 0)
+            row.rank = Kit.Text(frame, 10, Kit.COLOR.muted, "CENTER")
+            row.rank:SetPoint("CENTER", row.badge, "CENTER", 0, 0)
+            widgets.rows[index] = row
+        end
+        widgets.teamCaption = newCaption(view, 236, "TEAM")
+        widgets.team = newLine(view, 252)
+        widgets.empty = snapEmpty(view)
+        widgets.parts = { widgets.result, widgets.when, widgets.where, widgets.caption.left, widgets.caption.right, widgets.teamCaption.left, widgets.team }
+        return widgets
+    end
+
+    local function bindBGNow(widgets, snap)
+        local now = snap.now
+        local record = now.record
+        local has = record ~= nil
+        put(widgets.empty, has and "" or "Play a battleground to see your last match here.")
+        showParts(widgets.parts, has)
+        local column = now.column
+        for index = 1, SNAP.ROWS do
+            widgets.rows[index].frame:SetShown(has and (index < SNAP.ROWS or column.label ~= nil))
+        end
+        if not has then return end
+        put(widgets.result, resultText(record.result))
+        putColor(widgets.result, resultColor(record.result))
+        put(widgets.when, record.when or dayText(record.at))
+        put(widgets.where, (record.map or "?") .. " · " .. minutes(record.length))
+        put(widgets.caption.left, now.team and "YOUR PLACE IN THE TEAM" or "YOUR PLACE IN THE MATCH")
+        for index = 1, #now.rows do
+            local data, row = now.rows[index], widgets.rows[index]
+            local stat = data.stat
+            put(row.label, stat.label)
+            put(row.value, statText(stat.index, data.value))
+            setArrow(row.arrow, data.arrow)
+            setBadge(row, data.rank, data.of)
+            row.frame.tipTitle = stat.label
+            row.frame.tipBody = "You: " .. statText(stat.index, data.value) .. " · your average " .. statText(stat.index, data.average) .. (stat.low and " (fewer is better)" or "")
+        end
+        local row = widgets.rows[SNAP.ROWS]
+        if column.label then
+            put(row.label, column.label)
+            putColor(row.label, SNAP.GOLD_SOFT)
+            put(row.value, comma(column.value))
+            setArrow(row.arrow, 0)
+            setBadge(row, column.rank, column.of)
+            row.frame.tipTitle = column.label
+            row.frame.tipBody = "This map's own scoreboard column."
+        end
+        put(widgets.team, SA_BGResult.Short(now.teamDamage) .. " damage · " .. comma(now.teamKB) .. " killing blows")
+    end
+
+    local function buildForm(view)
+        local Kit = SoundAlerter.Page.Kit
+        local widgets = { dots = {}, bars = {}, tiles = {} }
+        widgets.streak = snapLabel(view, 34, Kit.COLOR.text, nil, 0, 2)
+        widgets.run = snapLabel(view, 11.5, Kit.COLOR.text, "RIGHT", PANEL_WIDTH, 8)
+        widgets.split = snapLabel(view, 10.5, Kit.COLOR.muted, "RIGHT", PANEL_WIDTH, 24)
+        widgets.dotCaption = newCaption(view, 52, "LAST 10 MATCHES")
+        widgets.dotCaption.right:SetText("newest first")
+        for index = 1, SA_BGResult.SNAP_FORM do
+            local dot = tipFrame(view, (index - 1) * 26, 68, 20, 20)
+            dot.disc = dot:CreateTexture(nil, "ARTWORK")
+            dot.disc:SetAllPoints(dot)
+            dot.disc:SetTexture(DISC_TEXTURE)
+            widgets.dots[index] = dot
+        end
+        widgets.rateCaption = newCaption(view, 100, "WIN RATE, ROLLING 10 MATCHES")
+        local chart = CreateFrame("Frame", nil, view)
+        chart:SetSize(PANEL_WIDTH, SNAP.CHART_HEIGHT + 4)
+        chart:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -116)
+        local fill = Kit.Paint(chart, Kit.COLOR.line, 0.35)
+        fill:SetAllPoints(chart)
+        widgets.chart = chart
+        for index = 1, SNAP.RATE_BARS do
+            local bar = Kit.Paint(chart, Kit.COLOR.on, 0.7, "ARTWORK")
+            bar:Hide()
+            widgets.bars[index] = bar
+        end
+        widgets.overall = Kit.Paint(chart, Kit.COLOR.muted, 0.9, "OVERLAY")
+        widgets.overall:SetHeight(1)
+        widgets.note = snapLabel(view, 10.5, Kit.COLOR.muted, nil, 0, 182, PANEL_WIDTH)
+        for index = 1, 4 do
+            widgets.tiles[index] = newTile(view, ((index - 1) % 2) * 132, 204 + math.floor((index - 1) / 2) * 44)
+        end
+        widgets.tileItems = { {}, {}, {}, {} }
+        widgets.empty = snapEmpty(view)
+        widgets.parts = { widgets.streak, widgets.run, widgets.split, widgets.dotCaption.left, widgets.dotCaption.right, widgets.rateCaption.left, widgets.rateCaption.right, chart, widgets.note }
+        return widgets
+    end
+
+    local function bindForm(widgets, snap)
+        local Kit = SoundAlerter.Page.Kit
+        local form = snap.form
+        local has = snap.count > 0
+        put(widgets.empty, has and "" or "Play a battleground to see your form here.")
+        showParts(widgets.parts, has)
+        for index = 1, 4 do widgets.tiles[index].frame:SetShown(has) end
+        for index = 1, #widgets.dots do widgets.dots[index]:SetShown(has and index <= form.lastCount) end
+        if not has then return end
+        local won = form.streakWon
+        if form.streak > 0 then
+            put(widgets.streak, (won and "W" or "L") .. form.streak)
+            putColor(widgets.streak, won and Kit.COLOR.on or SNAP.LOSS)
+            put(widgets.run, form.streak .. " " .. (won and (form.streak == 1 and "win" or "wins") or (form.streak == 1 and "loss" or "losses")) .. " in a row")
+        else
+            put(widgets.streak, "-")
+            putColor(widgets.streak, Kit.COLOR.muted)
+            put(widgets.run, "No result on the last match")
+        end
+        put(widgets.split, "Last " .. form.lastCount .. ": " .. form.lastWins .. "-" .. (form.lastCount - form.lastWins))
+        for index = 1, form.lastCount do
+            local record, dot = form.last[index], widgets.dots[index]
+            putColor(dot.disc, resultColor(record.result))
+            dot.tipTitle = resultText(record.result) .. " · " .. (record.map or "?")
+            dot.tipBody = (record.when or dayText(record.at)) .. " · " .. minutes(record.length) .. " · " .. comma(SA_HonorModel.HonorOf(record)) .. " honor"
+        end
+        local rates = form.rates
+        local count = #rates
+        local width = count > 0 and (PANEL_WIDTH - (count - 1)) / count or 0
+        for index = 1, #widgets.bars do
+            local bar = widgets.bars[index]
+            if index <= count then
+                bar:ClearAllPoints()
+                bar:SetPoint("BOTTOMLEFT", widgets.chart, "BOTTOMLEFT", (index - 1) * (width + 1), 2)
+                bar:SetSize(width, math.max(2, SNAP.CHART_HEIGHT * rates[index]))
+                putColor(bar, Kit.COLOR.on, index == count and 1 or 0.6)
+                bar:Show()
+            else
+                bar:Hide()
+            end
+        end
+        local overall = form.overall
+        widgets.overall:SetShown(overall ~= nil)
+        if overall then
+            widgets.overall:ClearAllPoints()
+            widgets.overall:SetPoint("BOTTOMLEFT", widgets.chart, "BOTTOMLEFT", 0, 2 + SNAP.CHART_HEIGHT * overall)
+            widgets.overall:SetWidth(PANEL_WIDTH)
+        end
+        put(widgets.rateCaption.right, "last " .. snap.count)
+        put(widgets.note, "Line: your overall win rate (" .. percent(overall) .. ").")
+        local items = widgets.tileItems
+        items[1].value, items[1].caption = percent(form.lastRate), "won, last " .. form.lastCount
+        items[2].value, items[2].caption = percent(overall), "won, last " .. snap.count
+        items[3].value, items[3].caption = form.length and minutes(form.length) or "-", "avg length, last " .. form.lastCount
+        items[4].value = form.longest > 0 and ("W" .. form.longest) or "-"
+        items[4].caption = form.longestAt and ("best streak, " .. dayText(form.longestAt.at)) or "best win streak"
+        for index = 1, 4 do widgets.tiles[index]:Set(items[index]) end
+    end
+
+    local function buildMaps(view)
+        local Kit = SoundAlerter.Page.Kit
+        local widgets = { rows = {}, view = view }
+        widgets.caption = newCaption(view, 0, "MAPS")
+        widgets.caption.right:SetText("by matches")
+        for index = 1, SNAP.MAP_ROWS do
+            local frame = tipFrame(view, 0, 18 + (index - 1) * SNAP.MAP_STEP, PANEL_WIDTH, SNAP.MAP_STEP - 2)
+            local row = { frame = frame }
+            row.name = snapLabel(frame, 11.5, Kit.COLOR.text, nil, 0, 0)
+            row.tag = Kit.Text(frame, 10, SNAP.GOLD)
+            row.tag:SetPoint("LEFT", row.name, "RIGHT", 6, 0)
+            row.count = snapLabel(frame, 10.5, Kit.COLOR.muted, "RIGHT", PANEL_WIDTH, 1)
+            row.track = Kit.Paint(frame, Kit.COLOR.track, 1, "BORDER")
+            row.track:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -17)
+            row.track:SetSize(PANEL_WIDTH, 4)
+            row.fill = Kit.Paint(frame, Kit.COLOR.on, 1, "ARTWORK")
+            row.fill:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -17)
+            row.fill:SetHeight(4)
+            row.detail = snapLabel(frame, 10.5, Kit.COLOR.muted, nil, 0, 25, PANEL_WIDTH)
+            widgets.rows[index] = row
+        end
+        widgets.rivalCaption = newCaption(view, 0, "OPPONENTS")
+        widgets.rivalCaption.right:SetText("enemy team")
+        widgets.rivals = newLine(view, 0)
+        widgets.stacked = newLine(view, 0)
+        widgets.empty = snapEmpty(view)
+        widgets.parts = { widgets.caption.left, widgets.caption.right, widgets.rivalCaption.left, widgets.rivalCaption.right, widgets.rivals, widgets.stacked }
+        return widgets
+    end
+
+    local function bindMaps(widgets, snap)
+        local maps = snap.maps
+        local rows = maps.rows
+        local has = #rows > 0
+        put(widgets.empty, has and "" or "Play a battleground to compare your maps here.")
+        showParts(widgets.parts, has)
+        for index = 1, SNAP.MAP_ROWS do widgets.rows[index].frame:SetShown(has and index <= #rows) end
+        if not has then return end
+        put(widgets.caption.left, "MAPS · LAST " .. snap.count .. " MATCHES")
+        local minimum = SA_BGResult.SNAP_MIN
+        for index = 1, #rows do
+            local data, row = rows[index], widgets.rows[index]
+            put(row.name, data.map)
+            put(row.tag, data.tag == "best" and "BEST" or data.tag == "worst" and "WORST" or "")
+            putColor(row.tag, data.tag == "worst" and SNAP.LOSS or SNAP.GOLD)
+            put(row.count, data.n .. (data.n == 1 and " match" or " matches"))
+            local width = math.floor(PANEL_WIDTH * data.rate + 0.5)
+            row.fill:SetShown(width >= 1)
+            if width >= 1 then putWidth(row.fill, width) end
+            local detail = percent(data.rate) .. " won · " .. minutes(data.length) .. " · " .. comma(data.perMatch) .. " honor per match"
+            put(row.detail, detail)
+            row.frame:SetAlpha(data.n >= minimum and 1 or 0.45)
+            row.frame.tipTitle = data.map
+            row.frame.tipBody = detail .. (data.n < minimum and " · too few matches to rank" or "")
+        end
+        local y = 18 + #rows * SNAP.MAP_STEP + 6
+        local view = widgets.view
+        widgets.rivalCaption.left:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -y)
+        widgets.rivalCaption.right:SetPoint("TOPRIGHT", view, "TOPRIGHT", 0, -y)
+        widgets.rivals:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -(y + 16))
+        widgets.stacked:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -(y + 32))
+        if maps.rivalCount == 0 then
+            put(widgets.rivals, "|cff96a0b2No enemy classes recorded yet.|r")
+        else
+            local text = ""
+            for index = 1, maps.rivalCount do
+                local entry = maps.rivals[index]
+                text = text .. (index > 1 and "  " or "") .. classHex(entry.class) .. SA_StatsFormat.ClassName(entry.class) .. "|r |cff96a0b2" .. percent(entry.share) .. "|r"
+            end
+            put(widgets.rivals, text)
+        end
+        if maps.stackMatches == 0 then
+            put(widgets.stacked, "|cff96a0b2No enemy team had 3 of one class yet.|r")
+        else
+            local rate = maps.stackWon / maps.stackMatches
+            local color = rate < 0.5 and "|cffff5c5c" or "|cff3ddc97"
+            put(widgets.stacked, "3+ of one class: " .. color .. percent(rate) .. " won|r |cff96a0b2(" .. maps.stackMatches .. " matches)|r")
+        end
+    end
+
+    local function buildBests(view)
+        local Kit = SoundAlerter.Page.Kit
+        local widgets = { tiles = {} }
+        widgets.caption = newCaption(view, 0, "PERSONAL BESTS")
+        widgets.caption.right:SetText("click to open")
+        for index = 1, 6 do
+            local x, y = ((index - 1) % 2) * 132, 18 + math.floor((index - 1) / 2) * 96
+            local tile = tipFrame(view, x, y, 128, 92, "Button")
+            local fill = Kit.Paint(tile, Kit.COLOR.line, 0.5)
+            fill:SetAllPoints(tile)
+            tile.value = snapLabel(tile, 20, SNAP.GOLD, nil, 8, 8)
+            tile.label = snapLabel(tile, 11, Kit.COLOR.text, nil, 8, 34, 116)
+            tile.map = snapLabel(tile, 10.5, Kit.COLOR.muted, nil, 8, 56, 116)
+            tile.day = snapLabel(tile, 10.5, Kit.COLOR.muted, nil, 8, 70, 116)
+            tile:SetScript("OnClick", function(self) if self.record and openBGMatch then openBGMatch(self.record) end end)
+            widgets.tiles[index] = tile
+        end
+        widgets.empty = snapEmpty(view)
+        widgets.parts = { widgets.caption.left, widgets.caption.right }
+        return widgets
+    end
+
+    local function bindBests(widgets, snap)
+        local bests = snap.bests
+        local has = bests.count > 0
+        put(widgets.empty, has and "" or "Play a battleground to set your first records.")
+        showParts(widgets.parts, has)
+        put(widgets.caption.left, "PERSONAL BESTS · LAST " .. snap.count .. " MATCHES")
+        local slot = 0
+        for index = 1, #bests.list do
+            local best = bests.list[index]
+            if best.record and slot < #widgets.tiles then
+                slot = slot + 1
+                local tile, record = widgets.tiles[slot], best.record
+                tile.record = record
+                put(tile.value, comma(best.value))
+                put(tile.label, best.label)
+                put(tile.map, record.map or "?")
+                put(tile.day, dayText(record.at))
+                tile.tipTitle = best.label .. " · " .. comma(best.value)
+                tile.tipBody = (record.map or "?") .. " · " .. resultText(record.result) .. " · " .. (record.when or dayText(record.at)) .. ". Click to open this match in the list."
+                tile:Show()
+            end
+        end
+        for index = slot + 1, #widgets.tiles do
+            widgets.tiles[index].record = nil
+            widgets.tiles[index]:Hide()
+        end
+    end
+
+    local SOURCE_COLORS = { SNAP.GOLD, SNAP.GOLD_SOFT, SNAP.WORLD }
+    local SOURCE_LABELS = { "Battleground", "Kills", "World PvP" }
+    local CALENDAR_COLORS = { SNAP.GOLD, SNAP.WORLD }
+
+    local function buildToday(view)
+        local Kit = SoundAlerter.Page.Kit
+        local widgets = { values = {}, tiles = {} }
+        widgets.caption = newCaption(view, 0, "HONOR TODAY")
+        widgets.total = snapLabel(view, 28, SNAP.GOLD, nil, 0, 16)
+        widgets.delta = snapLabel(view, 10.5, Kit.COLOR.muted, nil, 0, 52, PANEL_WIDTH)
+        widgets.split = newStack(view, 70, 8, 3)
+        widgets.splitText = {
+            snapLabel(view, 10.5, Kit.COLOR.muted, nil, 0, 82, 96),
+            snapLabel(view, 10.5, Kit.COLOR.muted, "CENTER", 80, 82, 100),
+            snapLabel(view, 10.5, Kit.COLOR.muted, "RIGHT", PANEL_WIDTH, 82, 96),
+        }
+        widgets.capCaption = newCaption(view, 106, "TO THE CAP")
+        widgets.capLine = snapLabel(view, 11.5, Kit.COLOR.text, nil, 0, 122, PANEL_WIDTH)
+        widgets.capTrack = Kit.Paint(view, Kit.COLOR.track, 1, "BORDER")
+        widgets.capTrack:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -140)
+        widgets.capTrack:SetSize(PANEL_WIDTH, 6)
+        widgets.capFill = Kit.Paint(view, SNAP.GOLD, 1, "ARTWORK")
+        widgets.capFill:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -140)
+        widgets.capFill:SetHeight(6)
+        widgets.capMark = Kit.Paint(view, SNAP.LOSS, 1, "OVERLAY")
+        widgets.capMark:SetPoint("TOPLEFT", view, "TOPLEFT", math.floor(PANEL_WIDTH * SA_HonorModel.CAP_WARN), -139)
+        widgets.capMark:SetSize(1, 8)
+        widgets.capNote = snapLabel(view, 10.5, Kit.COLOR.muted, nil, 0, 150, PANEL_WIDTH)
+        widgets.goalCaption = newCaption(view, 176, "NEXT GOAL")
+        widgets.goalName = snapLabel(view, 11.5, Kit.COLOR.text, nil, 0, 192, PANEL_WIDTH)
+        widgets.goalTrack = Kit.Paint(view, Kit.COLOR.track, 1, "BORDER")
+        widgets.goalTrack:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -210)
+        widgets.goalTrack:SetSize(PANEL_WIDTH, 4)
+        widgets.goalFill = Kit.Paint(view, Kit.COLOR.on, 1, "ARTWORK")
+        widgets.goalFill:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -210)
+        widgets.goalFill:SetHeight(4)
+        widgets.goalNote = snapLabel(view, 10.5, Kit.COLOR.muted, nil, 0, 218, PANEL_WIDTH)
+        widgets.tiles[1] = newTile(view, 0, 246)
+        widgets.tiles[2] = newTile(view, 132, 246)
+        widgets.tileItems = { {}, {} }
+        return widgets
+    end
+
+    local function bindToday(widgets, snap, settings)
+        local Kit = SoundAlerter.Page.Kit
+        local today = snap.today
+        put(widgets.caption.right, settings and settings.now and date("%a %d %b", settings.now) or "")
+        put(widgets.total, comma(today.total))
+        if today.delta then
+            local up = today.delta >= 0
+            put(widgets.delta, (up and "|cff3ddc97+" or "|cffff5c5c") .. percent(today.delta) .. "|r vs your 14-day average of " .. comma(today.average))
+        elseif today.total > 0 then
+            put(widgets.delta, "Your first day of honor here.")
+        else
+            put(widgets.delta, "No honor yet today.")
+        end
+        local values = widgets.values
+        values[1], values[2], values[3] = today.bg, today.kills, today.world
+        widgets.split:Set(values, SOURCE_COLORS, today.total)
+        for index = 1, 3 do put(widgets.splitText[index], SOURCE_LABELS[index] .. " " .. comma(values[index])) end
+        local balance, cap = today.balance, today.cap
+        local shown = today.capShown == true
+        widgets.capTrack:SetShown(shown)
+        widgets.capFill:SetShown(shown)
+        widgets.capMark:SetShown(shown)
+        if shown then
+            put(widgets.capCaption.right, percent(balance / cap))
+            put(widgets.capLine, comma(balance) .. " |cff96a0b2of " .. comma(cap) .. "|r")
+            putWidth(widgets.capFill, math.max(1, math.min(PANEL_WIDTH, PANEL_WIDTH * balance / cap)))
+            put(widgets.capNote, comma(math.max(0, today.capLeft)) .. " to cap" .. (today.capDays and (" · about " .. today.capDays .. (today.capDays == 1 and " day" or " days") .. " at your pace") or ""))
+        elseif balance and cap and cap > 0 then
+            put(widgets.capCaption.right, percent(balance / cap))
+            put(widgets.capLine, comma(balance) .. " |cff96a0b2of " .. comma(cap) .. "|r")
+            put(widgets.capNote, "The bar shows once you pass 60% of the cap.")
+        else
+            put(widgets.capCaption.right, "")
+            put(widgets.capLine, "|cff96a0b2Cap unknown|r")
+            put(widgets.capNote, "Shown after your next honor change.")
+        end
+        local goal = today.goal
+        local hasGoal = goal.name ~= nil
+        widgets.goalTrack:SetShown(hasGoal)
+        widgets.goalFill:SetShown(hasGoal)
+        if hasGoal then
+            put(widgets.goalCaption.right, goal.index .. " of " .. today.goalCount)
+            put(widgets.goalName, goal.name)
+            putWidth(widgets.goalFill, math.max(1, PANEL_WIDTH * math.min(1, goal.fraction)))
+            put(widgets.goalNote, comma(goal.left) .. " left" .. (goal.days and (" · about " .. goal.days .. (goal.days == 1 and " day" or " days") .. " at " .. comma(today.pace) .. " a day") or ""))
+        else
+            put(widgets.goalCaption.right, "")
+            put(widgets.goalName, today.goalCount > 0 and "All goals reached" or "|cff96a0b2No goal yet|r")
+            put(widgets.goalNote, today.goalCount > 0 and "Add a bigger one on the left." or "Add one in Goals on the left.")
+        end
+        local items = widgets.tileItems
+        items[1].value, items[1].caption = tostring(today.matches), "matches today"
+        items[2].value, items[2].caption = today.best > 0 and comma(today.best) or "-", "best match today"
+        widgets.tiles[1]:Set(items[1])
+        widgets.tiles[2]:Set(items[2])
+        putColor(widgets.total, SNAP.GOLD)
+        putColor(widgets.capLine, Kit.COLOR.text)
+    end
+
+    local function buildSources(view)
+        local Kit = SoundAlerter.Page.Kit
+        local widgets = { values = {}, shares = {} }
+        widgets.caption = newCaption(view, 0, "LAST 30 DAYS")
+        widgets.bar = newStack(view, 18, 16, 3)
+        for index = 1, 3 do
+            local x = (index - 1) * 88
+            widgets.shares[index] = {
+                percent = snapLabel(view, 15, SOURCE_COLORS[index], nil, x, 42, 84),
+                label = snapLabel(view, 10.5, Kit.COLOR.muted, nil, x, 62, 84),
+                amount = snapLabel(view, 10.5, Kit.COLOR.muted, nil, x, 76, 84),
+            }
+            widgets.shares[index].label:SetText(SOURCE_LABELS[index])
+        end
+        widgets.weekCaption = newCaption(view, 100, "LAST 7 DAYS")
+        widgets.weekCaption.right:SetText("by source")
+        widgets.columns = newColumns(view, 118, SNAP.WEEK, 30, 116, 3)
+        widgets.days = {}
+        local gap = (PANEL_WIDTH - SNAP.WEEK * 30) / (SNAP.WEEK - 1)
+        for index = 1, SNAP.WEEK do
+            widgets.days[index] = snapLabel(view, 10.5, Kit.COLOR.muted, "CENTER", (index - 1) * (30 + gap), 238, 30)
+        end
+        widgets.legend = legend(view, 260, { { SOURCE_LABELS[1], SNAP.GOLD }, { SOURCE_LABELS[2], SNAP.GOLD_SOFT }, { SOURCE_LABELS[3], SNAP.WORLD } })
+        return widgets
+    end
+
+    local function bindSources(widgets, snap, settings)
+        local Kit = SoundAlerter.Page.Kit
+        local sources = snap.sources
+        local total = sources.total
+        put(widgets.caption.right, comma(total))
+        local values = widgets.values
+        values[1], values[2], values[3] = sources.bg, sources.kills, sources.world
+        widgets.bar:Set(values, SOURCE_COLORS, total)
+        for index = 1, 3 do
+            local share = widgets.shares[index]
+            put(share.percent, total > 0 and percent(values[index] / total) or "-")
+            put(share.amount, comma(values[index]))
+        end
+        local now = settings and settings.now or time()
+        local span = snap.span
+        for index = 1, SNAP.WEEK do
+            local slot = SNAP.WEEK - index + 1
+            local day = span[slot]
+            values[1], values[2], values[3] = day.bg, day.kills, day.world
+            widgets.columns:Set(index, values, SOURCE_COLORS, sources.max)
+            local at = now - (slot - 1) * 86400
+            local frame = widgets.columns.frames[index]
+            frame.tipTitle = date("%a %d %b", at) .. " · " .. comma(day.total)
+            frame.tipBody = "Battleground " .. comma(day.bg) .. " · Kills " .. comma(day.kills) .. " · World PvP " .. comma(day.world)
+            put(widgets.days[index], slot == 1 and "today" or date("%a", at):sub(1, 2))
+            putColor(widgets.days[index], slot == 1 and Kit.COLOR.text or Kit.COLOR.muted)
+        end
+    end
+
+    local function buildEarners(view)
+        local Kit = SoundAlerter.Page.Kit
+        local widgets = { rows = {}, view = view }
+        widgets.caption = newCaption(view, 0, "HONOR PER HOUR")
+        for index = 1, SNAP.EARNER_ROWS do
+            local frame = tipFrame(view, 0, 18 + (index - 1) * SNAP.EARNER_STEP, PANEL_WIDTH, SNAP.EARNER_STEP - 4)
+            local row = { frame = frame }
+            row.name = snapLabel(frame, 11.5, Kit.COLOR.text, nil, 0, 0)
+            row.tag = Kit.Text(frame, 10, SNAP.GOLD)
+            row.tag:SetPoint("LEFT", row.name, "RIGHT", 6, 0)
+            row.value = snapLabel(frame, 11.5, SNAP.GOLD, "RIGHT", PANEL_WIDTH, 0)
+            row.track = Kit.Paint(frame, Kit.COLOR.track, 0.6, "BORDER")
+            row.track:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -17)
+            row.track:SetSize(PANEL_WIDTH, 8)
+            row.fill = Kit.Paint(frame, SNAP.GOLD, 1, "ARTWORK")
+            row.fill:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -17)
+            row.fill:SetHeight(8)
+            row.detail = snapLabel(frame, 10.5, Kit.COLOR.muted, nil, 0, 29, PANEL_WIDTH)
+            widgets.rows[index] = row
+        end
+        widgets.best = newLine(view, 0)
+        widgets.empty = snapEmpty(view)
+        widgets.parts = { widgets.caption.left, widgets.best }
+        return widgets
+    end
+
+    local function bindEarners(widgets, snap)
+        local earners = snap.earners
+        local rows = earners.rows
+        local has = #rows > 0
+        put(widgets.empty, has and "" or "Play a battleground to see which map pays best.")
+        showParts(widgets.parts, has)
+        for index = 1, SNAP.EARNER_ROWS do widgets.rows[index].frame:SetShown(has and index <= #rows) end
+        if not has then return end
+        put(widgets.caption.left, "HONOR PER HOUR · LAST " .. earners.matches .. " MATCHES")
+        local top = 0
+        for index = 1, #rows do if rows[index].perHour > top then top = rows[index].perHour end end
+        for index = 1, #rows do
+            local data, row = rows[index], widgets.rows[index]
+            put(row.name, data.map)
+            put(row.tag, data == earners.best and "BEST" or "")
+            put(row.value, comma(data.perHour) .. " |cff96a0b2/h|r")
+            local width = top > 0 and math.floor(PANEL_WIDTH * data.perHour / top + 0.5) or 0
+            row.fill:SetShown(width >= 1)
+            if width >= 1 then putWidth(row.fill, width) end
+            local detail = comma(data.perMatch) .. " per match · " .. data.n .. (data.n == 1 and " match" or " matches") .. " · " .. minutes(data.length)
+            put(row.detail, detail)
+            row.frame:SetAlpha(data.ranked and 1 or 0.45)
+            row.frame.tipTitle = data.map
+            row.frame.tipBody = comma(data.perHour) .. " honor an hour · " .. detail .. (data.ranked and "" or " · too few matches to rank")
+        end
+        widgets.best:SetPoint("TOPLEFT", widgets.view, "TOPLEFT", 0, -(18 + #rows * SNAP.EARNER_STEP + 4))
+        if earners.best then
+            put(widgets.best, "Best for your time: |cffffd100" .. earners.best.map .. "|r")
+        else
+            put(widgets.best, "|cff96a0b2Play a map 3 times to rank it.|r")
+        end
+    end
+
+    local function buildCalendar(view)
+        local Kit = SoundAlerter.Page.Kit
+        local widgets = { values = {}, tiles = {} }
+        widgets.caption = newCaption(view, 0, "LAST 14 DAYS")
+        widgets.columns = newColumns(view, 20, SNAP.CALENDAR, 16, 176, 2)
+        widgets.first = snapLabel(view, 10.5, Kit.COLOR.muted, nil, 0, 200)
+        widgets.middle = snapLabel(view, 10.5, Kit.COLOR.muted, "CENTER", 80, 200, 100)
+        widgets.last = snapLabel(view, 10.5, Kit.COLOR.text, "RIGHT", PANEL_WIDTH, 200)
+        widgets.last:SetText("today")
+        widgets.legend = legend(view, 220, { { "Battleground", SNAP.GOLD }, { "World PvP", SNAP.WORLD } })
+        widgets.tiles[1] = newTile(view, 0, 246)
+        widgets.tiles[2] = newTile(view, 132, 246)
+        widgets.tileItems = { {}, {} }
+        return widgets
+    end
+
+    local function bindCalendar(widgets, snap, settings)
+        local calendar = snap.calendar
+        put(widgets.caption.right, comma(calendar.total))
+        local now = settings and settings.now or time()
+        local values = widgets.values
+        for index = 1, SNAP.CALENDAR do
+            local slot = SNAP.CALENDAR - index + 1
+            local day = snap.span[slot]
+            values[1], values[2] = day.bg + day.kills, day.world
+            widgets.columns:Set(index, values, CALENDAR_COLORS, calendar.max)
+            local frame = widgets.columns.frames[index]
+            frame.tipTitle = date("%a %d %b", now - (slot - 1) * 86400) .. " · " .. comma(day.total)
+            frame.tipBody = "Battleground " .. comma(values[1]) .. " · World PvP " .. comma(day.world)
+        end
+        put(widgets.first, date("%d %b", now - (SNAP.CALENDAR - 1) * 86400))
+        put(widgets.middle, date("%d %b", now - math.floor(SNAP.CALENDAR / 2) * 86400))
+        local items = widgets.tileItems
+        items[1].value, items[1].caption = comma(calendar.average), "daily average"
+        items[2].value, items[2].caption = calendar.played .. " of " .. SNAP.CALENDAR, "days with honor"
+        widgets.tiles[1]:Set(items[1])
+        widgets.tiles[2]:Set(items[2])
+    end
+
+    SNAP_VIEWS.bgnow = { build = buildBGNow, bind = bindBGNow }
+    SNAP_VIEWS.form = { build = buildForm, bind = bindForm }
+    SNAP_VIEWS.maps = { build = buildMaps, bind = bindMaps }
+    SNAP_VIEWS.bests = { build = buildBests, bind = bindBests }
+    SNAP_VIEWS.today = { build = buildToday, bind = bindToday }
+    SNAP_VIEWS.sources = { build = buildSources, bind = bindSources }
+    SNAP_VIEWS.earners = { build = buildEarners, bind = bindEarners }
+    SNAP_VIEWS.calendar = { build = buildCalendar, bind = bindCalendar }
+end
+
 local Panel = { height = 360, caption = "SNAPSHOT" }
 
-function Panel.build(stage)
+local function makeTabs(state, list, width, step)
     local Kit = SoundAlerter.Page.Kit
-    local state = { tab = "now", views = {}, buttons = {}, widgets = {} }
-    for index, tab in ipairs(TABS) do
+    local stage = state.stage
+    local buttons = {}
+    for index, tab in ipairs(list) do
         local button = CreateFrame("Button", nil, stage)
-        button:SetSize(TAB_WIDTH, 22)
-        button:SetPoint("TOPLEFT", stage, "TOPLEFT", (index - 1) * TAB_STEP, 0)
+        button:SetSize(width, 22)
+        button:SetPoint("TOPLEFT", stage, "TOPLEFT", (index - 1) * step, 0)
         local label = Kit.Text(button, 12, Kit.COLOR.muted, "CENTER")
         label:SetAllPoints(button)
         label:SetText(tab[2])
@@ -1193,12 +2032,38 @@ function Panel.build(stage)
         button.label, button.underline = label, underline
         button:SetScript("OnClick", function() selectTab(state, tab[1]) end)
         state.buttons[tab[1]] = button
+        buttons[index] = button
         local view = CreateFrame("Frame", nil, stage)
         view:SetPoint("TOPLEFT", stage, "TOPLEFT", 0, -TAB_VIEW_TOP)
         view:SetPoint("BOTTOMRIGHT", stage, "BOTTOMRIGHT", 0, 0)
         view:Hide()
         state.views[tab[1]] = view
     end
+    return buttons
+end
+
+local function switchSet(state, set)
+    if state.set == set then return end
+    local old = state.set and state.setButtons[state.set]
+    if old then
+        for _, tab in ipairs(state.list) do
+            state.buttons[tab[1]]:Hide()
+            state.views[tab[1]]:Hide()
+        end
+    end
+    local list = set == "overview" and TABS or SNAP_SETS[set]
+    if not state.setButtons[set] then state.setButtons[set] = makeTabs(state, list, SNAP.TAB_WIDTH, SNAP.TAB_STEP) end
+    state.set, state.list = set, list
+    state.tab = state.tabs[set]
+end
+
+function Panel.build(stage)
+    local Kit = SoundAlerter.Page.Kit
+    local state = {
+        stage = stage, set = "overview", list = TABS, tab = "now", tabs = { overview = "now", bg = "bgnow", honor = "today" },
+        views = {}, buttons = {}, widgets = {}, setButtons = {}, boundSnap = {}, boundBuild = {}, binds = 0, live = false,
+    }
+    state.setButtons.overview = makeTabs(state, TABS, TAB_WIDTH, TAB_STEP)
     state.widgets.now = buildNow(state.views.now)
     state.widgets.trends = buildTrends(state.views.trends)
     state.widgets.rivals = buildRivals(state.views.rivals)
@@ -1210,10 +2075,24 @@ end
 
 function Panel.update(state, settings)
     if not state then return end
+    local mode = settings.mode
+    local set = SNAP_SETS[mode] and mode or "overview"
+    switchSet(state, set)
+    if set ~= "overview" then
+        local snap = mode == "bg" and settings.bgSnapshot or settings.honorSnapshot
+        state.snap, state.snapSettings = snap, settings
+        state.model = nil
+        state.live = snap ~= nil
+        state.off:SetShown(false)
+        for _, tab in ipairs(state.list) do state.buttons[tab[1]]:SetShown(state.live) end
+        selectTab(state, state.tab)
+        return
+    end
     local model = settings.panel
-    state.model = model
+    state.model, state.snap = model, nil
+    state.live = model ~= nil
     state.off:SetShown(model == nil)
-    for _, button in pairs(state.buttons) do button:SetShown(model ~= nil) end
+    for _, tab in ipairs(TABS) do state.buttons[tab[1]]:SetShown(model ~= nil) end
     if model then
         bindNow(state.widgets.now, model.now)
         bindTrends(state.widgets.trends, model.trends)
@@ -1409,6 +2288,15 @@ local BG_LOOK = {
 function BG_LOOK.HeadEnter(self) SoundAlerter.Page.Kit.ShowTip(self, self.tip) end
 function BG_LOOK.HeadLeave() SoundAlerter.Page.Kit.HideTip() end
 local bgUI = { open = 1, stat = BG.DAMAGE, filter = "all", all = false }
+local bgPage
+
+openBGMatch = function(record)
+    local active = statistics()
+    local index = BG.SnapshotIndex(active and active:GetBG(), record)
+    if not index then return end
+    bgUI.filter, bgUI.open, bgUI.all = "all", index, index > BG_SHORT
+    if bgPage then bgPage:Refresh() end
+end
 local sortIndex = BG.DAMAGE
 
 local function byStat(a, b)
@@ -1545,6 +2433,7 @@ local function watchWidth(state, frame, page)
 end
 
 local function buildBG(frame, page)
+    bgPage = page
     return watchWidth({ frame = frame, page = page, built = false, height = 0, width = 0, pending = false }, frame, page)
 end
 
@@ -2727,6 +3616,7 @@ function SoundAlerter:BuildStatisticsOptions()
             Page.Visible(bgOn, Page.Custom(BG_KPI_HEIGHT, buildBG, updateBG, false, "Battlegrounds")),
             Page.Visible(honorOn, Page.Custom(BG_KPI_HEIGHT, buildHonor, updateHonor, false, "Honor")),
             Page.Visible(bgOn, Page.Toggle("bgPill", "Result pill after battlegrounds", "A small pill under the minimap button for 2 minutes after each match; click it for your results.", false, "Battlegrounds")),
+            Page.Visible(bgOn, Page.When("bgPill", Page.Toggle("bgDebrief", "Debrief window", "Clicking the pill opens a debrief you can drag: the match against the enemy team, your team's podium, your personal records and your top spells. Off, the pill opens the small result card. /sa debrief opens the last match any time.", false, "Battlegrounds"))),
             overview(showAll("topSpells", "Spells")),
             overview(sorter("topSpells", "Sort by", "Spells")),
             overview(listBlock("topSpells", "Spells")),

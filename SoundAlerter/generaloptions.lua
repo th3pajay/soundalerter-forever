@@ -21,19 +21,16 @@ end
 local function write(key, value)
     local current = profile()
     if not current then return end
+    local core = SoundAlerter.Core
     if key == "enabled" then
-        current.all = value
+        core:SetSetting("all", value)
         return
     end
     local scope, name = key:match("^(%a+)%.(.+)$")
-    if scope == "p" then
-        current[name] = value
-        if name == "updateNotice" and SoundAlerter.UpdateCheck then SoundAlerter.UpdateCheck:Refresh() end
-        if name == "hiddenSpells" then
-            SA_Secret.SetEnabled(value)
-            SA_Secret.Reset()
-            if SoundAlerter.AuraDisplay then SoundAlerter.AuraDisplay:Refresh() end
-        end
+    if scope == "p" and name == "exportbox" then
+        current.exportbox = value
+    elseif scope == "p" then
+        core:SetSetting(name, value)
     elseif scope == "m" then
         local active = tracking()
         if active then active:SetSetting(name, value) end

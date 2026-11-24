@@ -41,14 +41,16 @@ local function play(entry)
     local db = SoundAlerter.db1
     if not db then return end
     local profile = db.profile
-    if not profile.procVoices or not SoundAlerter:IsAlertZoneAllowed() then return end
+    if not profile.procVoices or not SoundAlerter.Emitter:Open("proc") then return end
     local now = GetTime()
     if now - entry.at < Proc.GAP then return end
     entry.at = now
     local path = profile.sapath .. entry.file
     if entry.missing == path then return end
-    local ok, willPlay = pcall(PlaySoundFile, path)
-    entry.voiced = ok and willPlay and true or false
+    local context = SoundAlerter.Emitter:Context("proc")
+    context.sound = entry.file
+    local _, played = SoundAlerter.Emitter:Emit(context)
+    entry.voiced = played and true or false
     entry.missing = not entry.voiced and path or nil
 end
 

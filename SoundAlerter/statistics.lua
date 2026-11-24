@@ -38,23 +38,13 @@ local function resolveClass(guid, name)
 	return SA_Scoreboard.ClassFor(SoundAlerter.scoreboardClasses, name)
 end
 
-local STATISTICS_KEYS = {
-	enabled = true,
-	overviewMode = true,
-	bgPill = true,
-}
-
 function Statistics:GetSettings()
 	local db = GetDB()
 	db.statistics = db.statistics or {}
 	return db.statistics
 end
 
-function Statistics:SetSetting(key, value)
-	if not STATISTICS_KEYS[key] then
-		error("Statistics:SetSetting - unknown setting key '"..tostring(key).."'", 2)
-	end
-	self:GetSettings()[key] = value
+function Statistics:Apply()
 end
 
 local STATS_CONSTANTS = {
@@ -1645,3 +1635,13 @@ function Statistics:SetSortState(tableType, sortType)
 		statisticsSortState[tableType].sortType = sortType
 	end
 end
+
+local function StartStatistics(module)
+	module:Enable()
+end
+
+local function SwitchProfile(module)
+	if module:GetSettings().enabled then module:InitializeStatistics() end
+end
+
+SA_Modules.Register({ key = "Statistics", module = Statistics, db = "statistics", title = "Statistics", nav = { section = "Tools", order = 31 }, options = "BuildStatisticsOptions", enabled = { "enabled" }, start = StartStatistics, profile = SwitchProfile })

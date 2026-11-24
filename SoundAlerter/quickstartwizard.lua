@@ -42,37 +42,17 @@ local function markDone()
     if global then global.quickStartDone = true end
 end
 
-local function reload(name)
-    return function()
-        local active = SoundAlerter[name]
-        if active then active:LoadSettings() end
+local function writeItem(item, current, value)
+    local owner = SoundAlerter[item.owner]
+    if not owner then return end
+    if item.set then
+        item.set(current, value)
+        owner:Apply(nil)
+    else
+        for _, path in ipairs(item.paths) do owner:SetSetting(path, value) end
     end
+    if item.consent then SoundAlerter:AnswerSightingsConsent(value) end
 end
-
-local function refreshIcon()
-    SoundAlerter:UpdateMinimapButtonIcon()
-end
-
-local REFRESH = {
-    castbars = reload("CastingBars"),
-    tracker = reload("SpellTracker"),
-    castfeed = reload("CastFeed"),
-    resource = function()
-        local bars = SoundAlerter.ResourceBar
-        if bars then bars:UpdateVisibility() end
-    end,
-    proximity = function()
-        refreshIcon()
-        SoundAlerter.Proximity:Refresh()
-    end,
-    flags = refreshIcon,
-    sightings = function()
-        local current = profile()
-        if current then SoundAlerter:AnswerSightingsConsent(current.globalSightings) end
-        SoundAlerter:UpdateGlobalSight()
-    end,
-    party = function() SoundAlerter:UpdatePartyShare() end,
-}
 
 local function Take(pool, index, factory, owner, parent)
     local frame = pool[index]
@@ -240,9 +220,7 @@ function Wizard:Toggle(row, value)
         QuickStart.SetHeard(current, row.key, value)
         SoundAlerter:InvalidateTrackedAuraIDs()
     else
-        row.item.set(current, value)
-        local refresh = REFRESH[row.item.key]
-        if refresh then refresh() end
+        writeItem(row.item, current, value)
     end
     self:Render()
 end
@@ -544,7 +522,8 @@ end
 
 function SoundAlerter:AnswerSightingsConsent(keep)
     local global, current = self.db1 and self.db1.global, profile()
-    if not global or not current or not QuickStart.AnswerSightings(global, current, keep) then return false end
+    if not global or not current or not QuickStart.AnswerSightings(global) then return false end
+    if not keep then self.Core:SetSetting("globalSightings", false) end
     DropPill("sightings")
     self:UpdateGlobalSight()
     if not keep then self:Print(QuickStart.CONSENT_OFF) end

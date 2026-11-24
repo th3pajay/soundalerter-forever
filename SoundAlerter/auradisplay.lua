@@ -210,6 +210,10 @@ events:SetScript("OnEvent", function(_, event, unit)
     AuraDisplay:Refresh(event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_FOCUS_CHANGED")
 end)
 
+function AuraDisplay:Apply()
+    self:Refresh(true)
+end
+
 function AuraDisplay:Initialize()
     if self.initialized then return end
     for _, unit in ipairs(UNITS) do
@@ -227,3 +231,9 @@ function AuraDisplay:Initialize()
     self.initialized = true
     self:Refresh(true)
 end
+
+local function StartWithoutRefresh(module)
+    module:Initialize()
+end
+
+SA_Modules.Register({ key = "AuraDisplay", module = AuraDisplay, title = "Aura display", start = StartWithoutRefresh })

@@ -24,11 +24,6 @@ local BG_FILE = "Interface\\DialogFrame\\UI-DialogBox-Background"
 local WHITE = { 1, 1, 1 }
 local GREY = { 0.75, 0.78, 0.84 }
 
-local SETTING_KEYS = {
-    enabled = true, player = true, target = true, focus = true, size = true, spacing = true,
-    numbers = true, tags = true, locked = true,
-}
-local ROW_UNIT = { player = true, target = true, focus = true }
 
 local IMMUNE_VOICE = "immune.mp3"
 
@@ -101,11 +96,11 @@ end
 function DRTracker:SayImmune(category, unit)
     local addon = self.addon
     if not (self.db.say[unit] and addon) then return end
-    if addon.IsAlertZoneAllowed and not addon:IsAlertZoneAllowed() then return end
-    if addon.IsQuiet and addon:IsQuiet() then return end
-    local profile = addon.db1.profile
+    if not addon.Emitter:Open("dr") then return end
     addon:Debug("DR", "%s on %s: next is immune", category, unit)
-    addon:PlayVoice(profile.sapath .. IMMUNE_VOICE)
+    local context = addon.Emitter:Context("dr")
+    context.sound = IMMUNE_VOICE
+    addon.Emitter:Emit(context)
 end
 
 local function Record(key, category)
@@ -603,22 +598,6 @@ function DRTracker:GetSettings()
     return self.db
 end
 
-function DRTracker:SetSetting(key, value)
-    local unit, category = nil, nil
-    if type(key) == "string" then unit, category = key:match("^cats%.(%a+)%.(%w+)$") end
-    local sayUnit = type(key) == "string" and key:match("^say%.(%a+)$")
-    if unit and ROW_UNIT[unit] and Model.CATEGORIES[category] then
-        self.db.cats[unit][category] = value and true or false
-    elseif sayUnit and ROW_UNIT[sayUnit] then
-        self.db.say[sayUnit] = value and true or false
-    elseif SETTING_KEYS[key] then
-        self.db[key] = value
-    else
-        error("DRTracker:SetSetting - unknown setting key '" .. tostring(key) .. "'", 2)
-    end
-    self:LoadSettings()
-end
-
 function DRTracker:CopyRow(from)
     local source = self.db.cats[from]
     if not source then return end
@@ -628,7 +607,7 @@ function DRTracker:CopyRow(from)
             for category in pairs(Model.CATEGORIES) do set[category] = source[category] == true end
         end
     end
-    self:LoadSettings()
+    self:Apply()
 end
 
 local function Migrate(db)
@@ -656,7 +635,7 @@ local function Migrate(db)
 end
 DRTracker.Migrate = Migrate
 
-function DRTracker:LoadSettings()
+function DRTracker:Apply()
     local db = self.db
     if not db or not self.rows then return end
     Migrate(db)
@@ -693,26 +672,11 @@ end
 function DRTracker:ResetPositions()
     if not self.db then return end
     self.db.spots = {}
-    self:LoadSettings()
-end
-
-function DRTracker:OnProfileChanged()
-    local addon = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
-    if not addon then return end
-    self.addon = addon
-    self.db = addon.db1.profile.drTracker
-    if self.initialized then
-        wipe(records)
-        self:LoadSettings()
-    end
+    self:Apply()
 end
 
 function DRTracker:Initialize()
     if self.initialized then return end
-    local addon = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
-    if not addon then error("DRTracker:Initialize() called before addon is ready") end
-    self.addon = addon
-    self.db = addon.db1.profile.drTracker
     BuildLookup()
     self.events = CreateFrame("Frame")
     self.events:SetScript("OnEvent", OnEvent)
@@ -720,9 +684,13 @@ function DRTracker:Initialize()
     self.selfEvents:SetScript("OnEvent", OnEvent)
     self.rows = { player = self:CreateRow("player"), target = self:CreateRow("target"), focus = self:CreateRow("focus") }
     self.initialized = true
-    self:LoadSettings()
 end
 
 DRTracker.records = records
 DRTracker.watch = watch
 SoundAlerter.DRTracker = DRTracker
+local function SwitchProfile(module)
+    wipe(records)
+    module:Apply(nil)
+end
+SA_Modules.Register({ key = "DRTracker", module = DRTracker, db = "drTracker", title = "DR tracker", nav = { section = "Displays", order = 29 }, options = "BuildDRTrackerOptions", enabled = { "enabled" }, profile = SwitchProfile })

@@ -46,37 +46,6 @@ local ROW_LABELS = {
 
 local ENEMIES_SUBSCRIBER = "castfeed:enemies"
 
-local ROW_SET = {}
-for _, unit in ipairs(ROW_UNITS) do
-	ROW_SET[unit] = true
-end
-
-local ROW_KEYS = {
-	enabled = true,
-	direction = true,
-	scale = true,
-	PositionX = true,
-	PositionY = true,
-}
-
-local FEED_KEYS = {
-	enabled = true,
-	locked = true,
-	iconSize = true,
-	spacing = true,
-	speed = true,
-	catchUp = true,
-	length = true,
-	maxIcons = true,
-	showInstants = true,
-	auraDisplay = true,
-	showGaps = true,
-	gapFontSize = true,
-	animQuality = true,
-	baseline = true,
-	showClass = true,
-}
-
 local DIRECTIONS = {
 	left = { sign = -1, anchor = "RIGHT", horizontal = true, gapPoint = "RIGHT", gapRelative = "LEFT" },
 	right = { sign = 1, anchor = "LEFT", horizontal = true, gapPoint = "LEFT", gapRelative = "RIGHT" },
@@ -160,21 +129,6 @@ end
 
 function CastFeed:GetSettings()
 	return self.db
-end
-
-function CastFeed:SetSetting(key, value)
-	local unit, field = key:match("^(%w+)%.(%w+)$")
-	if unit then
-		if not ROW_SET[unit] or not ROW_KEYS[field] then
-			error("CastFeed:SetSetting - unknown setting key '"..tostring(key).."'", 2)
-		end
-		self.db.rows[unit][field] = value
-	else
-		if not FEED_KEYS[key] then
-			error("CastFeed:SetSetting - unknown setting key '"..tostring(key).."'", 2)
-		end
-		self.db[key] = value
-	end
 end
 
 local function CastWindow(unit, status)
@@ -940,14 +894,6 @@ end
 function CastFeed:Initialize()
 	if self.initialized then return end
 
-	local SoundAlerter = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
-	if not SoundAlerter then
-		error("CastFeed:Initialize() called before addon is ready")
-		return
-	end
-
-	self.addon = SoundAlerter
-	self.db = self.addon.db1.profile.castFeed
 	self.testCounter = 0
 
 	self.dragProxy = setmetatable({}, {
@@ -962,12 +908,10 @@ function CastFeed:Initialize()
 		self.rows[#self.rows + 1] = Row:Create(unit)
 	end
 
-	self:LoadSettings()
-
 	self.initialized = true
 end
 
-function CastFeed:LoadSettings()
+function CastFeed:Apply(changedKey)
 	if not self.db then return end
 
 	local db = self.db
@@ -990,30 +934,17 @@ function CastFeed:LoadSettings()
 	for _, row in ipairs(self.rows) do
 		row:LoadSettings()
 	end
+	if changedKey == "auraDisplay" and self.addon.AuraDisplay then self.addon.AuraDisplay:Refresh(true) end
 end
 
 function CastFeed:SetLocked(locked)
 	if not self.db then return end
-
-	self.db.locked = locked
-	self:LoadSettings()
+	self:SetSetting("locked", locked)
 end
 
 function CastFeed:ResetPositions()
 	for _, row in ipairs(self.rows) do
 		row:ResetPosition()
-	end
-end
-
-function CastFeed:OnProfileChanged()
-	local SoundAlerter = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
-	if not SoundAlerter then return end
-
-	self.addon = SoundAlerter
-	self.db = self.addon.db1.profile.castFeed
-
-	if self.initialized then
-		self:LoadSettings()
 	end
 end
 
@@ -1048,3 +979,4 @@ function CastFeed:RunTest()
 end
 
 SoundAlerter.CastFeed = CastFeed
+SA_Modules.Register({ key = "CastFeed", module = CastFeed, db = "castFeed", title = "Cast feed", nav = { section = "Displays", order = 23 }, options = "BuildCastFeedOptions", enabled = { "enabled" } })

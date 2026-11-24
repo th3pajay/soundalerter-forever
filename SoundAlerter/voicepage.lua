@@ -310,10 +310,12 @@ function Voice:PresetList()
         count = count + 1
         local entry = entries[count]
         if not entry or entry.saved ~= saved then
-            entry = { saved = saved, name = saved.name, note = "Your saved preset", icon = Model.ICON_SAVED }
+            entry = { saved = saved, name = saved.name, icon = Model.ICON_SAVED }
             entries[count] = entry
         end
         entry.set = Model.SavedSet(self.model, saved)
+        entry.chat = Model.ChatSet(saved.chat)
+        entry.note = entry.chat and "Your saved preset, with chat alerts" or "Your saved preset"
     end
     for index = count + 1, #entries do entries[index] = nil end
     return entries
@@ -337,7 +339,7 @@ function Voice:SelectedEntry(entries, onCount)
     onCount = onCount or Model.OnCount(settings, self.model)
     local pick = entries[1]
     for _, entry in ipairs(entries) do
-        if Model.PresetMatches(settings, entry.set, onCount) then
+        if Model.PresetMatches(settings, entry.set, onCount) and Model.ChatMatches(settings, entry.chat) then
             pick = entry
             break
         end
@@ -346,14 +348,22 @@ function Voice:SelectedEntry(entries, onCount)
     return pick
 end
 
+function Voice:ChatTouched()
+    if self.spec.tracking then self.spec.tracking() end
+end
+
 function Voice:ApplySelectedPreset()
     local entry = self:SelectedEntry(self:PresetList())
     if not entry then return end
     local settings = self:Db()
     local before = {}
-    if Model.ApplySet(settings, self.model, entry.set, before) == 0 then return end
+    local voice = Model.ApplySet(settings, self.model, entry.set, before)
+    local chat = Model.ApplyChat(settings, entry.chat, before)
+    if voice + chat == 0 then return end
     Model.PushHistory(self.history, entry.name, before)
+    self.history[#self.history].chat = chat > 0
     self.spec.print("Preset applied: " .. entry.name)
+    if chat > 0 then self:ChatTouched() end
     self:Changed()
     self:SpellsChanged()
     self:FlashChanged(Model.TouchedSpells(self.model, before))
@@ -363,6 +373,7 @@ function Voice:UndoPreset()
     local step = Model.PopHistory(self:Db(), self.history)
     if not step then return end
     self.spec.print("Undone: " .. step.name)
+    if step.chat then self:ChatTouched() end
     self:Changed()
     self:SpellsChanged()
     self:FlashChanged(Model.TouchedSpells(self.model, step.before))
@@ -1303,7 +1314,7 @@ function Voice:SyncPresets()
             pill = NewPresetPill(self, self.toolbar)
             pills[index] = pill
         end
-        local active = Model.PresetMatches(settings, entry.set, onCount)
+        local active = Model.PresetMatches(settings, entry.set, onCount) and Model.ChatMatches(settings, entry.chat)
         if entry == selected then selectedActive = active end
         PaintPill(pill, entry, active, entry == selected)
         pill.frame:Show()
@@ -1315,18 +1326,27 @@ function Voice:SyncPresets()
     end
     if selected then
         local diff = Model.PresetDiff(settings, self.model, selected.set, self.presetDiff)
+        local chat = selectedActive and 0 or Model.ChatDiff(settings, selected.chat)
+        local voice = diff.plus + diff.minus
+        local differs = voice + chat > 0
         self.presetTitle:SetText(selected.name)
         self.presetActive:SetShown(selectedActive)
-        local change = (diff.plus + diff.minus > 0)
-            and string.format("|cff3ddc97+%d on|r  |cffff5c5c-%d off|r  %d alerts after", diff.plus, diff.minus, diff.after)
-            or "Already matches your switches"
+        local change
+        if voice > 0 then
+            change = string.format("|cff3ddc97+%d on|r  |cffff5c5c-%d off|r  %d alerts after", diff.plus, diff.minus, diff.after)
+            if chat > 0 then change = change .. string.format("  |cff71d5ff%d chat|r", chat) end
+        elseif chat > 0 then
+            change = string.format("|cff71d5ff%d chat %s|r", chat, chat == 1 and "setting changes" or "settings change")
+        else
+            change = "Already matches your switches"
+        end
         self.presetNote:SetText(selected.note .. "  ·  " .. change)
-        self.presetApply.label:SetText(diff.plus + diff.minus > 0 and "Apply" or "Applied")
-        self.presetApply.frame:SetAlpha(diff.plus + diff.minus > 0 and 1 or 0.45)
-        self.presetApply.frame:EnableMouse(diff.plus + diff.minus > 0)
+        self.presetApply.label:SetText(differs and "Apply" or "Applied")
+        self.presetApply.frame:SetAlpha(differs and 1 or 0.45)
+        self.presetApply.frame:EnableMouse(differs)
         self.presetDelete.frame:SetShown(selected.saved ~= nil)
         if not self.deleteArmedAt then self.presetDelete.label:SetText("Delete") end
-        self.presetUpdate.frame:SetShown(selected.saved ~= nil and diff.plus + diff.minus > 0)
+        self.presetUpdate.frame:SetShown(selected.saved ~= nil and (differs or selected.chat == nil))
         if not self.updateArmedAt then self.presetUpdate.label:SetText("Update") end
     end
     local history = self.history

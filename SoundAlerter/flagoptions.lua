@@ -48,7 +48,6 @@ local function write(key, value)
     if not active then return end
     if key == "enabled" then
         active:SetSetting("battlegroundAlertsEnabled", value)
-        if SoundAlerter.UpdateMinimapButtonIcon then SoundAlerter:UpdateMinimapButtonIcon() end
         return
     end
     if key == "previewClass" then

@@ -4,6 +4,8 @@
 	<Binding name="CLICK SA_TrinketSetButton:LeftButton" category="SoundAlerter"/>
 	<Binding name="CLICK SA_TrinketGearButton:LeftButton" category="SoundAlerter"/>
 	<Binding name="CLICK SA_TrinketWeaponButton:Keybind" category="SoundAlerter"/>
+	<Binding name="CLICK SA_TrinketWeaponButton:DPS" category="SoundAlerter"/>
+	<Binding name="CLICK SA_TrinketWeaponButton:Healing" category="SoundAlerter"/>
 	<Binding name="SOUNDALERTER_NEXTSET" category="SoundAlerter">SA_Actions.Run("nextset")</Binding>
 	<Binding name="SOUNDALERTER_PREVSET" category="SoundAlerter">SA_Actions.Run("prevset")</Binding>
 	<Binding name="SOUNDALERTER_OPTIONS" header="SOUNDALERTER_WINDOWS" category="SoundAlerter">SA_Actions.Run("options")</Binding>

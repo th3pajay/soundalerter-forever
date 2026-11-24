@@ -11,9 +11,6 @@ local EVENTS = {
     "LFG_PROPOSAL_SHOW", "READY_CHECK", "UPDATE_INVENTORY_DURABILITY",
 }
 
-local SETTING_KEYS = { enabled = true, flash = true, chat = true, durabilityThreshold = true }
-for index = 1, #Model.NOTICES do SETTING_KEYS[Model.NOTICES[index].key] = true end
-
 local function ReadDurability()
     local readings = {}
     if not GetInventoryItemDurability then return readings end
@@ -52,31 +49,21 @@ function Notices:GetSettings()
     return self.db
 end
 
-function Notices:SetSetting(key, value)
-    if not SETTING_KEYS[key] then
-        error("Notices:SetSetting - unknown setting key '"..tostring(key).."'", 2)
-    end
-    self.db[key] = value
-    self:LoadSettings()
-end
-
-function Notices:Play(notice)
-    return SA_COMPAT.PlayFile(self.addon.db1.profile.sapath .. notice.file .. ".mp3")
-end
 
 function Notices:Fire(key, who, test)
     local notice = Model.Find(key)
     if not notice or not self.db then return false end
     if not test then
         if not self.db.enabled or not self.db[key] then return false end
-        if not notice.always and self.addon:IsQuiet() then return false end
+        if not notice.always and not self.addon.Emitter:Open("notice") then return false end
         if not Model.ShouldFire(self.fired, key, GetTime(), SPACING) then return false end
     end
 
-    local played = self:Play(notice)
+    local context = self.addon.Emitter:Context("notice")
+    context.sound, context.channel, context.category = notice.file .. ".mp3", "Master", "noticeAlerts"
+    local _, played = self.addon.Emitter:Emit(context)
     if self.db.flash and FlashClientIcon then pcall(FlashClientIcon) end
     if self.db.chat then self.addon:Print("|cffFF7D0ANotice|r: " .. Model.Message(notice, who)) end
-    self.addon:RecordStat("noticeAlerts")
     return true, played
 end
 
@@ -118,7 +105,7 @@ function Notices:OnEvent(event, ...)
     end
 end
 
-function Notices:LoadSettings()
+function Notices:Apply()
     if not self.db or not self.frame then return end
     self.frame:UnregisterAllEvents()
     if not self.db.enabled then return end
@@ -130,14 +117,6 @@ function Notices:LoadSettings()
     local percent = Model.LowestPercent(ReadDurability())
     self.durability = {}
     if percent then Model.DurabilityCrossing(self.durability, percent, self.db.durabilityThreshold or DEFAULT_THRESHOLD) end
-end
-
-function Notices:OnProfileChanged()
-    local addon = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
-    if not addon then return end
-    self.addon = addon
-    self.db = addon.db1.profile.notices
-    if self.initialized then self:LoadSettings() end
 end
 
 function Notices:Test(which)
@@ -173,20 +152,12 @@ end
 
 function Notices:Initialize()
     if self.initialized then return end
-    local addon = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
-    if not addon then
-        error("Notices:Initialize() called before addon is ready")
-        return
-    end
-    self.addon = addon
-    self.db = addon.db1.profile.notices
     self.fired = {}
     self.queue = {}
     self.durability = {}
     self.frame = CreateFrame("Frame")
     self.frame:SetScript("OnEvent", function(_, event, ...) Notices:OnEvent(event, ...) end)
     self.initialized = true
-    self:LoadSettings()
 end
 
 local function module()
@@ -239,3 +210,4 @@ function SoundAlerter:BuildNoticesOptions()
 end
 
 SoundAlerter.Notices = Notices
+SA_Modules.Register({ key = "Notices", module = Notices, db = "notices", title = "Notices", nav = { section = "Alerts", order = 15 }, options = "BuildNoticesOptions", enabled = { "enabled" } })

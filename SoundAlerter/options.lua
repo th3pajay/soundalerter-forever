@@ -88,6 +88,21 @@ function SoundAlerter:OnOptionsProfileChanged()
 	sadb.ui.collapsed = sadb.ui.collapsed or {}
 end
 
+function SoundAlerter:AddModuleOptions()
+	local entries = SA_Modules.Entries()
+	for index = 1, #entries do
+		local entry = entries[index]
+		if entry.options then
+			local page = self[entry.options](self)
+			local spec = page.args and page.args.page and page.args.page.arg
+			if type(spec) == "table" and spec.key ~= nil and spec.key ~= entry.key then
+				error("the options page of " .. entry.key .. " uses the key '" .. tostring(spec.key) .. "'", 2)
+			end
+			self:AddOption(entry.key, page)
+		end
+	end
+end
+
 function SoundAlerter:OnOptionsCreate()
 	sadb = self.db1.profile
 	self:InvalidateTrackedAuraIDs()
@@ -101,34 +116,15 @@ function SoundAlerter:OnOptionsCreate()
 
 	self:AddOption('General', self:BuildGeneralOptions())
 
-	self:AddOption('MinimapButton', self:BuildMinimapButtonOptions())
-
 	self:AddOption('ProximityAlerts', self:BuildProximityOptions())
 
 	self:AddOption('BattlegroundAlerts', self:BuildFlagOptions())
 
-	self:AddOption('Notices', self:BuildNoticesOptions())
-
-	self:AddOption('ResourceBar', self:BuildResourceBarOptions())
-
-	self:AddOption('CastingBars', self:BuildCastingBarOptions())
-
-	self:AddOption('CastFeed', self:BuildCastFeedOptions())
-
-	self:AddOption('SpeedMeter', self:BuildSpeedMeterOptions())
-
-	self:AddOption('Footsteps', self:BuildFootstepsOptions())
-
-	self:AddOption('SpellTracker', self:BuildSpellTrackerOptions())
-
-	self:AddOption('TrinketMenu', self:BuildTrinketMenuOptions())
-
-	self:AddOption('DRTracker', self:BuildDRTrackerOptions())
-
-	self:AddOption('Statistics', self:BuildStatisticsOptions())
+	self:AddModuleOptions()
 
 	self:AddOption('Spells', self:BuildVoiceAlertOptions())
 	self:AddOption('FindSpell', self:BuildSpellFinderOptions())
 	self:AddOption('custom', self:BuildCustomAlertOptions())
+	SA_OptionsNav.AddModules(SA_Modules.Entries())
 	SA_OptionsNav.Layout(self.options)
 end

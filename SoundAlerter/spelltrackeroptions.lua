@@ -412,3 +412,137 @@ function SoundAlerter:BuildSpellTrackerOptions()
     local options = Page.Options(spec, "Spell Tracker", "Interface\\Icons\\INV_Misc_PocketWatch_02", "Track important buffs and debuffs with cooldown overlays and countdown timers.", 2.87)
     return Page.Guard(options, "Spell Tracker", "SpellTracker", tracker)
 end
+
+local PULSE_ICON = "Interface\\Icons\\Spell_Nature_TimeStop"
+local PULSE_SAMPLE = 1850
+local PULSE_PREVIEW_SIZE = 72
+local PULSE_REPLAY = 0.5
+local PULSE_CATEGORIES = {
+    { "class", "Class abilities", "Spells from your spellbook with their own cooldown. The global cooldown never counts." },
+    { "charges", "Spell charges", "A charge comes back while the spell is not full." },
+    { "racial", "Racial and general", "Spells on the first spellbook tab, such as Shadowmeld or Stoneform." },
+    { "pet", "Pet abilities", "Your pet bar, while a pet is out." },
+    { "profession", "Profession cooldowns", "Transmutes, cloth and other profession spells with a cooldown." },
+    { "trinket", "Trinkets", "Both trinket slots." },
+    { "equipped", "Other equipped items", "Any other worn item with a use effect." },
+    { "potion", "Potions", "Potions share one timer, so they pulse once." },
+    { "healthstone", "Healthstones and bandages", "Healthstones and bandages, one pulse for the shared timer." },
+    { "usable", "Other usable items", "Any other bag item with a use cooldown, such as engineering devices." },
+}
+local PULSE_TABS = {
+    { key = "general", label = "General", groups = { "General", "Filters" } },
+    { key = "categories", label = "Categories", groups = { "Categories" } },
+    { key = "animation", label = "Animation", groups = { "Entrance", "Hold", "Exit" } },
+    { key = "border", label = "Border", groups = { "Border" } },
+}
+
+local function pulseDown()
+    return SoundAlerter.PulseDown
+end
+
+local function pulseChoices(list)
+    local out = {}
+    for index, entry in ipairs(list) do out[index] = { entry.id, entry.name } end
+    return out
+end
+
+local PulsePreview = { height = 150, caption = "LIVE PREVIEW" }
+
+function PulsePreview.build(stage)
+    local state = { stage = stage }
+    state.icon = SA_Pulse.New(stage)
+    state.icon.holder:SetPoint("CENTER", stage, "CENTER", 0, 0)
+    state.replay = function()
+        state.waiting = false
+        if state.stage:IsVisible() and state.settings then
+            SA_Pulse.Play(state.icon, C_Spell.GetSpellTexture(PULSE_SAMPLE), "class")
+        end
+    end
+    state.icon.onDone = function()
+        if state.waiting or not state.stage:IsVisible() then return end
+        if SA_MenuFX and not SA_MenuFX.Enabled() then return end
+        state.waiting = true
+        C_Timer.After(PULSE_REPLAY, state.replay)
+    end
+    return state
+end
+
+function PulsePreview.update(state, settings)
+    if not state or not settings then return end
+    local key = table.concat({ settings.inA, settings.hold, settings.outA, settings.tin, settings.thold, settings.tout,
+        settings.shape, settings.style, settings.banim, settings.color }, "|")
+    state.settings = settings
+    if key == state.key then return end
+    state.key = key
+    local shown = {}
+    for name, value in pairs(settings) do shown[name] = value end
+    shown.size = PULSE_PREVIEW_SIZE
+    SA_Pulse.Stop(state.icon)
+    SA_Pulse.Apply(state.icon, shown)
+    state.waiting = false
+    state.replay()
+end
+
+local function pulseSummary(settings)
+    if not settings then return "" end
+    local on = 0
+    for _, entry in ipairs(PULSE_CATEGORIES) do
+        if settings.cats and settings.cats[entry[1]] ~= false then on = on + 1 end
+    end
+    local Find = SA_Pulse.Find
+    return SoundAlerter.Page.Summary(settings, on .. " of " .. #PULSE_CATEGORIES .. " categories",
+        Find(SA_Pulse.IN, settings.inA).name .. " in, " .. Find(SA_Pulse.OUT, settings.outA).name:lower() .. " out",
+        settings.locked and "locked" or "unlocked, drag to move")
+end
+
+function SoundAlerter:BuildPulseDownOptions()
+    local Page = SoundAlerter.Page
+    local rows = {
+        Page.Action("Test", "Pulses three sample icons the way your cooldowns will.", function()
+            local active = pulseDown()
+            if active then active:RunTest() end
+        end, false, "General"),
+        Page.Select("mode", "When several come back", "One after another shows each in turn (up to four wait). Newest replaces cuts the current one short. Side by side shows up to three at once.", pulseChoices(SA_Pulse.MODES), false, "General"),
+        Page.Range("size", "Icon size", "Size of the pulse icon.", 24, 128, 2, false, "General", " px"),
+        Page.Range("alpha", "Opacity", "How solid the icon is at its brightest.", 0.2, 1, 0.05, false, "General"),
+        Page.Toggle("showName", "Show the name", "The spell or item name under the icon.", false, "General"),
+        Page.Range("minCd", "Shortest cooldown", "Cooldowns shorter than this never pulse. The global cooldown never does.", 1.5, 30, 0.5, false, "Filters", " s"),
+        Page.Text("ignore", "Never pulse", "Names or IDs separated by commas. Shift-click a spell or item into the box to add its link.", false, "Filters", 3),
+    }
+    for _, entry in ipairs(PULSE_CATEGORIES) do
+        rows[#rows + 1] = Page.Toggle("cats." .. entry[1], entry[2], entry[3], false, "Categories")
+    end
+    rows[#rows + 1] = Page.Select("inA", "Entrance", "How the icon arrives.", pulseChoices(SA_Pulse.IN), false, "Entrance")
+    rows[#rows + 1] = Page.Range("tin", "Entrance time", "How long the entrance takes.", 0.1, 1.5, 0.05, false, "Entrance", " s")
+    rows[#rows + 1] = Page.Select("hold", "While shown", "What the icon does while it stays on screen.", pulseChoices(SA_Pulse.HOLDS), false, "Hold")
+    rows[#rows + 1] = Page.Range("thold", "Time on screen", "How long the icon stays between entrance and exit.", 0, 5, 0.1, false, "Hold", " s")
+    rows[#rows + 1] = Page.Select("outA", "Exit", "How the icon leaves.", pulseChoices(SA_Pulse.OUT), false, "Exit")
+    rows[#rows + 1] = Page.Range("tout", "Exit time", "How long the exit takes.", 0.1, 2, 0.05, false, "Exit", " s")
+    rows[#rows + 1] = Page.Select("shape", "Shape", "The icon's outline. The art is clipped to it.", pulseChoices(SA_Pulse.SHAPES), false, "Border")
+    rows[#rows + 1] = Page.Select("style", "Border style", "Solid, segmented, dotted, corner brackets or a soft glow.", pulseChoices(SA_Pulse.STYLES), false, "Border")
+    rows[#rows + 1] = Page.Select("banim", "Border animation", "Draw in traces the border as the icon arrives, Drain empties it over the display time, the rest move or light the border while the icon shows.", pulseChoices(SA_Pulse.BORDERS), false, "Border")
+    rows[#rows + 1] = Page.Select("color", "Border colour", "By category gives each kind of cooldown its own colour.", pulseChoices(SA_Pulse.COLORS), false, "Border")
+
+    return Page.Module({
+        key = "PulseDown",
+        title = "PulseDown",
+        icon = PULSE_ICON,
+        desc = "One icon that pulses when a cooldown is ready again.",
+        blurb = "When a spell, item, potion or pet ability comes off cooldown, its icon pulses on screen. The game itself times every cooldown, in combat too, so PulseDown costs nothing while it waits. Choose which kinds of cooldowns pulse under Categories.",
+        order = 2.95,
+        module = pulseDown,
+        defaults = function() return dbDefaults.profile.pulseDown end,
+        summary = pulseSummary,
+        preview = PulsePreview,
+        tabs = PULSE_TABS,
+        lock = {
+            key = "locked",
+            hint = "Unlocked: drag the icon anywhere on screen.",
+            reset = function()
+                local active = pulseDown()
+                if active then active:ResetPositions() end
+            end,
+        },
+        rows = rows,
+    })
+end

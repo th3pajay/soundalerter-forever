@@ -166,11 +166,14 @@ function SpellTest:HandleCommand(input)
     end
 end
 
+function SpellTest:Apply()
+end
+
 function SpellTest:Initialize()
     if self.frame then return end
-    self.addon = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
     self.frame = CreateFrame("Frame")
     self.frame:SetScript("OnEvent", function(_, event, unit, ...) SpellTest:OnEvent(event, unit, ...) end)
 end
 
 SoundAlerter.SpellTest = SpellTest
+SA_Modules.Register({ key = "SpellTest", module = SpellTest, title = "Spell test" })

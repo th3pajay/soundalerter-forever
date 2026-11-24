@@ -17,20 +17,6 @@ local PANEL_MODES = {
 local TOAST_STYLES = {
     { "intel", "Intel card" }, { "threat", "Threat card" }, { "stripe", "Narrow stripe" }, { "slide", "Stripe, slides in" },
 }
-local SIDE_EFFECTS = {
-    overrideNameplateRange = "ApplyNameplateRange",
-    nameplateRange = "ApplyNameplateRange",
-    scoreboardClassFallback = "UpdateScoreboardTracking",
-    showTotemPlates = "ApplyTotemPlates",
-    shareAlertsSend = "UpdatePartyShare",
-    shareAlertsReceive = "UpdatePartyShare",
-    globalSightings = "UpdateGlobalSight",
-    globalQuality = "UpdateGlobalSight",
-    globalPanelZone = "UpdateGlobalMap",
-    globalPanelWorld = "UpdateGlobalMap",
-    globalMinimap = "UpdateGlobalMap",
-    globalMapMarkers = "UpdateGlobalMap",
-}
 local SAMPLES = {
     { "Shadowstep", "Rogue", "Group of 3 - 12 yd", { 1, 0.96, 0.41 }, "Interface\\Icons\\Ability_Stealth", "ROGUE", "Close", 3, "Nightwhisper" },
     { "Moonfang", "Druid", "Nearby - 28 yd", { 1, 0.49, 0.04 }, "Interface\\Icons\\Ability_Druid_CatForm", "DRUID", "Nearby", 1, "Ironwood" },
@@ -79,20 +65,16 @@ local function view()
 end
 
 local function write(key, value)
-    local current = profile()
-    if not current then return end
+    if not profile() then return end
+    local proximity = SoundAlerter.Proximity
     if key == "enabled" then
-        current.proximityEnabled = value
-        SoundAlerter.Proximity:Refresh()
-        if SoundAlerter.UpdateMinimapButtonIcon then SoundAlerter:UpdateMinimapButtonIcon() end
+        proximity:SetSetting("proximityEnabled", value)
         return
     end
     local scope, name = key:match("^(%a+)%.(.+)$")
     if scope == "p" then
-        current[name] = value
-        if name == "proximityMaxBand" then SoundAlerter.Proximity:Refresh() end
-        local effect = SIDE_EFFECTS[name]
-        if effect and SoundAlerter[effect] then SoundAlerter[effect](SoundAlerter) end
+        local owner = SA_Modules.Owns(proximity, name) and proximity or SoundAlerter.Core
+        owner:SetSetting(name, value)
     elseif scope == "t" then
         local active = toasts()
         if not active then return end

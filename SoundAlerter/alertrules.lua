@@ -323,13 +323,18 @@ function SA_AlertText.Send(message, area)
     Deliver(message, nil, area)
 end
 
-function SA_AlertText.Say(template, values, area)
+local function CleanLocalLine(pieces, values)
+    return SA_ProxChat.Clean(LocalLine(pieces, values))
+end
+
+function SA_AlertText.Say(template, values, area, clean)
     if not template or not SA_AlertText.Ready(true, area) then return end
     local pieces = SA_AlertText.Pieces(template)
     local sent, hidden = SentLine(pieces, values)
+    if clean then sent = SA_ProxChat.Clean(sent) end
     local localLine
     if hidden then
-        local ok, line = pcall(LocalLine, pieces, values)
+        local ok, line = pcall(clean and CleanLocalLine or LocalLine, pieces, values)
         if ok then localLine = line end
     end
     Deliver(sent, localLine, area)
@@ -1405,4 +1410,134 @@ function Alerts:Tick()
     SA_StealthWatch.Sweep(stealth, now)
     return true
 end
+end
+
+SA_AlertEmit = {}
+
+do
+    local Emit = SA_AlertEmit
+    Emit.DUPLICATE_WINDOW = 0.3
+
+    local FIELDS = { "source", "sound", "custom", "channel", "switch", "rearm", "spellID", "unit", "guid", "name", "class", "school", "category" }
+    local GATES = {
+        spell = { zone = true },
+        interrupt = { zone = true },
+        interruptReady = { zone = true },
+        lossOfControl = { zone = true },
+        enemyOnYou = { zone = true, quiet = true },
+        trinket = {},
+        lockout = {},
+        drinking = {},
+        custom = {},
+        watch = { zone = true, quiet = true },
+        dr = { zone = true, quiet = true },
+        proc = { zone = true },
+        notice = { quiet = true },
+        flag = {},
+        proximity = { quiet = true },
+    }
+    Emit.GATES = GATES
+
+    local function gatesOf(source)
+        local gates = GATES[source]
+        if not gates then error("SA_AlertEmit: unknown source '" .. tostring(source) .. "'", 3) end
+        return gates
+    end
+
+    local Emitter = {}
+    Emitter.__index = Emitter
+
+    function Emit.New(out, game)
+        return setmetatable({ out = out, game = game, rearmAt = {}, recent = {}, spell = {}, files = {}, contexts = {} }, Emitter)
+    end
+
+    function Emit.Reset(context)
+        for index = 1, #FIELDS do context[FIELDS[index]] = nil end
+        return context
+    end
+
+    local function held(self, context, now)
+        local key = context.rearm
+        if not key then return nil end
+        local game = self.game
+        local seconds = game.RearmSeconds(key)
+        if not seconds then return nil end
+        local who = game.RearmByCaster(key) and (game.Plain(context.guid) or context.name)
+        if who then return SA_Rearm.WaitFor(self.rearmAt, key, who, seconds, now) end
+        return SA_Rearm.Wait(self.rearmAt, key, seconds, now)
+    end
+
+    local function countDuplicate(self, context, now)
+        local spellID = context.spellID
+        if not spellID then return end
+        local guid = self.game.Plain(context.guid)
+        local unit = tostring(context.unit)
+        local last = self.recent[spellID]
+        if last then
+            if now - last.at < Emit.DUPLICATE_WINDOW and last.guid == guid then
+                local diag = self.game.Diag()
+                diag.duplicateAlerts = diag.duplicateAlerts + 1
+                local pair = last.unit .. " then " .. unit
+                diag.duplicateTokens[pair] = (diag.duplicateTokens[pair] or 0) + 1
+            end
+        else
+            last = {}
+            self.recent[spellID] = last
+        end
+        last.at, last.guid, last.unit = now, guid, unit
+    end
+
+    function Emitter:Context(source)
+        gatesOf(source)
+        local context = self.contexts[source]
+        if not context then
+            context = {}
+            self.contexts[source] = context
+        end
+        Emit.Reset(context)
+        context.source = source
+        return context
+    end
+
+    function Emitter:Open(source)
+        local gates = gatesOf(source)
+        local game = self.game
+        if gates.zone and not game.ZoneAllowed() then return false end
+        if gates.quiet and game.Quiet() then return false end
+        return true
+    end
+
+    function Emitter:Emit(context)
+        gatesOf(context.source)
+        local game, out = self.game, self.out
+        if context.switch and not game.Setting(context.switch) then return false end
+        local now = game.Now()
+        local wait = held(self, context, now)
+        if wait then
+            out.Debug("Sound", "%s held (re-arms in %.0f s)", context.rearm, wait)
+            return false
+        end
+        countDuplicate(self, context, now)
+        local sound, played = context.sound, false
+        if sound then
+            out.Debug("Sound", "%s (spell %d, source %s)", sound, context.spellID or 0, tostring(context.name or "?"))
+            played = out.Play(sound, context.custom, context.channel)
+        end
+        if context.category then out.Record(context.category, context.spellID, context.guid, context.name, context.school, context.class) end
+        return true, played
+    end
+
+    function Emitter:Spell(list, spellID, unit, guid, name)
+        local key = list[spellID]
+        if not key then return nil end
+        local file = self.files[key]
+        if not file then
+            file = key .. ".mp3"
+            self.files[key] = file
+        end
+        local context = Emit.Reset(self.spell)
+        context.source, context.sound, context.switch, context.rearm, context.category = "spell", file, key, key, "spellAlerts"
+        context.spellID, context.unit, context.guid, context.name = spellID, unit, guid, name
+        return self:Emit(context) or nil
+    end
 end

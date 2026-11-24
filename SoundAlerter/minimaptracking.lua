@@ -3,7 +3,6 @@ local MinimapTracking = {}
 
 local FILTER_KEYS = { "target", "focus" }
 local ENUM_NAMES = { target = "Target", focus = "Focus" }
-local SETTING_KEYS = { enabled = true, target = true, focus = true }
 local REAPPLY_DELAY = 3
 
 local pcall = pcall
@@ -44,14 +43,6 @@ function MinimapTracking:GetSettings()
 	return self.db
 end
 
-function MinimapTracking:SetSetting(key, value)
-	if not SETTING_KEYS[key] then
-		error("MinimapTracking:SetSetting - unknown setting key '"..tostring(key).."'", 2)
-	end
-	self.db[key] = value
-	self:Apply()
-end
-
 function MinimapTracking:Apply()
 	local db = self.db
 	if not db or not self.addon or ShowAll() then return end
@@ -89,11 +80,6 @@ function MinimapTracking:OnEnterWorld()
 	end)
 end
 
-function MinimapTracking:OnProfileChanged()
-	self.db = self.addon.db1.profile.minimapTracking
-	self:Apply()
-end
-
 function MinimapTracking:BuildMenu(rootDescription)
 	local db = self.db
 	if not db or not db.enabled or ShowAll() then return end
@@ -129,16 +115,12 @@ end
 function MinimapTracking:Initialize()
 	if self.initialized then return end
 
-	local SoundAlerter = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
-	if not SoundAlerter then
-		error("MinimapTracking:Initialize() called before addon is ready")
-		return
-	end
-
-	self.addon = SoundAlerter
-	self.db = SoundAlerter.db1.profile.minimapTracking
 	self:RegisterMenu()
 	self.initialized = true
 end
 
 SoundAlerter.MinimapTracking = MinimapTracking
+local function StartWithoutApply(module)
+	module:Initialize()
+end
+SA_Modules.Register({ key = "MinimapTracking", module = MinimapTracking, db = "minimapTracking", title = "Minimap tracking", enabled = { "enabled" }, start = StartWithoutApply })

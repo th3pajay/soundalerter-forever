@@ -209,6 +209,11 @@ function FX.Appear(region)
     return true
 end
 
+function FX.StopAppear(region)
+    local group = appears[region]
+    if group then group:Stop() end
+end
+
 function FX.Flash(texture)
     if not FX.Enabled() then return false end
     local group = flashes[texture]

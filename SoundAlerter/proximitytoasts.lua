@@ -57,24 +57,6 @@ local classColorCache = {}
 ProximityToasts.lastToastTime = {}
 ProximityToasts.initialized = false
 
-local PROXIMITY_TOAST_KEYS = {
-    enabled = true,
-    displayDuration = true,
-    maxConcurrent = true,
-    showPlayerName = true,
-    showAuraIcons = true,
-    showLatestSpell = true,
-    useClassColors = true,
-    rainbowBorder = true,
-    toastStyle = true,
-    voice = true,
-    positionX = true,
-    positionY = true,
-    clickEnabled = true,
-    enableClickToTarget = true,
-    enableFocusTarget = true,
-}
-
 local PROXIMITY_TOAST_PREVIEWABLE_KEYS = {}
 
 function ProximityToasts:GetSettings()
@@ -83,14 +65,10 @@ function ProximityToasts:GetSettings()
     return db.proximityToasts
 end
 
-function ProximityToasts:SetSetting(key, value)
-    if not PROXIMITY_TOAST_KEYS[key] then
-        error("ProximityToasts:SetSetting - unknown setting key '"..tostring(key).."'", 2)
-    end
-    self:GetSettings()[key] = value
-    if key == "toastStyle" then self:ApplyStyle() end
-    if value and PROXIMITY_TOAST_PREVIEWABLE_KEYS[key] then
-        SoundAlerter:PlayVoice(SoundAlerter.db1.profile.sapath..key..".mp3")
+function ProximityToasts:Apply(changedKey)
+    if changedKey == "toastStyle" then self:ApplyStyle() end
+    if changedKey and self:GetSettings()[changedKey] and PROXIMITY_TOAST_PREVIEWABLE_KEYS[changedKey] then
+        SoundAlerter:PlayVoice(SoundAlerter.db1.profile.sapath..changedKey..".mp3")
     end
 end
 
@@ -904,13 +882,12 @@ function ProximityToasts:ShowToast(unitName, className, distance, guid, level, u
     engine:Start(toast, sadb.proximityToasts.displayDuration or 3.0)
 end
 
-function ProximityToasts:OnProfileChanged()
+local function SwitchProfile(module)
     for _, toast in ipairs(engine.active) do
         engine:Release(toast)
     end
-    wipe(self.lastToastTime)
-    if self.initialized then self:ApplyStyle() end
-
+    wipe(module.lastToastTime)
+    module:ApplyStyle()
 end
 
 function ProximityToasts:OnDisable()
@@ -1149,7 +1126,6 @@ local CLASS_NAMES = LOCALIZED_CLASS_NAMES_MALE or {}
 local alerted, retryAt = {}, {}
 local chatMapID
 local rescanTicker, cleanupTicker
-local statistics
 local batch = { used = 0, total = 0, pending = false, entries = {} }
 for index = 1, CHAT_POOL do batch.entries[index] = {} end
 local chatValues = {}
@@ -1179,7 +1155,7 @@ local function open(p, now)
         diag.zoningSkips = diag.zoningSkips + 1
         return false
     end
-    return zoneAllows(p) and not SoundAlerter:IsQuiet()
+    return zoneAllows(p) and SoundAlerter.Emitter:Open("proximity")
 end
 
 local function className(token)
@@ -1245,26 +1221,39 @@ local function noteChat(unit, unitName, unitClass, unitLevel)
     end
 end
 
+local classFiles = {}
+
+local function classFile(name)
+    local file = classFiles[name]
+    if not file then
+        file = name .. ".mp3"
+        classFiles[name] = file
+    end
+    return file
+end
+
 local function playDetected()
-    SoundAlerter:PlayVoice(settings().sapath .. "detected.mp3", "Master")
+    local emitter = SoundAlerter.Emitter
+    local context = emitter:Context("proximity")
+    context.sound, context.channel = "detected.mp3", "Master"
+    emitter:Emit(context)
 end
 
 local function fire(p, guid, unitName, unitClass, unitLevel, band, unitToken, nearbyCount, title, shared, secondName)
     local watched = SoundAlerter:IsWatchedGuid(guid)
     local toastSettings = ProximityToasts:GetSettings()
     local silent = toastSettings.enabled and toastSettings.voice == false
+    local emitter = SoundAlerter.Emitter
+    local context = emitter:Context("proximity")
+    context.channel, context.category, context.guid, context.name, context.class = "Master", "proximityAlerts", guid, unitName, unitClass
     if shared and not silent then
-        SoundAlerter:PlayVoice(p.sapath .. "sharedintel.mp3", "Master")
+        context.sound = "sharedintel.mp3"
     elseif not shared and not silent and not (watched and SoundAlerter:WatchFiredNow(guid)) then
         local classAudioFile = unitClass == nil and "enemy" or SoundAlerter.CLASS_AUDIO_MAP[unitClass]
-        if classAudioFile then
-            SoundAlerter:PlayVoice(p.sapath .. classAudioFile .. ".mp3", "Master")
-        end
+        if classAudioFile then context.sound = classFile(classAudioFile) end
         C_Timer.After(DETECTED_DELAY, playDetected)
     end
-    if statistics and statistics:GetSettings().enabled then
-        statistics:RecordAlert("proximityAlerts", nil, guid, unitName, nil, unitClass)
-    end
+    emitter:Emit(context)
     if ProximityToasts:GetSettings().enabled then
         ProximityToasts:ShowToast(unitName, unitClass, band, guid, unitLevel, unitToken, title, nearbyCount, secondName, watched)
     end
@@ -1376,7 +1365,6 @@ end
 
 function Proximity:Refresh()
     local p = settings()
-    statistics = SoundAlerter:GetModule("Statistics", true)
     local on = p.proximityEnabled and true or false
     local restricted = on and SA_Distance.IsRestricted(p.proximityMaxBand)
     if on and not cleanupTicker then
@@ -1398,3 +1386,43 @@ end
 function Proximity:ZoneChanged()
     chatMapID = nil
 end
+
+local PROXIMITY_SETTINGS = {
+    "proximityEnabled", "proximityWorld", "proximityBattleground", "proximityArena", "proximitySanctuary",
+    "proximityCooldown", "proximityChat", "proximityChatText", "proximityAllyVision", "proximityMaxBand",
+}
+local ZONES_FROM_ALERTS = { { "arena", "proximityArena" }, { "battleground", "proximityBattleground" }, { "field", "proximityWorld" } }
+
+local function anyZone(p)
+    for index = 1, #ZONES_FROM_ALERTS do
+        if p[ZONES_FROM_ALERTS[index][2]] then return true end
+    end
+    return false
+end
+
+function Proximity:Initialize()
+end
+
+function Proximity:Apply(changedKey)
+    if changedKey == "proximityEnabled" then
+        local p = settings()
+        if p.proximityEnabled and not anyZone(p) then
+            local zoned = false
+            for index = 1, #ZONES_FROM_ALERTS do
+                local pair = ZONES_FROM_ALERTS[index]
+                if p[pair[1]] then
+                    self:SetSetting(pair[2], true)
+                    zoned = true
+                end
+            end
+            if not zoned then self:SetSetting("proximityWorld", true) end
+        end
+        self:Refresh()
+    elseif changedKey == nil or changedKey == "proximityMaxBand" then
+        self:Refresh()
+    end
+end
+
+SA_Modules.Register({ key = "Proximity", module = Proximity, flat = PROXIMITY_SETTINGS, title = "Proximity", enabled = { "proximityEnabled" } })
+
+SA_Modules.Register({ key = "ProximityToasts", module = ProximityToasts, db = "proximityToasts", title = "Toasts", enabled = { "enabled" }, profile = SwitchProfile })

@@ -223,6 +223,7 @@ end
 local function ensureChannel(now)
     local wanted = wantedChannel()
     if wanted ~= realm.name then
+        if InCombatLockdown() then return false end
         if realm.name then
             leave(realm.name)
             realm.nextJoin = 0
@@ -238,7 +239,7 @@ local function ensureChannel(now)
         return true
     end
     realm.joined = false
-    if now < realm.nextJoin then return false end
+    if now < realm.nextJoin or InCombatLockdown() then return false end
     if realm.attempts >= JOIN_ATTEMPTS and realm.index < M.MAX_FALLBACK then
         realm.index = realm.index + 1
         realm.fallbacks = realm.fallbacks + 1

@@ -23,12 +23,6 @@ local SNAP_POINTS = 3
 local DIM_ALPHA = 0.55
 local FONT_PATH = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
 
-local SETTING_KEYS = {
-    enabled = true, locked = true, PositionX = true, PositionY = true,
-    scale = true, fontSize = true, hideAtBaseline = true, tintMounted = true,
-    boostColor = true, slowColor = true, baseColor = true,
-}
-
 local WAKE_EVENTS = {
     "PLAYER_STARTED_MOVING", "PLAYER_STOPPED_MOVING", "UPDATE_SHAPESHIFT_FORM",
     "PLAYER_MOUNT_DISPLAY_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
@@ -191,14 +185,6 @@ function SpeedMeter:GetSettings()
     return self.db
 end
 
-function SpeedMeter:SetSetting(key, value)
-    if not SETTING_KEYS[key] then
-        error("SpeedMeter:SetSetting - unknown setting key '"..tostring(key).."'", 2)
-    end
-    self.db[key] = value
-    self:LoadSettings()
-end
-
 local function OnUpdate(_, elapsed)
     local meter = SpeedMeter
     meter.elapsed = meter.elapsed + elapsed
@@ -304,7 +290,7 @@ function SpeedMeter:Render()
     return alive and true or false
 end
 
-function SpeedMeter:LoadSettings()
+function SpeedMeter:Apply()
     local db, frame = self.db, self.frame
     if not db or not frame then return end
 
@@ -330,32 +316,12 @@ function SpeedMeter:ResetPosition()
     if not self.db then return end
     self.db.PositionX = 0
     self.db.PositionY = DEFAULT_Y
-    self:LoadSettings()
-end
-
-function SpeedMeter:OnProfileChanged()
-    local addon = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
-    if not addon then return end
-
-    self.addon = addon
-    self.db = addon.db1.profile.speedMeter
-
-    if self.initialized then
-        self:LoadSettings()
-    end
+    self:Apply()
 end
 
 function SpeedMeter:Initialize()
     if self.initialized then return end
 
-    local addon = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
-    if not addon then
-        error("SpeedMeter:Initialize() called before addon is ready")
-        return
-    end
-
-    self.addon = addon
-    self.db = addon.db1.profile.speedMeter
     self.last = {}
     self.anchors = {}
     self.track = SpeedMeter.NewTrack()
@@ -384,7 +350,6 @@ function SpeedMeter:Initialize()
     self.events:SetScript("OnEvent", function(_, event, unit) SpeedMeter:OnEvent(event, unit) end)
 
     self.initialized = true
-    self:LoadSettings()
 end
 
 local function meter()
@@ -453,3 +418,4 @@ function SoundAlerter:BuildSpeedMeterOptions()
 end
 
 SoundAlerter.SpeedMeter = SpeedMeter
+SA_Modules.Register({ key = "SpeedMeter", module = SpeedMeter, db = "speedMeter", title = "Speed meter", nav = { section = "Displays", order = 25 }, options = "BuildSpeedMeterOptions", enabled = { "enabled" } })

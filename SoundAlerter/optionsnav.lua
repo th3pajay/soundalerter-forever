@@ -16,10 +16,10 @@ Nav.resultGroups = {}
 local searchWrapped = setmetatable({}, { __mode = "k" })
 
 Nav.Sections = {
-    { name = "Setup", order = 0, keys = { QuickStart = 1, General = 2, MinimapButton = 3 } },
-    { name = "Alerts", order = 10, sorted = true, keys = { Spells = 11, ProximityAlerts = 12, BattlegroundAlerts = 13, Notices = 15 } },
-    { name = "Displays", order = 20, sorted = true, keys = { ResourceBar = 21, CastingBars = 22, CastFeed = 23, SpeedMeter = 25, Footsteps = 26, SpellTracker = 27, TrinketMenu = 28, DRTracker = 29 } },
-    { name = "Tools", order = 30, sorted = true, keys = { Statistics = 31, FindSpell = 32, custom = 33 } },
+    { name = "Setup", order = 0, keys = { QuickStart = 1, General = 2 } },
+    { name = "Alerts", order = 10, sorted = true, keys = { Spells = 11, ProximityAlerts = 12, BattlegroundAlerts = 13 } },
+    { name = "Displays", order = 20, sorted = true, keys = {} },
+    { name = "Tools", order = 30, sorted = true, keys = { FindSpell = 32, custom = 33 } },
     { name = "Profile", order = 40, keys = { profiles = 41 } },
 }
 
@@ -67,6 +67,19 @@ local function sortedKeys(root, section)
         return a.key < b.key
     end)
     return list
+end
+
+function Nav.AddModules(entries)
+    local byName = {}
+    for _, section in ipairs(Nav.Sections) do byName[section.name] = section end
+    for index = 1, #entries do
+        local nav = entries[index].nav
+        if nav then
+            local section = byName[nav.section]
+            if not section then error("unknown nav section '" .. tostring(nav.section) .. "' for " .. tostring(entries[index].key), 2) end
+            section.keys[entries[index].key] = nav.order
+        end
+    end
 end
 
 function Nav.Layout(root)

@@ -575,7 +575,7 @@ function CastingBarFX:StyleEnter(b, state, set, common, tier, kind)
 			group = b.frame:CreateAnimationGroup()
 			alphaAnimation(group, 1, 0, 1, 0.1)
 			scaleAnimation(group, 1, 1.25, 1.25, 0.97, 0.97, 0.17, "OUT")
-			scaleAnimation(group, 2, 0.97, 0.97, 1, 1, 0.07)
+			scaleAnimation(group, 2, 1, 1, 1 / 0.97, 1 / 0.97, 0.07)
 			set.pop = group
 		end
 		play(state, group)

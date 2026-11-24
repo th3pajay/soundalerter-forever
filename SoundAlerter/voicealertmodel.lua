@@ -548,13 +548,14 @@ function Model.SaveCurrent(db, model, name)
     if #list >= Model.SAVED_MAX then return nil end
     name = cutName(name)
     if name == "" then name = "My preset " .. (#list + 1) end
-    local saved = { name = name, keys = currentKeys(db, model) }
+    local saved = { name = name, keys = currentKeys(db, model), chat = Model.ChatSnapshot(db) }
     list[#list + 1] = saved
     return saved
 end
 
 function Model.OverwriteSaved(db, model, saved)
     saved.keys = currentKeys(db, model)
+    saved.chat = Model.ChatSnapshot(db)
     savedSets[saved] = nil
     return saved
 end
@@ -580,7 +581,16 @@ end
 function Model.PopHistory(db, history)
     local step = table.remove(history)
     if not step then return nil end
-    for key, value in pairs(step.before) do db[key] = value end
+    for key, value in pairs(step.before) do
+        if key == "chatAreaChannels" then
+            for area, cells in pairs(value) do
+                local own = Model.Channels(db, area)
+                for channel, old in pairs(cells) do own[channel] = old end
+            end
+        else
+            db[key] = value
+        end
+    end
     return step
 end
 
@@ -740,6 +750,167 @@ for _, row in ipairs(Model.CHAT_EVENTS) do EVENT_ROW[row.key] = row end
 for _, row in ipairs(Model.CHAT_FILTERS) do EVENT_ROW[row.key] = row end
 for _, area in ipairs(Model.CHAT_AREAS) do AREA_ROW[area.key] = area end
 Model.TEXT_ROW, Model.EVENT_ROW, Model.AREA_ROW = TEXT_ROW, EVENT_ROW, AREA_ROW
+
+do
+    local SWITCHES, TEXTS, AREAS, CHANNEL_KEYS = { Model.MASTER_ROW.key }, {}, {}, {}
+    for _, row in ipairs(Model.CHAT_EVENTS) do SWITCHES[#SWITCHES + 1] = row.key end
+    for _, row in ipairs(Model.CHAT_FILTERS) do SWITCHES[#SWITCHES + 1] = row.key end
+    for _, area in ipairs(Model.CHAT_AREAS) do
+        AREAS[#AREAS + 1] = area.key
+        if area.toggle then SWITCHES[#SWITCHES + 1] = area.toggle end
+    end
+    for _, row in ipairs(Model.CHAT_TEXTS) do TEXTS[#TEXTS + 1] = row.key end
+    for _, channel in ipairs(Model.CHANNELS) do CHANNEL_KEYS[#CHANNEL_KEYS + 1] = channel.key end
+    local SWITCH_COUNT, TEXT_COUNT, AREA_COUNT, CHANNEL_COUNT = #SWITCHES, #TEXTS, #AREAS, #CHANNEL_KEYS
+    Model.CHAT_SWITCHES, Model.CHAT_TEXT_KEYS = SWITCHES, TEXTS
+
+    local compiled = setmetatable({}, { __mode = "k" })
+
+    function Model.ChatSnapshot(db)
+        local on, channels, texts = {}, {}, {}
+        for index = 1, SWITCH_COUNT do
+            local key = SWITCHES[index]
+            if db[key] then on[#on + 1] = key end
+        end
+        local all = type(db.chatAreaChannels) == "table" and db.chatAreaChannels or nil
+        for index = 1, AREA_COUNT do
+            local area = AREAS[index]
+            local own = all and type(all[area]) == "table" and all[area] or nil
+            local list = {}
+            for slot = 1, CHANNEL_COUNT do
+                local channel = CHANNEL_KEYS[slot]
+                if own and own[channel] then list[#list + 1] = channel end
+            end
+            channels[area] = list
+        end
+        for index = 1, TEXT_COUNT do
+            local key = TEXTS[index]
+            if type(db[key]) == "string" then texts[key] = db[key] end
+        end
+        return { on = on, channels = channels, texts = texts }
+    end
+
+    function Model.ChatSet(chat)
+        if type(chat) ~= "table" then return nil end
+        local set = compiled[chat]
+        if set then return set end
+        local switch, channel = {}, {}
+        for index = 1, SWITCH_COUNT do switch[SWITCHES[index]] = false end
+        for _, key in ipairs(type(chat.on) == "table" and chat.on or {}) do
+            if switch[key] ~= nil then switch[key] = true end
+        end
+        local saved = type(chat.channels) == "table" and chat.channels or {}
+        for index = 1, AREA_COUNT do
+            local area = AREAS[index]
+            local own = {}
+            for slot = 1, CHANNEL_COUNT do own[CHANNEL_KEYS[slot]] = false end
+            for _, key in ipairs(type(saved[area]) == "table" and saved[area] or {}) do
+                if own[key] ~= nil then own[key] = true end
+            end
+            channel[area] = own
+        end
+        local texts = {}
+        for key, value in pairs(type(chat.texts) == "table" and chat.texts or {}) do
+            if TEXT_ROW[key] and type(value) == "string" then texts[key] = value end
+        end
+        set = { switch = switch, channel = channel, texts = texts }
+        compiled[chat] = set
+        return set
+    end
+
+    local function compare(db, set, stop)
+        local count = 0
+        local switch = set.switch
+        for index = 1, SWITCH_COUNT do
+            local key = SWITCHES[index]
+            if (db[key] and true or false) ~= switch[key] then
+                if stop then return 1 end
+                count = count + 1
+            end
+        end
+        local all = type(db.chatAreaChannels) == "table" and db.chatAreaChannels or nil
+        for index = 1, AREA_COUNT do
+            local area = AREAS[index]
+            local own = all and type(all[area]) == "table" and all[area] or nil
+            local want = set.channel[area]
+            for slot = 1, CHANNEL_COUNT do
+                local key = CHANNEL_KEYS[slot]
+                if ((own and own[key]) and true or false) ~= want[key] then
+                    if stop then return 1 end
+                    count = count + 1
+                end
+            end
+        end
+        local texts = set.texts
+        for index = 1, TEXT_COUNT do
+            local key = TEXTS[index]
+            local want = texts[key]
+            if want ~= nil and db[key] ~= want then
+                if stop then return 1 end
+                count = count + 1
+            end
+        end
+        return count
+    end
+
+    function Model.ChatDiff(db, set)
+        if not set then return 0 end
+        return compare(db, set, false)
+    end
+
+    function Model.ChatMatches(db, set)
+        if not set then return true end
+        return compare(db, set, true) == 0
+    end
+
+    function Model.ApplyChat(db, set, before)
+        if not set then return 0 end
+        local changed = 0
+        local switch = set.switch
+        for index = 1, SWITCH_COUNT do
+            local key = SWITCHES[index]
+            local now = db[key] and true or false
+            if now ~= switch[key] then
+                if before then before[key] = now end
+                db[key] = switch[key]
+                changed = changed + 1
+            end
+        end
+        for index = 1, AREA_COUNT do
+            local area = AREAS[index]
+            local own = Model.Channels(db, area)
+            local want = set.channel[area]
+            for slot = 1, CHANNEL_COUNT do
+                local key = CHANNEL_KEYS[slot]
+                local now = own[key] and true or false
+                if now ~= want[key] then
+                    if before then
+                        local old = before.chatAreaChannels
+                        if not old then
+                            old = {}
+                            before.chatAreaChannels = old
+                        end
+                        old[area] = old[area] or {}
+                        old[area][key] = now
+                    end
+                    own[key] = want[key]
+                    changed = changed + 1
+                end
+            end
+        end
+        local texts = set.texts
+        for index = 1, TEXT_COUNT do
+            local key = TEXTS[index]
+            local want = texts[key]
+            if want ~= nil and db[key] ~= want then
+                if before then before[key] = db[key] end
+                db[key] = want
+                changed = changed + 1
+            end
+        end
+        return changed
+    end
+end
 
 local tagCache = {}
 function Model.Tags(textKey)

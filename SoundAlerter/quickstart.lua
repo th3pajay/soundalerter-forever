@@ -40,17 +40,12 @@ QuickStart.STEPS = {
 
 local CAST_UNITS = { "player", "target", "focus" }
 local RESOURCE_BARS = { "energyEnabled", "rageEnabled", "healthEnabled", "manaEnabled", "comboEnabled" }
-local PROXIMITY_ZONES = { { "arena", "proximityArena" }, { "battleground", "proximityBattleground" }, { "field", "proximityWorld" } }
 
 local function anyTrue(source, keys)
     for _, key in ipairs(keys) do
         if source[key] then return true end
     end
     return false
-end
-
-local function setAll(source, keys, value)
-    for _, key in ipairs(keys) do source[key] = value end
 end
 
 local function hasIcons(profile)
@@ -60,20 +55,6 @@ end
 
 local function supported(_, env)
     return env and env.supported and true or false
-end
-
-local function enableProximityZones(profile)
-    for _, pair in ipairs(PROXIMITY_ZONES) do
-        if profile[pair[2]] then return end
-    end
-    local zoned = false
-    for _, pair in ipairs(PROXIMITY_ZONES) do
-        if profile[pair[1]] then
-            profile[pair[2]] = true
-            zoned = true
-        end
-    end
-    if not zoned then profile.proximityWorld = true end
 end
 
 QuickStart.ITEMS = {
@@ -86,9 +67,7 @@ QuickStart.ITEMS = {
                 end
                 return false
             end,
-            set = function(profile, value)
-                for _, unit in ipairs(CAST_UNITS) do profile.castingBars[unit].enabled = value end
-            end,
+            owner = "CastingBars", paths = { "player.enabled", "target.enabled", "focus.enabled" },
         },
         {
             key = "tracker", label = "Spell Tracker", hint = "Icons for buffs, debuffs and cooldowns", available = hasIcons,
@@ -98,6 +77,7 @@ QuickStart.ITEMS = {
                 end
                 return false
             end,
+            owner = "SpellTracker",
             set = function(profile, value)
                 for _, icon in ipairs(profile.spellTracker.icons) do icon.enabled = value end
             end,
@@ -105,47 +85,41 @@ QuickStart.ITEMS = {
         {
             key = "castfeed", label = "Cast Feed", hint = "A scrolling log of casts",
             get = function(profile) return profile.castFeed.enabled and true or false end,
-            set = function(profile, value) profile.castFeed.enabled = value end,
+            owner = "CastFeed", paths = { "enabled" },
         },
         {
             key = "resource", label = "Resource Bar", hint = "Health, mana, energy, rage and combo points",
             get = function(profile) return anyTrue(profile.resourceBar, RESOURCE_BARS) end,
-            set = function(profile, value) setAll(profile.resourceBar, RESOURCE_BARS, value) end,
+            owner = "ResourceBar", paths = RESOURCE_BARS,
         },
     },
     aware = {
         {
             key = "proximity", label = "Proximity toasts", hint = "A toast when enemies come near",
             get = function(profile) return profile.proximityEnabled and true or false end,
-            set = function(profile, value)
-                profile.proximityEnabled = value
-                if value then enableProximityZones(profile) end
-            end,
+            owner = "Proximity", paths = { "proximityEnabled" },
         },
         {
             key = "flags", label = "Battleground flag alerts", hint = "Flag and objective voice alerts",
             get = function(profile) return profile.battlegroundAlertsEnabled and true or false end,
-            set = function(profile, value) profile.battlegroundAlertsEnabled = value end,
+            owner = "FlagAlerts", paths = { "battlegroundAlertsEnabled" },
         },
         {
             key = "stealth", label = "Stealth alert", hint = "Voice when a rogue or druid goes into stealth",
             get = function(profile) return profile.stealthenemy and true or false end,
-            set = function(profile, value) profile.stealthenemy = value end,
+            owner = "Core", paths = { "stealthenemy" },
         },
         {
             key = "sightings", label = "Global sightings", hint = "On by default: shares enemies and spells you see and your rough map area. Switch off to opt out.", available = supported,
             get = function(profile) return profile.globalSightings and true or false end,
-            set = function(profile, value) profile.globalSightings = value end,
+            owner = "Core", paths = { "globalSightings" }, consent = true,
         },
     },
     party = {
         {
             key = "party", label = "Party sharing", hint = "Share what you see with your party and hear what they see", available = supported,
             get = function(profile) return profile.shareAlertsSend and profile.shareAlertsReceive and true or false end,
-            set = function(profile, value)
-                profile.shareAlertsSend = value
-                profile.shareAlertsReceive = value
-            end,
+            owner = "Core", paths = { "shareAlertsSend", "shareAlertsReceive" },
         },
     },
 }
@@ -215,10 +189,9 @@ function QuickStart.SightingsConsentDue(global, profile, isSupported)
     return nil
 end
 
-function QuickStart.AnswerSightings(global, profile, keep)
+function QuickStart.AnswerSightings(global)
     if not QuickStart.SightingsHeld(global) then return false end
     global.sightingsConsent = "done"
-    if not keep then profile.globalSightings = false end
     return true
 end
 
@@ -313,25 +286,33 @@ local VERSION_COLOR = "|cffffd100"
 local DIM = "|cffa0a0a0"
 
 QuickStart.WHATS_NEW = {
-    version = "0.3.25",
-    headline = "Open world speaks up",
+    version = "0.4.00",
+    headline = "Cooldowns pulse back",
     items = {
-        "Five-second rule sweep on the mana bar",
-        "Shift marks on the druid mana bar",
-        "Spell Tracker sees debuffs land in combat",
-        "Debuff stacks shown on tracker icons",
-        "Lethal skull on Spell Tracker icons",
-        "Tabs on long settings pages",
-        "Lock position moved to page tops",
-        "Close x and bottom drag on options",
-        "Say my procs hears Clearcasting",
-        "Update your own voice presets",
-        "Spell alerts do less work",
-        "World PvP switch now plays alerts outdoors",
-        "World PvP stats counted outdoors only",
-        "Poised rune P beside the energy bar",
-        "Sightings card closes without an error",
-        "No alert for buffs already up",
+        "PulseDown pulses your ready cooldowns",
+        "Ten cooldown kinds, each switchable",
+        "Every entrance, exit and border look",
+        "BG Snapshot: last match, form, maps, bests",
+        "Honor Snapshot: today, sources, calendar",
+        "Battleground debrief from the result pill",
+        "Keys for DPS and healing weapons",
+        "Weapon name and colour on the diamond",
+        "Interrupt-ready learns without polling",
+        "Saved presets keep your chat alerts",
+        "Sharper Trinket Menu text",
+        "Proximity on picks your alert zones",
+        "Flag stats count only played alerts",
+        "PulseDown line in /sa perf",
+        "Textures five times smaller on disk",
+        "Features share one start and save path",
+        "Settings checked against defaults on save",
+        "Every setting change takes one path",
+        "Every voice alert plays one way",
+        "Casting bar Pop entrance joins smoothly",
+        "Snapshot no longer claims tracking is off",
+        "Profile overview shows every feature",
+        "No blocked action when sightings join",
+        "Pounce Bleed tracked at every rank",
     },
 }
 

@@ -43,6 +43,7 @@ local MUTED = { 0.588, 0.627, 0.698 }
 local WHITE = { 1, 1, 1 }
 local WARN_COLOR = { 1, 0.82, 0 }
 local HOT_COLOR = { 1, 0.35, 0.3 }
+local DPS_DIAMOND = { 0.86, 0.2, 0.18 }
 local COUNTDOWN_STEPS = { { 10, WARN_COLOR }, { 3, HOT_COLOR } }
 local HOTKEY_COLOR = { 0.6, 0.64, 0.7 }
 local SPARK_TEXTURE = "Interface\\AddOns\\SoundAlerter\\Textures\\cp_glow"
@@ -68,10 +69,23 @@ local RIPPLE_TIME = 0.7
 local SQUEEZE_TIME = 0.2
 local SQUEEZE_SCALE = 0.25
 local BANG_SIZE = 13
+local FLASH_SIZE = 11
+local FLASH_GAP = 3
+local FLASH_IN = 0.15
+local FLASH_HOLD = 0.7
+local FLASH_OUT = 0.45
 local WEAPON_SNIPPET = [[
     if button == "RightButton" then return end
-    if button ~= "Keybind" and (button ~= "LeftButton" or IsShiftKeyDown()) then return false end
-    local nextPair = 3 - self:GetAttribute("weapon-worn")
+    local nextPair
+    if button == "DPS" then
+        nextPair = 1
+    elseif button == "Healing" then
+        nextPair = 2
+    elseif button == "Keybind" or (button == "LeftButton" and not IsShiftKeyDown()) then
+        nextPair = 3 - self:GetAttribute("weapon-worn")
+    else
+        return false
+    end
     local macro = self:GetAttribute("weapon-macro" .. nextPair)
     if not macro then return false end
     self:SetAttribute("weapon-worn", nextPair)
@@ -95,16 +109,8 @@ local PULSE_TIME = 0.5
 local TEST_TIME = 3
 local SWAP_WAIT = 2
 local NUM_BAGS = NUM_BAG_SLOTS or 4
-local LIVE_EVENTS = { "PLAYER_EQUIPMENT_CHANGED", "BAG_UPDATE_DELAYED", "BAG_UPDATE_COOLDOWN", "UPDATE_BINDINGS", "PLAYER_ENTERING_WORLD" }
+local LIVE_EVENTS = { "PLAYER_EQUIPMENT_CHANGED", "BAG_UPDATE_DELAYED", "BAG_UPDATE_COOLDOWN", "UPDATE_BINDINGS", "PLAYER_ENTERING_WORLD", "UI_SCALE_CHANGED", "DISPLAY_SIZE_CHANGED" }
 local GEAR_EVENTS = { "EQUIPMENT_SETS_CHANGED", "EQUIPMENT_SWAP_FINISHED" }
-
-local SETTING_KEYS = {
-    enabled = true, locked = true, PositionX = true, PositionY = true,
-    orientation = true, swapOrder = true, iconSize = true, spacing = true,
-    showSet = true, flyout = true, tooltips = true, cooldownNumbers = true,
-    fade = true, fadeAlpha = true, fadeDelay = true, collapse = true, activeSet = true,
-    showGear = true, gearMain = true, gearAlt = true, readyGlow = true, showWeapon = true,
-}
 
 local LIVE_KEYS = {
     tooltips = true, cooldownNumbers = true, flyout = true,
@@ -378,7 +384,7 @@ end
 
 local function BuildNow()
     TrinketMenu:Build()
-    TrinketMenu:LoadSettings()
+    TrinketMenu:Apply()
 end
 
 function TrinketMenu:Retry()
@@ -563,10 +569,55 @@ local function Hover(owner, on)
     Tint(face)
 end
 
+local function Snap(units, ppu)
+    return math.floor(units * ppu + 0.5) / ppu
+end
+
+local function CrispFont(text, ppu)
+    BarUtils:CrispFont(text, text.crisp.units, ppu)
+end
+
+local function PlaceText(text, ppu)
+    local spec = text.crisp
+    local x = spec.dx
+    if spec.centered then x = x - text:GetStringWidth() / 2 end
+    text:SetPoint(spec.point, spec.anchor, spec.anchorPoint, Snap(x, ppu), Snap(spec.dy, ppu))
+end
+
+function TrinketMenu:PixelScale()
+    local ppu = self.ppu
+    if not ppu then
+        ppu = BarUtils:PixelsPerUnit(UIParent)
+        self.ppu = ppu
+    end
+    return ppu
+end
+
+function TrinketMenu:Crisp(text, units, point, anchor, anchorPoint, dx, dy, centered)
+    text.crisp = { units = units, point = point, anchor = anchor, anchorPoint = anchorPoint, dx = dx, dy = dy, centered = centered }
+    text:SetShadowColor(0, 0, 0, 1)
+    local ppu = self:PixelScale()
+    CrispFont(text, ppu)
+    PlaceText(text, ppu)
+    local list = self.crispTexts
+    list[#list + 1] = text
+end
+
+function TrinketMenu:RefreshCrisp()
+    local ppu = BarUtils:PixelsPerUnit(UIParent)
+    if ppu == self.ppu then return end
+    self.ppu = ppu
+    for _, text in ipairs(self.crispTexts) do
+        CrispFont(text, ppu)
+        PlaceText(text, ppu)
+    end
+end
+
 local function SetLabel(face, text)
     if face.labelText == text then return end
     face.labelText = text
     face.label:SetText(text)
+    PlaceText(face.label, TrinketMenu:PixelScale())
     face.pill:SetShown(text ~= "")
 end
 
@@ -634,8 +685,7 @@ function TrinketMenu:Dress(button, color, split)
         local text = face.numbers.text
         if text then
             text:ClearAllPoints()
-            text:SetPoint("BOTTOMRIGHT", face, "BOTTOMRIGHT", -2, 2)
-            text:SetFont(STANDARD_TEXT_FONT, NUMBER_SIZE, "OUTLINE")
+            self:Crisp(text, NUMBER_SIZE, "BOTTOMRIGHT", face, "BOTTOMRIGHT", -2, 2, false)
             text:SetTextColor(1, 1, 1, 1)
         end
     end
@@ -646,8 +696,7 @@ function TrinketMenu:Dress(button, color, split)
     face.over = over
 
     face.hotkey = over:CreateFontString(nil, "OVERLAY")
-    face.hotkey:SetFont(STANDARD_TEXT_FONT, HOTKEY_SIZE, "OUTLINE")
-    face.hotkey:SetPoint("TOPLEFT", 3, -2)
+    self:Crisp(face.hotkey, HOTKEY_SIZE, "TOPLEFT", face, "TOPLEFT", 3, -2, false)
     face.hotkey:SetTextColor(HOTKEY_COLOR[1], HOTKEY_COLOR[2], HOTKEY_COLOR[3], 1)
 
     face.badge = CreateFrame("Frame", nil, over, "BackdropTemplate")
@@ -660,8 +709,7 @@ function TrinketMenu:Dress(button, color, split)
     face.badge:Hide()
 
     face.label = over:CreateFontString(nil, "OVERLAY")
-    face.label:SetFont(STANDARD_TEXT_FONT, LABEL_SIZE, "OUTLINE")
-    face.label:SetPoint("BOTTOM", 0, 3)
+    self:Crisp(face.label, LABEL_SIZE, "BOTTOMLEFT", face, "BOTTOM", 0, 3, true)
     face.pill = over:CreateTexture(nil, "ARTWORK")
     face.pill:SetColorTexture(0, 0, 0, 0.62)
     face.pill:SetPoint("TOPLEFT", face.label, "TOPLEFT", -2, 1)
@@ -867,6 +915,45 @@ function TrinketMenu:Ripple()
     ripple:Play()
 end
 
+local function Fade(group, order, duration, from, to)
+    local step = Step(group, "Alpha", order, duration)
+    step:SetFromAlpha(from)
+    step:SetToAlpha(to)
+end
+
+local function FlashDone(group)
+    group:GetParent():Hide()
+end
+
+function TrinketMenu:FlashWeapon(index)
+    local diamond = self.diamond
+    local flash = diamond.flash
+    if not flash then
+        flash = diamond.skin:CreateFontString(nil, "OVERLAY")
+        self:Crisp(flash, FLASH_SIZE, "TOPLEFT", diamond, "BOTTOM", 0, -FLASH_GAP, true)
+        flash:SetAlpha(0)
+        flash:Hide()
+        local group = flash:CreateAnimationGroup()
+        group:SetToFinalAlpha(true)
+        Fade(group, 1, FLASH_IN, 0, 1)
+        Fade(group, 2, FLASH_HOLD, 1, 1)
+        Fade(group, 3, FLASH_OUT, 1, 0)
+        group:SetScript("OnFinished", FlashDone)
+        flash.fade = group
+        diamond.flash = flash
+    end
+    if flash.index ~= index then
+        flash.index = index
+        local color = WEAPON_COLORS[index]
+        flash:SetText(Model.WEAPON_NAMES[index])
+        flash:SetTextColor(color[1], color[2], color[3], 1)
+        PlaceText(flash, self:PixelScale())
+    end
+    flash.fade:Stop()
+    flash:Show()
+    flash.fade:Play()
+end
+
 function TrinketMenu:Ready(face, start, duration)
     if not start or face.readyFor == start or start + duration > GetTime() + READY_SLACK then return end
     face.readyFor = start
@@ -993,8 +1080,7 @@ function TrinketMenu:CreateWeaponButton()
     face.slot = Model.MAIN_HAND
     face.cooldown:SetScript("OnCooldownDone", OnCooldownDone)
     face.bang = face.over:CreateFontString(nil, "OVERLAY")
-    face.bang:SetFont(STANDARD_TEXT_FONT, BANG_SIZE, "OUTLINE")
-    face.bang:SetPoint("BOTTOMRIGHT", -2, 1)
+    self:Crisp(face.bang, BANG_SIZE, "BOTTOMRIGHT", face, "BOTTOMRIGHT", -2, 1, false)
     face.bang:SetTextColor(HOT_COLOR[1], HOT_COLOR[2], HOT_COLOR[3], 1)
     face.bang:SetText("!")
     face.bang:Hide()
@@ -1330,6 +1416,8 @@ function TrinketMenu:CreateDiamond()
         Spin(layer("BORDER", FLAT_TEXTURE, DIAMOND_SIZE + 2, { 0, 0, 0 }, true)),
         Spin(layer("ARTWORK", FLAT_TEXTURE, DIAMOND_SIZE, SET_COLOR, true)),
     }
+    diamond.fill = diamond.spins[2]:GetParent()
+    diamond.tint = SET_COLOR
     local glow = layer("BACKGROUND", GLOW_TEXTURE, DIAMOND_SIZE * 3, WAIT_COLOR)
     glow:SetBlendMode("ADD")
     glow:SetAlpha(0)
@@ -1364,6 +1452,7 @@ function TrinketMenu:Build()
     bar:SetClampRectInsets(-PLATE_PAD, PLATE_PAD, PLATE_PAD, -PLATE_PAD)
     bar:Hide()
     self.bar = bar
+    self.crispTexts = {}
 
     local plate = CreateFrame("Frame", nil, bar, "BackdropTemplate")
     plate:SetPoint("TOPLEFT", -PLATE_PAD, PLATE_PAD)
@@ -1536,7 +1625,13 @@ function TrinketMenu:Paint()
     if self:WeaponShown() then self:PaintWeapon() end
 
     if self.diamond then
-        TogglePulse(self.diamond.pulse, (queued and Model.Waiting(queued, equipped)) or self:GearQueued())
+        local diamond = self.diamond
+        TogglePulse(diamond.pulse, (queued and Model.Waiting(queued, equipped)) or self:GearQueued())
+        local tint = self.weaponWorn == 1 and self:WeaponShown() and DPS_DIAMOND or SET_COLOR
+        if diamond.tint ~= tint then
+            diamond.tint = tint
+            diamond.fill:SetVertexColor(tint[1], tint[2], tint[3], 1)
+        end
     end
 end
 
@@ -1571,6 +1666,7 @@ function TrinketMenu:PaintWeapon()
     local _, icon = COMPAT.InventoryItem(Model.MAIN_HAND)
     self:BagTrinkets()
     local state, worn, nextIndex = Model.WeaponState(pairList, main, off, self.owned)
+    self.weaponWorn = worn
     local saved = state ~= "unsaved"
     face.texture:SetTexture(saved and icon or WEAPON_ICON)
     face.empty, face.faded = not saved, state == "other" or state == "missing"
@@ -1578,7 +1674,14 @@ function TrinketMenu:PaintWeapon()
     if worn then
         SetBase(face, WEAPON_COLORS[worn])
         SetLabel(face, Model.WeaponLabel(worn, self.db.iconSize))
-        if self.weaponLast and self.weaponLast ~= worn then Squeeze(face) end
+        if self.weaponLast and self.weaponLast ~= worn then
+            local diamond = self.diamond
+            if self.bar:IsShown() then
+                Squeeze(face)
+            elseif diamond and diamond:IsShown() then
+                self:FlashWeapon(worn)
+            end
+        end
         self.weaponLast = worn
     else
         SetBase(face, EMPTY_COLOR)
@@ -1687,7 +1790,10 @@ function TrinketMenu:OnEvent(event, arg)
         self:PaintCooldowns()
     elseif event == "UPDATE_BINDINGS" then
         self:PaintHotkeys()
+    elseif event == "UI_SCALE_CHANGED" or event == "DISPLAY_SIZE_CHANGED" then
+        self:RefreshCrisp()
     elseif event == "PLAYER_ENTERING_WORLD" then
+        self:RefreshCrisp()
         self:ForgetBags()
         self:ForgetGear()
         self.gearUsable = nil
@@ -1700,14 +1806,6 @@ end
 
 function TrinketMenu:GetSettings()
     return self.db
-end
-
-function TrinketMenu:SetSetting(key, value)
-    if not SETTING_KEYS[key] then
-        error("TrinketMenu:SetSetting - unknown setting key '" .. tostring(key) .. "'", 2)
-    end
-    self.db[key] = value
-    self:LoadSettings(LIVE_KEYS[key])
 end
 
 function TrinketMenu:Listen(on)
@@ -1729,7 +1827,8 @@ function TrinketMenu:Listen(on)
     end
 end
 
-function TrinketMenu:LoadSettings(live)
+function TrinketMenu:Apply(changedKey)
+    local live = changedKey ~= nil and LIVE_KEYS[changedKey] == true
     local db = self.db
     self.gearUsable = nil
     self:Listen(db.enabled)
@@ -1757,7 +1856,7 @@ function TrinketMenu:ResetPosition()
     if not self.db then return end
     self.db.PositionX = DEFAULT_X
     self.db.PositionY = DEFAULT_Y
-    self:LoadSettings()
+    self:Apply()
 end
 
 function TrinketMenu:RunTest()
@@ -1779,25 +1878,8 @@ function TrinketMenu:RunTest()
     self:Rest()
 end
 
-function TrinketMenu:OnProfileChanged()
-    local addon = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
-    if not addon then return end
-    self.addon = addon
-    self.db = addon.db1.profile.trinketMenu
-    self.pending, self.pendingSet, self.pendingGear, self.weaponLast = nil, nil, nil, nil
-    self:ForgetGear()
-    if self.initialized then self:LoadSettings() end
-end
-
 function TrinketMenu:Initialize()
     if self.initialized then return end
-    local addon = LibStub("AceAddon-3.0"):GetAddon("SoundAlerter")
-    if not addon then
-        error("TrinketMenu:Initialize() called before addon is ready")
-        return
-    end
-    self.addon = addon
-    self.db = addon.db1.profile.trinketMenu
     self.deferred, self.deferredOrder = {}, {}
     self.equipped = {}
     self.attempts, self.swapUntil = 0, 0
@@ -1810,7 +1892,12 @@ function TrinketMenu:Initialize()
     self.events = events
 
     self.initialized = true
-    self:LoadSettings()
 end
 
 SoundAlerter.TrinketMenu = TrinketMenu
+local function SwitchProfile(module)
+    module.pending, module.pendingSet, module.pendingGear, module.weaponLast = nil, nil, nil, nil
+    module:ForgetGear()
+    module:Apply(nil)
+end
+SA_Modules.Register({ key = "TrinketMenu", module = TrinketMenu, db = "trinketMenu", title = "Trinket Menu", nav = { section = "Displays", order = 28 }, options = "BuildTrinketMenuOptions", enabled = { "enabled" }, profile = SwitchProfile })

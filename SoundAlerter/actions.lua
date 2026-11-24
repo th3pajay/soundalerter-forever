@@ -54,22 +54,26 @@ local function cycleSet(delta)
     say("Trinket set " .. menu.db.activeSet .. " selected.")
 end
 
+local PROXIMITY_ZONES = { { "proximityWorld", "World PvP" }, { "proximityBattleground", "Battlegrounds" }, { "proximityArena", "Arena" } }
+
 local function toggleProximity()
     local current = profile()
-    current.proximityEnabled = not current.proximityEnabled
-    local worldNote = ""
-    if current.proximityEnabled and not current.proximityWorld then
-        current.proximityWorld = true
-        worldNote = " (World PvP switched on too)"
+    local before = {}
+    for index, zone in ipairs(PROXIMITY_ZONES) do before[index] = current[zone[1]] end
+    SoundAlerter.Proximity:SetSetting("proximityEnabled", not current.proximityEnabled)
+    local added = {}
+    for index, zone in ipairs(PROXIMITY_ZONES) do
+        if current[zone[1]] and not before[index] then added[#added + 1] = zone[2] end
     end
-    SoundAlerter.Proximity:Refresh()
-    say("Proximity Alerts: " .. onOff(current.proximityEnabled) .. worldNote)
+    local note = #added > 0 and (" (" .. table.concat(added, ", ") .. " switched on too)") or ""
+    say("Proximity Alerts: " .. onOff(current.proximityEnabled) .. note)
 end
 
 local function toggleBattleground()
+    local flags = SoundAlerter.FlagAlerts
+    if not (flags and flags.SetSetting) then return end
     local current = profile()
-    current.battlegroundAlertsEnabled = not current.battlegroundAlertsEnabled
-    if SoundAlerter.FlagAlerts and SoundAlerter.FlagAlerts.UpdateEventRegistration then SoundAlerter.FlagAlerts:UpdateEventRegistration() end
+    flags:SetSetting("battlegroundAlertsEnabled", not current.battlegroundAlertsEnabled)
     say("Battleground Alerts: " .. onOff(current.battlegroundAlertsEnabled))
 end
 
@@ -79,7 +83,7 @@ end
 
 local function toggleChat()
     local current = profile()
-    current.chatalerts = not current.chatalerts
+    SoundAlerter.Core:SetSetting("chatalerts", not current.chatalerts)
     say("Chat alerts: " .. onOff(not current.chatalerts))
 end
 
@@ -87,7 +91,6 @@ local function toggleNotices()
     local notices = SoundAlerter.Notices
     if not (notices and notices.db) then return end
     notices:SetSetting("enabled", not notices.db.enabled)
-    notices:LoadSettings()
     say("Notices: " .. onOff(notices.db.enabled))
 end
 
@@ -97,8 +100,7 @@ local function toggleSightings()
         return
     end
     local current = profile()
-    current.globalSightings = not current.globalSightings
-    SoundAlerter:UpdateGlobalSight()
+    SoundAlerter.Core:SetSetting("globalSightings", not current.globalSightings)
     say("Global sightings: " .. onOff(current.globalSightings))
 end
 
@@ -130,6 +132,8 @@ local LIST = {
     { id = "trinketset", group = "Trinket Menu", name = "Equip selected trinket set", click = "SA_TrinketSetButton:LeftButton" },
     { id = "trinketgear", group = "Trinket Menu", name = "Switch main and alternate gear set", click = "SA_TrinketGearButton:LeftButton" },
     { id = "trinketweapon", group = "Trinket Menu", name = "Switch DPS and healing weapons", click = "SA_TrinketWeaponButton:Keybind" },
+    { id = "trinketdps", group = "Trinket Menu", name = "Switch to DPS weapons", click = "SA_TrinketWeaponButton:DPS" },
+    { id = "trinketheal", group = "Trinket Menu", name = "Switch to healing weapons", click = "SA_TrinketWeaponButton:Healing" },
     { id = "nextset", group = "Trinket Menu", name = "Select next trinket set", run = function() cycleSet(1) end },
     { id = "prevset", group = "Trinket Menu", name = "Select previous trinket set", run = function() cycleSet(-1) end },
     { id = "options", group = "Windows", name = "Open or close options", run = function() SoundAlerter:ShowConfig() end },
@@ -137,14 +141,14 @@ local LIST = {
     { id = "stats", group = "Windows", name = "Open Statistics", run = function() openPage("Statistics") end },
     { id = "setup", group = "Windows", name = "Run the setup wizard", run = function() SoundAlerter:ShowQuickStartSetup() end },
     { id = "snooze", group = "Alerts", name = "Snooze or resume proximity alerts", run = toggleSnooze },
-    { id = "proximity", group = "Alerts", name = "Proximity alerts on or off", run = toggleProximity, icon = true },
-    { id = "battleground", group = "Alerts", name = "Battleground alerts on or off", run = toggleBattleground, icon = true },
+    { id = "proximity", group = "Alerts", name = "Proximity alerts on or off", run = toggleProximity },
+    { id = "battleground", group = "Alerts", name = "Battleground alerts on or off", run = toggleBattleground },
     { id = "chat", group = "Alerts", name = "Chat alerts on or off", run = toggleChat },
     { id = "notices", group = "Alerts", name = "Notices on or off", run = toggleNotices },
     { id = "sightings", group = "Alerts", name = "Global sightings on or off", run = toggleSightings },
     { id = "test", group = "Alerts", name = "Play a test voice", run = testVoice },
     { id = "lockbars", group = "Layout and profiles", name = "Lock or unlock bars and trackers", run = lockBars, outOfCombat = true },
-    { id = "profile", group = "Layout and profiles", name = "Switch to the next profile", run = nextProfile, outOfCombat = true, icon = true },
+    { id = "profile", group = "Layout and profiles", name = "Switch to the next profile", run = nextProfile, outOfCombat = true },
 }
 
 local BY_ID = {}
@@ -187,13 +191,6 @@ function Actions.ShortKey(key)
     return short
 end
 
-local function finish(action)
-    action.run()
-    if not action.icon then return end
-    local button = SoundAlerter.MinimapButton
-    if button and button.UpdateIcon then button:UpdateIcon() end
-end
-
 local waiting, order = {}, {}
 local events
 
@@ -205,7 +202,7 @@ local function flush()
         local action = due[index]
         if waiting[action.id] then
             waiting[action.id] = nil
-            finish(action)
+            action.run()
         end
     end
 end
@@ -235,7 +232,7 @@ function Actions.Run(id)
     local action = BY_ID[id]
     if not (action and action.run) then return false end
     if action.outOfCombat and InCombatLockdown() then return queue(action) end
-    finish(action)
+    action.run()
     return true
 end
 

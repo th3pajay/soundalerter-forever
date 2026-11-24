@@ -18,24 +18,6 @@ end
 
 local function write(active, key, value)
     active:SetSetting(key, value)
-    local unit = key:match("^(%a+)%.")
-    if key == "locked" then
-        active:SetLocked(value)
-    elseif key == "barTexture" or key == "barTextureQuality" or key == "roundCorners" or key:match("%.barTexture$") then
-        active:UpdateTexture()
-    elseif key == "animQuality" or key == "segments" then
-        active:LoadSettings()
-    elseif unit then
-        if key:match("%.orientation$") then
-            local fill = active:GetSettings()[unit].fillDirection
-            if value == "vertical" and fill ~= "up" and fill ~= "down" then
-                active:SetSetting(unit .. ".fillDirection", "up")
-            elseif value == "horizontal" and fill ~= "left" and fill ~= "right" then
-                active:SetSetting(unit .. ".fillDirection", "right")
-            end
-        end
-        active:LoadSettings()
-    end
 end
 
 local function fillOptions(unit)
@@ -159,7 +141,7 @@ function SoundAlerter:BuildCastingBarOptions()
             local active = bars()
             if active then
                 active:ApplyPyramidLayout()
-                active:LoadSettings()
+                active:Apply()
             end
         end, false, "Layout"),
         Page.Select("barTexture", "Bar texture", "The texture every casting bar uses unless it picks its own below. Long grass and Dead gnomes are casting bar only.", textureOptions(), false, "Look"),
