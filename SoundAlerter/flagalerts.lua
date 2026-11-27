@@ -99,32 +99,36 @@ local PERSISTENT_CACHE_SIZE_DEFAULT = 500
 local MAX_FLAG_TOASTS = 3
 
 
-local LOCALE_PATTERNS = {
-    ["enUS"] = {
-        { pattern = "^(.+) has taken the flag!$", action = "PICKUP" },
-        { pattern = "^The ([Hh]orde) [Ff]lag was picked up by (.+)!$", action = "PICKUP", flagName = "Horde" },
-        { pattern = "^The ([Aa]lliance) [Ff]lag was picked up by (.+)!$", action = "PICKUP", flagName = "Alliance" },
-        { pattern = "^(.+) has dropped the flag!$", action = "DROP" },
-        { pattern = "^The ([Hh]orde) [Ff]lag was dropped by (.+)!$", action = "DROP", flagName = "Horde" },
-        { pattern = "^The ([Aa]lliance) [Ff]lag was dropped by (.+)!$", action = "DROP", flagName = "Alliance" },
-        { pattern = "^(.+) captured the (.+) flag!$", action = "CAPTURE" },
-        { pattern = "^The .+ [Ff]lag was captured by (.+)!$", action = "CAPTURE" },
-        { pattern = "^The ([Hh]orde) [Ff]lag was returned to its base by (.+)!$", action = "RETURN", flagName = "Horde" },
-        { pattern = "^The ([Aa]lliance) [Ff]lag was returned to its base by (.+)!$", action = "RETURN", flagName = "Alliance" },
-    },
-    ["enGB"] = {
-        { pattern = "^(.+) has taken the flag!$", action = "PICKUP" },
-        { pattern = "^The ([Hh]orde) [Ff]lag was picked up by (.+)!$", action = "PICKUP", flagName = "Horde" },
-        { pattern = "^The ([Aa]lliance) [Ff]lag was picked up by (.+)!$", action = "PICKUP", flagName = "Alliance" },
-        { pattern = "^(.+) has dropped the flag!$", action = "DROP" },
-        { pattern = "^The ([Hh]orde) [Ff]lag was dropped by (.+)!$", action = "DROP", flagName = "Horde" },
-        { pattern = "^The ([Aa]lliance) [Ff]lag was dropped by (.+)!$", action = "DROP", flagName = "Alliance" },
-        { pattern = "^(.+) captured the (.+) flag!$", action = "CAPTURE" },
-        { pattern = "^The .+ [Ff]lag was captured by (.+)!$", action = "CAPTURE" },
-        { pattern = "^The ([Hh]orde) [Ff]lag was returned to its base by (.+)!$", action = "RETURN", flagName = "Horde" },
-        { pattern = "^The ([Aa]lliance) [Ff]lag was returned to its base by (.+)!$", action = "RETURN", flagName = "Alliance" },
-    },
+local ENGLISH_PATTERNS = {
+    { pattern = "^(.+) has taken the flag!$", action = "PICKUP" },
+    { pattern = "^The [Hh]orde [Ff]lag was picked up by (.+)!$", action = "PICKUP", faction = "Horde" },
+    { pattern = "^The [Aa]lliance [Ff]lag was picked up by (.+)!$", action = "PICKUP", faction = "Alliance" },
+    { pattern = "^(.+) has dropped the flag!$", action = "DROP" },
+    { pattern = "^The [Hh]orde [Ff]lag was dropped by (.+)!$", action = "DROP", faction = "Horde" },
+    { pattern = "^The [Aa]lliance [Ff]lag was dropped by (.+)!$", action = "DROP", faction = "Alliance" },
+    { pattern = "^(.+) captured the [Hh]orde [Ff]lag!$", action = "CAPTURE", faction = "Horde" },
+    { pattern = "^(.+) captured the [Aa]lliance [Ff]lag!$", action = "CAPTURE", faction = "Alliance" },
+    { pattern = "^(.+) captured the .+ flag!$", action = "CAPTURE" },
+    { pattern = "^The [Hh]orde [Ff]lag was captured by (.+)!$", action = "CAPTURE", faction = "Horde" },
+    { pattern = "^The [Aa]lliance [Ff]lag was captured by (.+)!$", action = "CAPTURE", faction = "Alliance" },
+    { pattern = "^The .+ [Ff]lag was captured by (.+)!$", action = "CAPTURE" },
+    { pattern = "^The [Hh]orde [Ff]lag was returned to its base by (.+)!$", action = "RETURN", faction = "Horde" },
+    { pattern = "^The [Aa]lliance [Ff]lag was returned to its base by (.+)!$", action = "RETURN", faction = "Alliance" },
 }
+local LOCALE_PATTERNS = { enUS = ENGLISH_PATTERNS, enGB = ENGLISH_PATTERNS }
+local TEAM_HOLDING_FLAG = { Horde = "ALLIANCE_TEAM", Alliance = "HORDE_TEAM" }
+local TEAM_OWNING_FLAG = { Horde = "HORDE_TEAM", Alliance = "ALLIANCE_TEAM" }
+
+function FlagAlerts.CarrierTeam(action, faction, eventTeam)
+    local fromFlag = faction and (action == "RETURN" and TEAM_OWNING_FLAG or TEAM_HOLDING_FLAG)[faction] or nil
+    if eventTeam then return eventTeam, fromFlag ~= nil and fromFlag ~= eventTeam end
+    return fromFlag, false
+end
+
+function FlagAlerts.Side(team, myTeam)
+    if team == nil or myTeam == nil then return "unknown" end
+    return team == myTeam and "friendly" or "enemy"
+end
 
 local FLAT_SETTINGS = {
     "battlegroundAlertsEnabled", "flagToastsEnabled", "flagPickupAudio", "flagDropAudio", "flagCaptureAudio",
@@ -183,8 +187,8 @@ function FlagAlerts:OnInitialize()
         cacheEvictions = 0,
         classesLearned = 0,
         teamFiltered = 0,
-        auraPickups = 0,
-        auraDrops = 0,
+        teamFromEvent = 0,
+        teamMismatch = 0,
         chatPickups = 0,
         chatDrops = 0,
         chatCaptures = 0,
@@ -226,6 +230,7 @@ function FlagAlerts:UpdateEventRegistration()
 end
 
 function FlagAlerts:OnZoneChanged()
+    self.myTeam = nil
     local mapID = SA_ZoneKind.Kind() == "battleground" and GetInstanceInfo and select(8, GetInstanceInfo()) or nil
     self.patternMode = PATTERN_MODE_BY_MAP[mapID] or "both"
     self:UpdateEventRegistration()
@@ -322,29 +327,12 @@ function FlagAlerts:ShouldProcessFlagEvent(playerName, eventType)
     return true
 end
 
-function FlagAlerts:PassesTeamFilter(playerName, playerTeam)
-
-    if sadb.flagOnlyEnemyTeam or sadb.flagOnlyFriendlyTeam then
-        local myTeam = self:GetMyTeam()
-
-        if playerTeam and myTeam then
-            local isEnemy = (playerTeam ~= myTeam)
-            local isFriendly = (playerTeam == myTeam)
-
-            if sadb.flagOnlyEnemyTeam and isFriendly then
-                self.performanceMetrics.teamFiltered = self.performanceMetrics.teamFiltered + 1
-                SoundAlerter:Debug("FlagAlerts", "Filtered friendly team event: %s", playerName)
-                return false
-            end
-
-            if sadb.flagOnlyFriendlyTeam and isEnemy then
-                self.performanceMetrics.teamFiltered = self.performanceMetrics.teamFiltered + 1
-                SoundAlerter:Debug("FlagAlerts", "Filtered enemy team event: %s", playerName)
-                return false
-            end
-        end
+function FlagAlerts:PassesTeamFilter(playerName, side)
+    if (side == "friendly" and sadb.flagOnlyEnemyTeam) or (side == "enemy" and sadb.flagOnlyFriendlyTeam) then
+        self.performanceMetrics.teamFiltered = self.performanceMetrics.teamFiltered + 1
+        SoundAlerter:Debug("FlagAlerts", "Filtered %s team event: %s", side, playerName)
+        return false
     end
-
     return true
 end
 
@@ -437,7 +425,8 @@ function FlagAlerts:ProcessBaseEvent(parsed, eventTeam)
     local action = parsed.action
     local team = eventTeam or parsed.team
     local playerName = parsed.player
-    if not self:PassesTeamFilter(playerName or BASE_LABEL[parsed.base], team) then return end
+    local teamSide = FlagAlerts.Side(team, self:GetMyTeam())
+    if not self:PassesTeamFilter(playerName or BASE_LABEL[parsed.base], teamSide) then return end
     if not sadb[BASE_SETTING[action]] then return end
     local now = GetTime()
     local slot = parsed.base * 4 + BASE_ACTION_INDEX[action]
@@ -447,8 +436,7 @@ function FlagAlerts:ProcessBaseEvent(parsed, eventTeam)
         return
     end
     self.baseLast[slot] = now
-    local myTeam = self:GetMyTeam()
-    local side = team ~= nil and team == myTeam and "friendly" or "enemy"
+    local side = teamSide == "friendly" and "friendly" or "enemy"
     local label = BASE_LABEL[parsed.base]
     SoundAlerter:Debug("FlagAlerts", "Base %s %s by %s (%s)", label, action, tostring(playerName or team), side)
     self:QueueVoice(VoiceFile(BASE_VOICE[parsed.base]), VoiceFile(BASE_ACTION_VOICE[action][side]), parsed.base, BASE_GAP[parsed.base])
@@ -457,7 +445,7 @@ function FlagAlerts:ProcessBaseEvent(parsed, eventTeam)
         playerClass = self:GetPlayerClassByName(playerName)
     end
     if sadb.flagToastsEnabled then
-        self:ShowFlagToast(playerName, playerClass, action, team, BASE_TITLE[parsed.base][action][side], playerName or "")
+        self:ShowFlagToast(playerName, playerClass, action, teamSide, BASE_TITLE[parsed.base][action][side], playerName or "")
     end
     if sadb.flagChatEnabled then
         self:SendBaseChatAlert(playerName, action, side, label)
@@ -485,29 +473,11 @@ function FlagAlerts:ProcessFlagEvent(message, eventTeam)
         return
     end
 
-    local playerName, eventType, flagName, carrierTeam
-    for _, patternData in ipairs(self.flagPatterns) do
-        local match1, match2 = string_match(message, patternData.pattern)
-        if match1 then
-            eventType = patternData.action
-
-            if patternData.flagName and match2 then
-                flagName = match1
-                playerName = match2
-
-                if flagName:lower():find("horde") then
-                    carrierTeam = "ALLIANCE_TEAM"
-                elseif flagName:lower():find("alliance") then
-                    carrierTeam = "HORDE_TEAM"
-                end
-
-                if eventType == "RETURN" then
-                    carrierTeam = flagName:lower():find("horde") and "HORDE_TEAM" or "ALLIANCE_TEAM"
-                end
-            else
-                playerName = match1
-            end
-
+    local playerName, eventType, faction
+    for _, entry in ipairs(self.flagPatterns) do
+        local name = string_match(message, entry.pattern)
+        if name then
+            playerName, eventType, faction = name, entry.action, entry.faction
             break
         end
     end
@@ -517,7 +487,15 @@ function FlagAlerts:ProcessFlagEvent(message, eventTeam)
         return
     end
 
-    SoundAlerter:Debug("FlagAlerts", "CHAT PATTERN MATCHED - Player: %s | Event: %s | Flag: %s | Team: %s", playerName, eventType, flagName or "N/A", carrierTeam or "UNKNOWN")
+    local metrics = self.performanceMetrics
+    local carrierTeam, mismatch = FlagAlerts.CarrierTeam(eventType, faction, eventTeam)
+    if eventTeam then metrics.teamFromEvent = metrics.teamFromEvent + 1 end
+    if mismatch then
+        metrics.teamMismatch = metrics.teamMismatch + 1
+        SoundAlerter:Debug("FlagAlerts", "Team mismatch: the %s flag and the %s chat event disagree, using the event: %s", faction, eventTeam, message)
+    end
+    local side = FlagAlerts.Side(carrierTeam, self:GetMyTeam())
+    SoundAlerter:Debug("FlagAlerts", "CHAT PATTERN MATCHED - Player: %s | Event: %s | Flag: %s | Team: %s | Side: %s", playerName, eventType, faction or "N/A", carrierTeam or "UNKNOWN", side)
 
     if eventType == "PICKUP" and not sadb.flagPickupAudio then return end
     if eventType == "DROP" and not sadb.flagDropAudio then return end
@@ -531,9 +509,7 @@ function FlagAlerts:ProcessFlagEvent(message, eventTeam)
         end
     end
 
-    SoundAlerter:Debug("FlagAlerts", "Chat: Inferred %s is on %s (from flag name)", playerName, carrierTeam)
-
-    if not self:PassesTeamFilter(playerName, carrierTeam) then return end
+    if not self:PassesTeamFilter(playerName, side) then return end
 
     local playerClass = self:GetPlayerClassByName(playerName)
 
@@ -547,7 +523,7 @@ function FlagAlerts:ProcessFlagEvent(message, eventTeam)
         self.performanceMetrics.chatReturns = self.performanceMetrics.chatReturns + 1
     end
 
-    self:TriggerFlagAlert(playerName, playerClass, eventType, carrierTeam)
+    self:TriggerFlagAlert(playerName, playerClass, eventType, side)
 
     local elapsed = debugprofilestop() - startTime
     self.performanceMetrics.eventCount = self.performanceMetrics.eventCount + 1
@@ -757,22 +733,23 @@ function FlagAlerts:ClearPersistentCache()
 end
 
 function FlagAlerts:GetMyTeam()
+    local team = self.myTeam
+    if team then return team end
     local faction = UnitFactionGroup("player")
     if faction == "Alliance" then
-        return "ALLIANCE_TEAM"
+        team = "ALLIANCE_TEAM"
     elseif faction == "Horde" then
-        return "HORDE_TEAM"
+        team = "HORDE_TEAM"
     end
-    return nil
+    self.myTeam = team
+    return team
 end
 
-function FlagAlerts:TriggerFlagAlert(playerName, playerClass, eventType, carrierTeam)
-
-    local myTeam = self:GetMyTeam()
-    self:QueueAudio(playerClass, eventType, carrierTeam ~= nil and carrierTeam == myTeam)
+function FlagAlerts:TriggerFlagAlert(playerName, playerClass, eventType, side)
+    self:QueueAudio(playerClass, eventType, side)
 
     if sadb.flagToastsEnabled then
-        self:ShowFlagToast(playerName, playerClass, eventType, carrierTeam)
+        self:ShowFlagToast(playerName, playerClass, eventType, side)
     end
 
     if sadb.flagChatEnabled then
@@ -781,12 +758,12 @@ function FlagAlerts:TriggerFlagAlert(playerName, playerClass, eventType, carrier
 
 end
 
-function FlagAlerts:QueueAudio(playerClass, eventType, friendly)
+function FlagAlerts:QueueAudio(playerClass, eventType, side)
     local classAudioFile = playerClass and SoundAlerter.CLASS_AUDIO_MAP[playerClass]
     local lead
     if classAudioFile then
         lead = VoiceFile(classAudioFile)
-    elseif not friendly then
+    elseif side == "enemy" then
         lead = VoiceFile("Enemy")
     end
     self:QueueVoice(lead, VoiceFile(self:GetObjectiveAudioFile(eventType)), nil, OBJECTIVE_AUDIO_DELAY)
@@ -1020,15 +997,12 @@ function FlagAlerts:PrintMetrics()
     DEFAULT_CHAT_FRAME:AddMessage(string_format("  Chat Alerts Suppressed: |cffFF6B6B%d|r (taint prevention)", self.performanceMetrics.chatAlertsSuppressed))
     DEFAULT_CHAT_FRAME:AddMessage(" ")
     DEFAULT_CHAT_FRAME:AddMessage("|cff00FFFF[Detection Method Breakdown]|r")
-    DEFAULT_CHAT_FRAME:AddMessage(string_format("  Pickups (Aura): |cff00FF00%d|r (primary)", self.performanceMetrics.auraPickups))
-    DEFAULT_CHAT_FRAME:AddMessage(string_format("  Pickups (Chat): |cffFFAA00%d|r (fallback)", self.performanceMetrics.chatPickups))
-    DEFAULT_CHAT_FRAME:AddMessage(string_format("  Drops (Aura): |cff00FF00%d|r (primary)", self.performanceMetrics.auraDrops))
-    DEFAULT_CHAT_FRAME:AddMessage(string_format("  Drops (Chat): |cffFFAA00%d|r (fallback)", self.performanceMetrics.chatDrops))
-    DEFAULT_CHAT_FRAME:AddMessage(string_format("  Captures (Chat): |cff00FFFF%d|r (only method)", self.performanceMetrics.chatCaptures))
+    DEFAULT_CHAT_FRAME:AddMessage(string_format("  Pickups: |cffFFAA00%d|r", self.performanceMetrics.chatPickups))
+    DEFAULT_CHAT_FRAME:AddMessage(string_format("  Drops: |cffFFAA00%d|r", self.performanceMetrics.chatDrops))
+    DEFAULT_CHAT_FRAME:AddMessage(string_format("  Captures: |cff00FFFF%d|r", self.performanceMetrics.chatCaptures))
     DEFAULT_CHAT_FRAME:AddMessage(string_format("  Deduped Events: |cff808080%d|r (prevented double alerts)", self.performanceMetrics.dedupeBlocked))
-    local totalPickups = self.performanceMetrics.auraPickups + self.performanceMetrics.chatPickups
-    local auraReliability = totalPickups > 0 and (self.performanceMetrics.auraPickups / totalPickups * 100) or 0
-    DEFAULT_CHAT_FRAME:AddMessage(string_format("  Aura Detection Rate: |cff00FF00%.1f%%|r", auraReliability))
+    DEFAULT_CHAT_FRAME:AddMessage(string_format("  Team from the chat event: |cff00FF00%d|r", self.performanceMetrics.teamFromEvent))
+    DEFAULT_CHAT_FRAME:AddMessage(string_format("  Flag and event disagreed: |cffFF6B6B%d|r (the event wins; should stay 0)", self.performanceMetrics.teamMismatch))
 end
 
 function FlagAlerts:GetCacheSize()
@@ -1048,8 +1022,8 @@ function FlagAlerts:ResetMetrics()
         cacheEvictions = 0,
         classesLearned = 0,
         teamFiltered = 0,
-        auraPickups = 0,
-        auraDrops = 0,
+        teamFromEvent = 0,
+        teamMismatch = 0,
         chatPickups = 0,
         chatDrops = 0,
         chatCaptures = 0,
@@ -1172,12 +1146,21 @@ local FLAG_ICONS = {
     NEUTRAL_FLAG = "Interface\\WorldStateFrame\\NeutralFlag",
 }
 
-function FlagAlerts:ResolveToastAppearance(carrierTeam)
+local OWN_FLAG = { ALLIANCE_TEAM = FLAG_ICONS.ALLIANCE_FLAG, HORDE_TEAM = FLAG_ICONS.HORDE_FLAG }
+local OTHER_FLAG = { ALLIANCE_TEAM = FLAG_ICONS.HORDE_FLAG, HORDE_TEAM = FLAG_ICONS.ALLIANCE_FLAG }
+
+function FlagAlerts:FlagIcon(eventType, side)
+    local myTeam = self:GetMyTeam()
+    if not myTeam or side == "unknown" then return FLAG_ICONS.NEUTRAL_FLAG end
+    local returned = eventType == "RETURN"
+    if (side == "friendly") ~= returned then return OTHER_FLAG[myTeam] end
+    return OWN_FLAG[myTeam]
+end
+
+function FlagAlerts:ResolveToastAppearance(side)
     local sadb = SoundAlerter.db1.profile
     local textures = SoundAlerter.BarUtils.BACKDROP_TEXTURES
-    local myTeam = self:GetMyTeam()
-    local isEnemy = myTeam ~= nil and carrierTeam ~= nil and carrierTeam ~= myTeam
-    local isFriendly = myTeam ~= nil and carrierTeam == myTeam
+    local isEnemy, isFriendly = side == "enemy", side == "friendly"
 
     local bgR, bgG, bgB, bgA = 0, 0, 0, 0.85
     local borderR, borderG, borderB, borderA = 0.8, 0.2, 0.2, 1
@@ -1196,6 +1179,8 @@ function FlagAlerts:ResolveToastAppearance(carrierTeam)
                 borderR, borderG, borderB, borderA = 0.1, 0.8, 0.1, 1
             end
             textureName = sadb.flagFriendlyTexture or "Solid"
+        else
+            borderR, borderG, borderB = 0.55, 0.58, 0.64
         end
     end
 
@@ -1261,7 +1246,7 @@ engine = SA_Toast.New({
     manageMouse = true,
     mirrorSecureAlpha = true,
     secureAttributes = {"macrotext1", "macrotext"},
-    userFields = {"unitName", "className", "eventType", "carrierTeam", "timestamp"},
+    userFields = {"unitName", "className", "eventType", "side", "timestamp"},
     backdropFile = function() return SoundAlerter.BarUtils.BACKDROP_TEXTURES.Solid end,
     segmentWidth = function(toast, duration) return toast.countdownBar:GetWidth() / duration end,
     position = CurrentPosition,
@@ -1276,7 +1261,7 @@ function FlagAlerts:UpdateFlagToastLayout()
     engine:UpdateLayout()
 end
 
-function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTeam, titleOverride, detailOverride)
+function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, side, titleOverride, detailOverride)
     local sadb = SoundAlerter.db1.profile
 
     local toast = engine:Acquire(self.inCombat)
@@ -1285,7 +1270,7 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
         return
     end
 
-    local bgFile, bgR, bgG, bgB, bgA, borderR, borderG, borderB, borderA = self:ResolveToastAppearance(carrierTeam)
+    local bgFile, bgR, bgG, bgB, bgA, borderR, borderG, borderB, borderA = self:ResolveToastAppearance(side)
     toast:SetBackdrop({
         bgFile = bgFile,
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -1300,17 +1285,7 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
         local classIconPath = "Interface\\Icons\\ClassIcon_" .. playerClass
         toast.icon:SetTexture(classIconPath)
     else
-        local flagIcon
-        if titleOverride then
-            flagIcon = FLAG_ICONS.NEUTRAL_FLAG
-        elseif carrierTeam == "ALLIANCE_TEAM" then
-            flagIcon = FLAG_ICONS.HORDE_FLAG
-        elseif carrierTeam == "HORDE_TEAM" then
-            flagIcon = FLAG_ICONS.ALLIANCE_FLAG
-        else
-            flagIcon = FLAG_ICONS.NEUTRAL_FLAG
-        end
-        toast.icon:SetTexture(flagIcon)
+        toast.icon:SetTexture(titleOverride and FLAG_ICONS.NEUTRAL_FLAG or self:FlagIcon(eventType, side))
     end
     toast.icon:Show()
 
@@ -1339,7 +1314,7 @@ function FlagAlerts:ShowFlagToast(playerName, playerClass, eventType, carrierTea
     toast.userData.unitName = playerName
     toast.userData.className = playerClass
     toast.userData.eventType = eventType
-    toast.userData.carrierTeam = carrierTeam
+    toast.userData.side = side
     toast.userData.timestamp = GetTime()
 
     if toast.secureButton and playerName and not InCombatLockdown() then

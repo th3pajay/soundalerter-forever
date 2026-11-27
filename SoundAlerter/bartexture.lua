@@ -807,7 +807,7 @@ end
 function BarTexture:Apply(bar, setting, quality)
 	if not bar then return end
 
-	setting = self:Normalize(setting)
+	setting = self:Normalize(setting, true)
 	local flat = FLAT[setting]
 	local path = flat and flat.path or self.STATUSBAR_PATH
 

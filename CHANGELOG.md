@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.4.01
+
+## Your damage, your records
+
+### New
+
+Damage Meter
+- Damage Meter, a new page under Displays: a small strip with your DPS, damage and healing, read from the game's own damage meter. In combat it shows the game's numbers with a pulsing red dot, and the line under each number shows you against the top of your group. After the fight it holds for 10 seconds, counts up to the saved fight and compares it with your records, then shows your session. When nothing is happening it shrinks to your DPS; hover it to see the rest. Off by default.
+- World, world PvP and dungeon runs are kept apart. A world session starts at login or after 30 minutes without a fight, a dungeon run lasts while you stay with 15 minutes of grace, and any fight with an enemy player counts as world PvP. It keeps 20 runs, 20 PvP sessions and 14 days of world play.
+- Click the strip to open the window, Shift-drag it to move it even while locked, and right-click it to open the Damage Meter options. DAM lists your spells with their icons, share, casts and damage per cast, your targets and your hit table. DEF shows how many attacks you avoided, damage taken by spell, your healing and your deaths. Four cards on the left compare your last fight with your session.
+- PARTY ranks your group by damage, healing or damage taken, with interrupts, dispels and deaths; click a member to see their spells in their last fight. Post top 5 sends the ranking to your group after combat.
+- GRAPH draws every fight of the session with your running average and your best fight ringed in gold, a pull map for dungeon runs, and how your last fight compares with your average and record.
+- The ? tab explains how everything is measured and shows what the meter is doing right now: reading in combat, saving a fight, or ready with the time of your last save.
+- Hover a row after the fight for its details. The window is lit in your class colour, numbers count up and roll into place after each fight, and a new best sends a gold glint across the first card. Details wait until the fight ends, because the game hides the numbers from addons in combat.
+### Changed
+
+Proximity
+- Enemies flying over you on a flight path no longer set off proximity alerts. They stay silent until they land, and then alert as usual; while they fly they are not counted in sightings. A new switch, Alert for enemies on flight paths (Proximity, Detection), makes them alert like anyone else.
+
+Casting Bars
+- The casting bars now show the spell's full cast time next to the countdown, for example 01.482 / 02.500, also for casts whose timing the game hides from addons. A pushed-back cast updates its total. Switch it off with Show total cast time (Casting Bars, On the bar).
+
+Battlegrounds
+- Flag toasts now know which side the carrier is on for every flag message, including "has taken the flag", "has dropped the flag" and captures, using the team the game tags each message with. Allies get the green toast and enemies the red one. A carrier the game gives no team for gets a grey toast and no "enemy" call instead of a red one, and the toast's flag icon shows the flag actually carried.
+
+### Fixed
+
+Casting Bars
+- Long grass and Dead gnomes now show on the casting bars. Picking either one used to leave a plain filled bar.
+
 ## 0.4.00
 
 ## Cooldowns pulse back

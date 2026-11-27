@@ -11,6 +11,9 @@ local BAR_HEIGHT = 24
 local BOUNCE_DURATION = 0.3
 local ICON_GAP = 4
 local TEXT_INSET = 5
+local TOTAL_GAP = 2
+local TOTAL_COLOR = { 0.78, 0.8, 0.85 }
+local TOTAL_FORMATS = { milliseconds = "/ %06.3f", centiseconds = "/ %05.2f" }
 local FRAME_PAD_X = 20
 local FRAME_PAD_Y = 30
 
@@ -134,6 +137,10 @@ function CastingBars:CreateCastBar(unit, config)
 	timeText:SetPoint("RIGHT", bar, "RIGHT", -TEXT_INSET, 0)
 	timeText:SetText("")
 
+	local totalText = bar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	totalText:SetTextColor(TOTAL_COLOR[1], TOTAL_COLOR[2], TOTAL_COLOR[3], 1)
+	totalText:SetText("")
+
 	local icon = frame:CreateTexture(nil, "ARTWORK")
 	icon:SetSize(BAR_HEIGHT, BAR_HEIGHT)
 	icon:SetPoint("RIGHT", bar, "LEFT", -ICON_GAP, 0)
@@ -160,6 +167,7 @@ function CastingBars:CreateCastBar(unit, config)
 		bar = bar,
 		spellText = spellText,
 		timeText = timeText,
+		totalText = totalText,
 		icon = icon,
 		latency = latency,
 		lock = lock,
@@ -196,6 +204,7 @@ function CastingBars:ApplyOrientation(b)
 
 	local BarUtils = self.addon.BarUtils
 	local frame, bar, icon, spellText, timeText, latency = b.frame, b.bar, b.icon, b.spellText, b.timeText, b.latency
+	local totalText = b.totalText
 
 	local orientation = unitDB.orientation or "horizontal"
 	local fillDirection = unitDB.fillDirection or "right"
@@ -236,6 +245,7 @@ function CastingBars:ApplyOrientation(b)
 	icon:ClearAllPoints()
 	spellText:ClearAllPoints()
 	timeText:ClearAllPoints()
+	totalText:ClearAllPoints()
 	latency:ClearAllPoints()
 
 	spellText:SetPoint("CENTER", bar, "CENTER", 0, 0)
@@ -245,12 +255,14 @@ function CastingBars:ApplyOrientation(b)
 
 		if fillDirection == "down" then
 			icon:SetPoint("BOTTOM", bar, "TOP", 0, gap)
-			timeText:SetPoint("BOTTOM", bar, "BOTTOM", 0, inset)
+			totalText:SetPoint("BOTTOM", bar, "BOTTOM", 0, inset)
+			timeText:SetPoint("BOTTOM", totalText, "TOP", 0, 0)
 			latency:SetPoint("BOTTOM", bar, "BOTTOM", 0, 0)
 			lock:SetPoint("TOP", bar, "TOP", 0, -inset)
 		else
 			icon:SetPoint("TOP", bar, "BOTTOM", 0, -gap)
 			timeText:SetPoint("TOP", bar, "TOP", 0, -inset)
+			totalText:SetPoint("TOP", timeText, "BOTTOM", 0, 0)
 			latency:SetPoint("TOP", bar, "TOP", 0, 0)
 			lock:SetPoint("BOTTOM", bar, "BOTTOM", 0, inset)
 		end
@@ -262,11 +274,13 @@ function CastingBars:ApplyOrientation(b)
 		if fillDirection == "left" then
 			icon:SetPoint("LEFT", bar, "RIGHT", gap, 0)
 			timeText:SetPoint("LEFT", bar, "LEFT", inset, 0)
+			totalText:SetPoint("LEFT", timeText, "RIGHT", TOTAL_GAP, 0)
 			latency:SetPoint("LEFT", bar, "LEFT", 0, 0)
 			lock:SetPoint("RIGHT", bar, "RIGHT", -inset, 0)
 		else
 			icon:SetPoint("RIGHT", bar, "LEFT", -gap, 0)
-			timeText:SetPoint("RIGHT", bar, "RIGHT", -inset, 0)
+			totalText:SetPoint("RIGHT", bar, "RIGHT", -inset, 0)
+			timeText:SetPoint("RIGHT", totalText, "LEFT", -TOTAL_GAP, 0)
 			latency:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
 			lock:SetPoint("LEFT", bar, "LEFT", inset, 0)
 		end
@@ -521,6 +535,30 @@ function CastingBars:StartTimeBinding(b, duration)
 	b.timeText:SetText("")
 end
 
+function CastingBars:ShowTotal(b, seconds)
+	if self.db.showTotalTime == false or self.totalBroken then return end
+	if not issecretvalue(seconds) and seconds == nil then return end
+	local format = TOTAL_FORMATS[self.db.timeFormat] or TOTAL_FORMATS.milliseconds
+	if not pcall(b.totalText.SetFormattedText, b.totalText, format, seconds) then
+		self.totalBroken = true
+		b.totalText:SetText("")
+	end
+end
+
+function CastingBars:SecretTotal(duration)
+	local read = duration and duration.GetTotalDuration
+	if not read or self.totalBroken then return nil end
+	local ok, seconds = pcall(read, duration)
+	if ok then return seconds end
+	self.totalBroken = true
+	return nil
+end
+
+function CastingBars:ClearTime(b)
+	b.timeText:SetText("")
+	b.totalText:SetText("")
+end
+
 function CastingBars:SetTip(b, spellID)
 	if not TIP_UNITS[b.unit] then return end
 	local has = issecretvalue(spellID) or spellID ~= nil
@@ -598,6 +636,7 @@ function CastingBars:BeginSecretCast(b, unit, channeling, spellName, texture, no
 
 	b.spellText:SetText(spellName)
 	self:StartTimeBinding(b, duration)
+	self:ShowTotal(b, self:SecretTotal(duration))
 
 	if self.db.showSpellIcon and texture then
 		pcall(b.icon.SetTexture, b.icon, texture)
@@ -654,6 +693,7 @@ function CastingBars:BeginCast(unit, channeling)
 
 	b.spellText:SetText(spellName)
 	b.timeText:SetText(self:FormatTime(b.endTime - now))
+	self:ShowTotal(b, b.duration)
 
 	self:StartBounce(b)
 
@@ -716,7 +756,7 @@ function CastingBars:Finish(b, kind)
 
 	b.bar:SetStatusBarColor(style.r, style.g, style.b, 1)
 	b.bar:SetBackdropBorderColor(style.r, style.g, style.b, 1)
-	b.timeText:SetText("")
+	self:ClearTime(b)
 
 	if kind == "success" then
 		b.bar:SetValue(1)
@@ -804,7 +844,7 @@ function CastingBars:HideBar(b)
 	b.frame:Hide()
 	b.frame:SetAlpha(1)
 	b.spellText:SetText("")
-	b.timeText:SetText("")
+	self:ClearTime(b)
 end
 
 function CastingBars:OnCastStop(unit, animate)
@@ -821,7 +861,7 @@ function CastingBars:OnCastStop(unit, animate)
 		self:HideBar(b)
 	else
 		b.spellText:SetText("Ready")
-		b.timeText:SetText("")
+		self:ClearTime(b)
 	end
 end
 
@@ -841,12 +881,14 @@ function CastingBars:Retime(unit, channeling)
 		if b.secretTimer and ((channeling and b.channeling) or (not channeling and b.casting)) then
 			local duration = self:ApplySecretTimer(b, unit, channeling)
 			if duration and b.bindingOn then self:StartTimeBinding(b, duration) end
+			if duration then self:ShowTotal(b, self:SecretTotal(duration)) end
 		end
 		return
 	end
 
 	if (channeling and b.channeling) or (not channeling and b.casting) then
 		self:SetTimes(b, startTime, endTime)
+		self:ShowTotal(b, b.duration)
 	end
 end
 
@@ -1010,6 +1052,7 @@ function CastingBars:FormatTime(seconds)
 end
 
 local FULL_APPLY = { locked = true, animQuality = true, segments = true }
+local TIME_KEYS = { showTotalTime = true, timeFormat = true }
 local TEXTURE_KEYS = { barTexture = true, barTextureQuality = true, roundCorners = true }
 local VERTICAL_FILL = { up = true, down = true }
 local HORIZONTAL_FILL = { left = true, right = true }
@@ -1030,6 +1073,15 @@ end
 function CastingBars:Apply(changedKey)
 	if not self.db then return end
 	if changedKey ~= nil then
+		if TIME_KEYS[changedKey] then
+			for _, b in ipairs(self.barList) do
+				if b.casting or b.channeling then
+					if not b.secretTimer then self:ShowTotal(b, b.duration) end
+				end
+				if self.db.showTotalTime == false then b.totalText:SetText("") end
+			end
+			return
+		end
 		if TEXTURE_KEYS[changedKey] or changedKey:match("%.barTexture$") then
 			self:UpdateTexture()
 			return
@@ -1063,7 +1115,7 @@ function CastingBars:Apply(changedKey)
 			if not locked then
 				b.frame:Show()
 				b.spellText:SetText("Ready")
-				b.timeText:SetText("")
+				self:ClearTime(b)
 				b.bar:SetValue(0)
 				b.lastFill = 0
 			elseif b.casting or b.channeling then

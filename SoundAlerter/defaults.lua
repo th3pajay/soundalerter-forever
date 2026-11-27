@@ -152,6 +152,7 @@ dbDefaults = {
 		snoozeMinutes = 15,
 		scoreboardClassFallback = true,
 		proximityMaxBand = "Detected",
+		proximityAlertRiders = false,
 		stealthOnSight = false,
 		stealthAnyEnemy = true,
 		stealthKeepWatch = false,
@@ -271,6 +272,7 @@ dbDefaults = {
 			barTextureQuality = "normal",
 			roundCorners = "off",
 			timeFormat = "milliseconds",
+			showTotalTime = true,
 			showSpellIcon = false,
 			showLatency = false,
 			showLockIcon = true,
@@ -311,6 +313,18 @@ dbDefaults = {
 				orientation = "horizontal",
 				fillDirection = "right",
 			},
+		},
+
+		damageMeter = {
+			enabled = false,
+			refresh = 0.5,
+			locked = true,
+			PositionX = 0,
+			PositionY = -230,
+			scale = 1,
+			combatOnly = false,
+			showTag = true,
+			windowScale = 1,
 		},
 
 		speedMeter = {

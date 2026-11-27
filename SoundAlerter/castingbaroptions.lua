@@ -110,7 +110,12 @@ function CastPreview.update(state, settings)
     state.icon:SetShown(settings.showSpellIcon)
     state.time:ClearAllPoints()
     state.time:SetPoint("CENTER", state.track, "CENTER", 0, 0)
-    state.time:SetText(settings.timeFormat == "centiseconds" and "1.48" or "1.482")
+    local centi = settings.timeFormat == "centiseconds"
+    if settings.showTotalTime == false then
+        state.time:SetText(centi and "1.48" or "1.482")
+    else
+        state.time:SetText(centi and "1.48 / 2.50" or "1.482 / 2.500")
+    end
 end
 
 local function summary(settings)
@@ -151,6 +156,7 @@ function SoundAlerter:BuildCastingBarOptions()
         Page.Toggle("showLockIcon", "Show a lock on casts you cannot interrupt", "Draws a small padlock on the bar while the cast cannot be interrupted. Works on enemy casts too: the game decides whether the lock shows, because the addon is not allowed to read that flag for enemies.", false, "On the bar"),
         Page.Toggle("hoverTooltip", "Spell tooltip on hover", "Mouse over the target or focus bar during a cast to see the full spell tooltip (rank, cost, cast time, description), even when the game hides the spell. While a cast is up the bar catches the mouse, so clicks on it stop there.", false, "On the bar"),
         Page.Toggle("showLatency", "Show latency shadow", "Display a red shadow at the end of the player casting bar representing network latency. Helps predict when the spell will actually cast on the server.", false, "On the bar"),
+        Page.Toggle("showTotalTime", "Show total cast time", "Show the spell's full cast time next to the countdown, for example 01.482 / 02.500. Also works when the game hides the cast's timing.", false, "On the bar"),
         Page.Select("timeFormat", "Time format", "Choose how cast time is displayed. SS.sss shows seconds with milliseconds (02.450), SS.ss shows seconds with centiseconds (02.45).", TIME_FORMATS, true, "On the bar"),
         Page.Toggle("segments", "Segmented bars", "Draw faint tick marks along the bar so progress is easy to read at a glance.", false, "Animations"),
         Page.Toggle("channelPulse", "Channel pulses", "Flash the bar at the quarter points of a channelled spell. These are evenly spaced pulses, not the spell's real damage ticks, which the game does not expose.", false, "Animations"),

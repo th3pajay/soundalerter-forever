@@ -355,6 +355,7 @@ local function Observe(unit, source, now)
     if not UnitExists(unit) or not Plain(UnitIsPlayer(unit)) or not Plain(UnitIsEnemy("player", unit)) then return end
     local guid = Plain(UnitGUID(unit))
     if type(guid) ~= "string" or seen[guid] or not guid:find("^Player%-") then return end
+    if SA_Plates.InTransit(unit) then return end
     seen[guid] = true
     local mapID, cx, cy = TickCell()
     if not mapID then return end

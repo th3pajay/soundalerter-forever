@@ -6,6 +6,55 @@ local issecretvalue = _G.issecretvalue or function() return false end
 local enemies = {}
 local pending = {}
 local count = 0
+local TRANSIT_EVERY = 1
+local transit, transitCount, transitTicker = {}, 0, nil
+
+local function StopTransit()
+    if transitTicker then
+        transitTicker:Cancel()
+        transitTicker = nil
+    end
+end
+
+local function Unwatch(unit)
+    if transit[unit] == nil then return end
+    transit[unit] = nil
+    transitCount = transitCount - 1
+    if transitCount == 0 then StopTransit() end
+end
+
+local UnitOnTaxi = _G.UnitOnTaxi
+
+function SA_Plates.InTransit(unit)
+    if not UnitOnTaxi then return false end
+    local value = UnitOnTaxi(unit)
+    if issecretvalue(value) then return false end
+    return value == true or value == 1
+end
+
+local function TransitTick()
+    for unit, landed in pairs(transit) do
+        if not SA_Plates.InTransit(unit) then
+            Unwatch(unit)
+            landed(unit)
+        end
+    end
+end
+
+function SA_Plates.Watch(unit, landed)
+    if enemies[unit] == nil then return end
+    if transit[unit] == nil then transitCount = transitCount + 1 end
+    transit[unit] = landed
+    if not transitTicker then transitTicker = C_Timer.NewTicker(TRANSIT_EVERY, TransitTick) end
+end
+
+function SA_Plates.IsWatched(unit)
+    return transit[unit] ~= nil
+end
+
+function SA_Plates.TransitCount()
+    return transitCount
+end
 
 function SA_Plates.Add(unit, guid)
     if guid == nil then return end
@@ -14,6 +63,7 @@ function SA_Plates.Add(unit, guid)
 end
 
 function SA_Plates.Remove(unit)
+    Unwatch(unit)
     local guid = enemies[unit]
     if guid == nil then return end
     pending[guid] = nil
@@ -22,6 +72,9 @@ function SA_Plates.Remove(unit)
 end
 
 function SA_Plates.Reset()
+    for unit in pairs(transit) do transit[unit] = nil end
+    transitCount = 0
+    StopTransit()
     for unit in pairs(enemies) do enemies[unit] = nil end
     for guid in pairs(pending) do pending[guid] = nil end
     count = 0

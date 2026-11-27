@@ -1259,6 +1259,10 @@ local function fire(p, guid, unitName, unitClass, unitLevel, band, unitToken, ne
     end
 end
 
+local function landed(unit)
+    Proximity:Consider(unit)
+end
+
 local function retryIdentity(unit, guid, allySpotted, now)
     SA_Plates.MarkPending(guid, now)
     local last = retryAt[guid]
@@ -1277,8 +1281,14 @@ function Proximity:Consider(unit, allySpotted)
     if allySpotted and not p.proximityAllyVision then return false end
     local now = GetTime()
     if not open(p, now) then return false end
+    local quietRiders = not allySpotted and not p.proximityAlertRiders
+    if quietRiders and SA_Plates.IsWatched(unit) then return false end
     if not UnitExists(unit) or not UnitIsPlayer(unit) or not UnitIsEnemy("player", unit) then return false end
     if not allySpotted and not UnitIsVisible(unit) then return false end
+    if quietRiders and SA_Plates.InTransit(unit) then
+        SA_Plates.Watch(unit, landed)
+        return false
+    end
 
     local guid, byName = SA_Plates.UnitKey(unit)
     if not guid then return false end
@@ -1390,6 +1400,7 @@ end
 local PROXIMITY_SETTINGS = {
     "proximityEnabled", "proximityWorld", "proximityBattleground", "proximityArena", "proximitySanctuary",
     "proximityCooldown", "proximityChat", "proximityChatText", "proximityAllyVision", "proximityMaxBand",
+    "proximityAlertRiders",
 }
 local ZONES_FROM_ALERTS = { { "arena", "proximityArena" }, { "battleground", "proximityBattleground" }, { "field", "proximityWorld" } }
 
